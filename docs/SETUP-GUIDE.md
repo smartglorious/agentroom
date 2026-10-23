@@ -15,7 +15,7 @@
 5. **Sự thật lấy từ repo.** Lệnh build/test, cấu trúc thư mục, stack đều phải lấy từ file thật (package.json, Makefile, CI, …). Không đoán. Không tìm thấy thì ghi `TODO: xác nhận với người dùng`.
 6. Ghi lại mọi thứ đã làm để báo cáo ở Bước 9.
 
-## Kiến thức nền về AgentRoom v0.4 (để cấu hình đúng)
+## Kiến thức nền về AgentRoom v0.5 (để cấu hình đúng)
 
 - AgentRoom là VS Code extension. Nó đọc **`.agentroom/workers.yaml`** ở thư mục gốc workspace.
 - **Account** là một login Claude Code hoặc Codex dùng chung. **Worker** là một persona (vai trò, kỹ năng, hướng dẫn) chạy trên một account. Nhiều worker có thể dùng chung một account.
@@ -46,6 +46,8 @@
 - **Context Inspector**: nút 🔍 trên tin nhắn của agent mở đúng những gì đã gửi cho model ở lượt đó (lưu `.agentroom/state/turns/`, giữ `agentroom.inspector.keepTurns` lượt gần nhất, mặc định 300).
 - **Lịch chạy (`schedules`)**: cron 5 trường, chỉ chạy khi VS Code đang mở. Lịch bị lỡ khi VS Code đóng được chạy bù **một** lần nếu trễ không quá `catchUpHours` (mặc định 6). `builtin: consolidate-memory` bảo worker tự gom trí nhớ.
 - **Webhook (`webhooks`)**: máy chủ chỉ nghe `127.0.0.1:<agentroom.hookPort>` (mặc định 47321), đường dẫn `/hook/<id>`. **Bắt buộc ký HMAC SHA-256** (header `X-Hub-Signature-256`, tương thích GitHub) với secret lấy từ biến môi trường `secretEnv`. Muốn nhận từ Internet thì người dùng tự mở tunnel.
+- **Nhiều máy (`hosts`)**: worker có thể chạy trên máy khác qua SSH. Khai báo máy ở `hosts:`, rồi gán `host:` cho **account** (account = một đăng nhập Claude/Codex trên **một** máy). Worker dùng account đó sẽ chạy ở máy đó, trong clone `workdir` (hoặc `hosts.<tên>.repo`), tạo worktree/nhánh `agentroom/<id>` ngay trên máy đó. AgentRoom tự cài một "runner" (1 file ~2 MB) vào `~/.agentroom/runner/` của máy đó qua SSH; máy đó cần Node ≥ 20 và `claude`/`codex` đã đăng nhập. Không cần mở VS Code ở máy đó, không cần port forwarding. Chi tiết: `docs/MULTI-MACHINE.md`.
+- **Một cửa sổ cho mỗi thư mục `.agentroom/`**: cửa sổ thứ hai thấy thẻ "đang chạy ở cửa sổ khác" và không chạy room (file `.agentroom/state/room.lock`). Đừng mở nhiều cửa sổ để "mỗi cửa sổ một worker".
 - **Chuỗi chỉ-đọc (nguồn không tin cậy)**: webhook có `readOnly: true` chạy worker chỉ với tool đọc (tool ghi/Bash/web bị cấm hẳn). Câu trả lời và task tạo ra trong lượt đó **không tự đánh thức ai** qua `@mention`; người dùng đọc rồi tự nhắn `@<worker> ...` để tiếp tục. Nội dung payload luôn được bọc trong `<untrusted_payload>`.
 
 ---
@@ -59,7 +61,8 @@
 3. Có vai trò bắt buộc nào không? (ví dụ "cần 1 dev mobile", "cần reviewer bảo mật")
 4. Nhánh chính tên gì? (`main` / `develop` / …)
 5. Có cho phép copy file `.env` vào worktree của agent không? (Mặc định: **không**)
-6. Model mong muốn cho từng loại vai trò? (Bỏ trống thì dùng model mặc định của CLI.)
+6. **Máy chạy worker**: tất cả ở máy này, hay có worker chạy trên máy khác qua SSH? Nếu có máy khác, với **mỗi máy** hỏi: địa chỉ SSH (`user@host` hoặc alias), có đăng nhập bằng khoá không, đường dẫn clone repo **trên máy đó**, đã cài Node ≥ 20 và Claude Code/Codex (đã đăng nhập) chưa, và worker nào chạy ở đó.
+7. Model mong muốn cho từng loại vai trò? (Bỏ trống thì dùng model mặc định của CLI.)
 
 **Đầu ra:** một bản ghi câu trả lời. Dùng nó cho các bước sau.
 
@@ -186,6 +189,8 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 - Dùng API key: đặt `apiKeyEnv: <TÊN_BIẾN_MÔI_TRƯỜNG>`. Chỉ ghi **tên biến**, không bao giờ ghi giá trị key vào YAML.
 - `maxConcurrent`: subscription Claude để **2** (tối đa 3), Codex ChatGPT login để **1**, API key thì tùy hạn mức.
 
+- **Account gắn với máy**: mỗi account là một đăng nhập trên một máy. Muốn worker chạy ở máy khác thì tạo account riêng có `host:`; cùng một gói subscription đăng nhập trên hai máy vẫn là **hai account** (giới hạn thật dùng chung phía nhà cung cấp, nên đặt `maxConcurrent` cẩn thận).
+
 ### 4.3 Bảng `allowedTools` theo vai trò (Claude)
 
 | Vai trò | allowedTools |
@@ -206,11 +211,33 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 
 🛑 **HỎI NGƯỜI DÙNG:** trình bảng phân công dự kiến (worker, vai trò, vùng, provider, model) và chờ đồng ý trước khi viết YAML.
 
+### 4.5 Luật cho nhiều máy
+
+1. **Chỉ dùng máy khác khi người dùng yêu cầu** (Bước 0). Mặc định mọi worker chạy ở máy này.
+2. **Một máy = một mục `hosts`**, tên viết thường ngắn gọn (`gpu-box`, `mac-mini`). `ssh` chỉ là `user@host`, `host` hoặc alias; **không bao giờ** đưa tuỳ chọn ssh (`-o…`), mật khẩu hay khoá riêng vào file.
+3. **`repo` là đường dẫn trên máy đó** (tuyệt đối hoặc `~/…`), không phải đường dẫn ở máy này. Worker cần clone khác thì đặt `workdir`.
+4. **Worker ghi code trên máy khác luôn `worktree: true`**; hai worker cùng một clone mà không có worktree sẽ ghi đè nhau.
+5. **Worker từ xa phải push**: persona đã nhắc `git push origin agentroom/<id>`; đảm bảo clone trên máy đó có quyền push tới `origin` (khoá/credential của máy đó), nếu không thì báo người dùng.
+6. **`node`/`claudePath`/`codexPath`**: chỉ đặt khi người dùng biết đường dẫn đầy đủ (login shell của SSH thường không có PATH của nvm). Không đoán.
+7. Mỗi máy cần **account riêng** (`account.host`); đặt `maxConcurrent` theo máy.
+
 ---
 
 ## Bước 5: Viết `.agentroom/workers.yaml`
 
 ### 5.1 Schema chính xác (v0.4)
+
+**`hosts.<tên>`** (tùy chọn; tên như id worker, không phải `local`)
+
+| Trường | Bắt buộc | Kiểu | Mặc định | Ghi chú |
+|---|---|---|---|---|
+| `ssh` | ✔ | `user@host` / host / alias | | không được bắt đầu bằng `-`, không có khoảng trắng |
+| `repo` | | đường dẫn trên máy đó | | tuyệt đối hoặc `~/…`; bắt buộc nếu worker không có `workdir` |
+| `port` | | 1–65535 | 22 | |
+| `identityFile` | | đường dẫn khoá trên **máy này** | ssh-agent / mặc định | |
+| `node` | | đường dẫn trên máy đó | `node` | khi login shell không thấy node |
+| `claudePath`, `codexPath` | | đường dẫn trên máy đó | tìm trong PATH | |
+| `connectTimeoutSec` | | 1–120 | `15` | |
 
 **`accounts.<account-id>`**
 
@@ -220,6 +247,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `home` | | chuỗi | login mặc định | `~` được mở rộng |
 | `apiKeyEnv` | | chuỗi | | tên biến môi trường chứa key |
 | `maxConcurrent` | | số nguyên ≥ 1 | `1` | |
+| `host` | | tên trong `hosts` | máy này | account là một đăng nhập **trên máy đó**; `home`/`apiKeyEnv` cũng là của máy đó |
 | `budgetUsdPerDay` | | số > 0 | không giới hạn | tạm dừng account khi chi phí trong ngày chạm mức này |
 | `warnAtPercent` | | số 1–100 | `80` | cảnh báo trong chat |
 
@@ -238,6 +266,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `allowedTools` | | danh sách chuỗi | `[Read, Grep, Glob]` | chỉ Claude |
 | `worktree` | | bool | `false` | `true` cho mọi dev sửa code |
 | `coordinator` | | bool | `false` | ít nhất một worker nên là `true` |
+| `workdir` | | đường dẫn | workspace (hoặc `hosts.<tên>.repo`) | clone worker dùng; trên máy này có thể tương đối, trên host phải tuyệt đối/`~/…` |
 | `sandbox` | | `read-only` \| `workspace-write` \| `danger-full-access` | `workspace-write` | chỉ Codex |
 
 **`schedules[]`** (tùy chọn)
@@ -348,6 +377,20 @@ workers:
       Chỉ báo "đạt" khi test pass và không còn lỗi nghiêm trọng.
 ```
 
+Thêm **chỉ khi người dùng yêu cầu** worker chạy ở máy khác (Bước 4.5):
+
+```yaml
+hosts:
+  gpu-box:
+    ssh: dev@gpu-box.example.com
+    repo: /home/dev/app
+
+# trong accounts: thêm một account trên máy đó
+#   gpu-claude: { provider: claude, host: gpu-box, maxConcurrent: 2 }
+# rồi đổi account của worker cần chạy ở đó:
+#   - { id: be, name: Minh, role: Backend Developer, account: gpu-claude, worktree: true }
+```
+
 Thêm vào cuối file **chỉ khi người dùng yêu cầu** lịch hoặc webhook (Bước 4.4):
 
 ```yaml
@@ -434,6 +477,8 @@ Nếu `.gitignore` ở thư mục gốc đang ignore toàn bộ `.agentroom`, h�
 
 ## Bước 7 (tùy chọn): Tạo sẵn worktree
 
+> Chỉ cho worker chạy **ở máy này**. Worktree của worker trên máy khác do AgentRoom tạo ở máy đó khi chạy lượt đầu; đừng tự ssh vào để tạo.
+
 Làm bước này nếu muốn lượt đầu của agent nhanh hơn. Nếu bỏ qua, extension sẽ tự tạo worktree.
 
 Với **mỗi** worker có `worktree: true`:
@@ -476,6 +521,7 @@ Kiểm tra thủ công thêm:
 - [ ] Mọi tên trong `useSkills` có `SKILL.md` thật; mỗi skill có `description` nói rõ khi nào dùng.
 - [ ] Mỗi worker có `SOUL.md` đã viết nháp (không còn là bản mẫu rỗng).
 - [ ] Mỗi webhook có `secretEnv` (chỉ là **tên** biến), `readOnly: true`, `match` hẹp; lịch có `timezone`.
+- [ ] Mỗi `hosts.<tên>`: `ssh` đúng dạng, `repo`/`workdir` là đường dẫn **trên máy đó**; mỗi account có `host:` trỏ tới host có thật; không worker nào ghi code trên host mà thiếu `worktree: true`.
 - [ ] Không có giá trị bí mật trong YAML, CLAUDE.md hay AGENTS.md (`grep -nEi "sk-|api[_-]?key\s*[:=]\s*\S{12,}|password" CLAUDE.md AGENTS.md .agentroom/workers.yaml` không ra kết quả đáng ngờ).
 
 ---
@@ -489,6 +535,8 @@ Gửi người dùng báo cáo gồm:
 3. **Kết quả kiểm tra** ở Bước 8 và các cảnh báo được giữ lại.
 4. **Việc người dùng cần tự làm:**
    - Đọc và sửa các `SOUL.md` nháp.
+   - Nếu có máy từ xa, với **mỗi máy** (agent không tự làm được các việc này): (1) `ssh <ssh>` vào được bằng khoá và đã xác nhận host key (chạy một lần trong terminal); (2) Node ≥ 20; (3) Claude Code/Codex đã cài và đăng nhập; (4) đã clone repo về đúng `repo`/`workdir` và `git pull` mới; (5) clone đó push được tới `origin`. Sau đó chạy lệnh **"AgentRoom: Kiểm tra kết nối các máy"** (hoặc tab *Máy* → *Kiểm tra tất cả*) và cho phép hộp thoại xác nhận host.
+   - Chỉ mở **một** cửa sổ VS Code cho repo này (cửa sổ thứ hai sẽ bị chặn).
    - Nếu có webhook: đặt biến môi trường `secretEnv` (giá trị là một chuỗi ngẫu nhiên dài) **trước khi mở VS Code**, và dùng cùng giá trị đó làm secret khi cấu hình webhook ở bên gửi (GitHub: Settings → Webhooks → Secret). Muốn nhận từ GitHub thì tự mở tunnel tới cổng `agentroom.hookPort`.
    - Nếu dùng Codex và muốn thấy chi phí: điền `agentroom.pricing` trong Settings (USD / 1 triệu token). Bỏ trống thì Codex chỉ hiện token.
    - Cài extension AgentRoom (file `.vsix`: Extensions → `…` → Install from VSIX).
@@ -521,6 +569,9 @@ Gửi người dùng báo cáo gồm:
 | Webhook trả 503 | Biến môi trường `secretEnv` chưa được đặt cho VS Code | Đặt biến rồi khởi động lại VS Code |
 | Webhook chạy nhưng không ai làm tiếp | Chuỗi chỉ-đọc không tự gọi ai | Đúng thiết kế: đọc báo cáo rồi nhắn `@<worker> ...` để tiếp tục |
 | Cảnh báo "skills" khi nạp | `useSkills` trỏ tới skill không tồn tại, hoặc `SKILL.md` thiếu `description` | Chạy lại Bước 8, sửa theo thông báo |
+| Thẻ "Phòng này đang chạy ở một cửa sổ khác" | Có cửa sổ khác đang điều phối thư mục này | Dùng cửa sổ đó, hoặc bấm *Chiếm quyền điều phối* |
+| "Chưa xác nhận host key" / "SSH từ chối đăng nhập" / "Không tìm thấy node" / "Không tìm thấy CLI claude" | Chuẩn bị máy từ xa chưa đủ | Xem bảng xử lý sự cố ở `docs/MULTI-MACHINE.md` (mục 10) |
+| Worker từ xa làm xong nhưng code không thấy ở máy này | Thay đổi nằm trong clone của máy đó | Worker phải `git push origin agentroom/<id>`; rồi `git fetch` ở máy này |
 | Codex sửa file ngoài vùng | Codex không có thẻ duyệt | Nhắc vùng trong `instructions`; dùng `sandbox: read-only` cho vai trò chỉ đọc |
 
 ---
@@ -528,7 +579,7 @@ Gửi người dùng báo cáo gồm:
 ## Phụ lục A: `validate-agentroom.mjs`
 
 ```js
-// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.4.
+// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.5.
 // Cách chạy: node validate-agentroom.mjs <đường-dẫn-repo>
 // Cần: npm i yaml croner (cài ở thư mục tạm, không cài vào repo).
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
@@ -568,6 +619,27 @@ for (const dir of skillDirs) {
   }
 }
 
+// ---- hosts (máy chạy worker qua SSH) ----
+const SSH_TARGET = /^[A-Za-z0-9_][A-Za-z0-9_.@:%+-]*$/;
+const remotePath = (p) => p === "~" || p.startsWith("~/") || p.startsWith("/");
+const hosts = cfg.hosts ?? {};
+if (typeof hosts !== "object" || Array.isArray(hosts)) errors.push("hosts: phải là object {tên: {ssh, repo, …}}");
+const hostKnown = new Set(["ssh", "port", "identityFile", "repo", "node", "claudePath", "codexPath", "connectTimeoutSec"]);
+for (const [name, h] of Object.entries(typeof hosts === "object" && !Array.isArray(hosts) ? hosts : {})) {
+  const at = `hosts.${name}`;
+  if (!ID.test(name)) errors.push(`${at}: tên host phải bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 _ -`);
+  if (name === "local") errors.push(`${at}: "local" là tên dành riêng`);
+  if (!isStr(h?.ssh) || !SSH_TARGET.test(h.ssh)) errors.push(`${at}.ssh phải là user@host, host hoặc alias trong ~/.ssh/config (không được bắt đầu bằng '-', không có khoảng trắng)`);
+  if (h?.port !== undefined && !(Number.isInteger(h.port) && h.port >= 1 && h.port <= 65535)) errors.push(`${at}.port phải là số nguyên 1–65535`);
+  if (h?.identityFile !== undefined && (!isStr(h.identityFile) || h.identityFile.startsWith("-"))) errors.push(`${at}.identityFile không hợp lệ`);
+  for (const k of ["repo", "node", "claudePath", "codexPath"]) if (h?.[k] !== undefined && !isStr(h[k])) errors.push(`${at}.${k} phải là chuỗi`);
+  if (isStr(h?.repo) && !remotePath(h.repo)) errors.push(`${at}.repo phải là đường dẫn tuyệt đối hoặc bắt đầu bằng ~ (đây là đường dẫn TRÊN máy đó)`);
+  if (h?.connectTimeoutSec !== undefined && !(Number.isInteger(h.connectTimeoutSec) && h.connectTimeoutSec >= 1 && h.connectTimeoutSec <= 120)) errors.push(`${at}.connectTimeoutSec phải là số nguyên 1–120`);
+  for (const k of Object.keys(h ?? {})) if (!hostKnown.has(k)) warns.push(`${at}: trường "${k}" không được dùng (bị bỏ qua)`);
+  if (!h?.repo) warns.push(`${at}: chưa có repo mặc định — mọi worker trên host này phải có workdir`);
+  if (/(password|passwd|secret|token)/i.test(JSON.stringify(h ?? {}))) warns.push(`${at}: có vẻ chứa bí mật; SSH chỉ dùng khoá/ssh-agent, không đặt mật khẩu trong file`);
+}
+
 // ---- accounts ----
 const accounts = cfg.accounts ?? {};
 if (typeof accounts !== "object" || Array.isArray(accounts) || !Object.keys(accounts).length) errors.push("accounts: phải có ít nhất 1 account");
@@ -576,6 +648,8 @@ for (const [id, a] of Object.entries(accounts)) {
   if (a?.maxConcurrent !== undefined && !(Number.isInteger(a.maxConcurrent) && a.maxConcurrent >= 1)) errors.push(`accounts.${id}.maxConcurrent phải là số nguyên ≥ 1`);
   if (a?.budgetUsdPerDay !== undefined && !(typeof a.budgetUsdPerDay === "number" && a.budgetUsdPerDay > 0)) errors.push(`accounts.${id}.budgetUsdPerDay phải là số > 0`);
   if (a?.warnAtPercent !== undefined && !(typeof a.warnAtPercent === "number" && a.warnAtPercent >= 1 && a.warnAtPercent <= 100)) errors.push(`accounts.${id}.warnAtPercent phải nằm trong 1–100`);
+  if (a?.host !== undefined && !hosts?.[a.host]) errors.push(`accounts.${id}.host "${a.host}" không có trong hosts`);
+  if (a?.host && a?.home) warns.push(`accounts.${id}: home là đường dẫn TRÊN máy "${a.host}"`);
   if (a?.provider === "claude" && (a?.maxConcurrent ?? 1) > 3) warns.push(`accounts.${id}: maxConcurrent > 3 dễ hết quota subscription`);
 }
 
@@ -583,7 +657,8 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir"]);
+const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
   if (!ID.test(w?.id ?? "")) errors.push(`${at}.id phải bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 _ -`);
@@ -604,8 +679,27 @@ for (const [i, w] of workers.entries()) {
   if (provider === "codex" && w?.allowedTools) warns.push(`${at}: allowedTools không có tác dụng với Codex (dùng sandbox)`);
   if (provider === "codex" && w?.sandbox === "danger-full-access") warns.push(`${at}: sandbox danger-full-access — rủi ro cao`);
   if (provider === "codex" && (w?.useSkills ?? []).length) warns.push(`${at}: Codex không lọc được skill theo worker; skill chỉ được nhắc trong prompt (mức kiểm soát lỏng hơn Claude)`);
+  if (w?.workdir !== undefined && !isStr(w.workdir)) errors.push(`${at}.workdir phải là chuỗi`);
+  const hostName = accounts[w?.account]?.host;
+  if (hostName && hosts?.[hostName]) {
+    const base = w?.workdir ?? hosts[hostName].repo;
+    if (!base) errors.push(`${at}: chạy trên host "${hostName}" nên cần workdir (hoặc hosts.${hostName}.repo)`);
+    else if (!remotePath(base)) errors.push(`${at}: đường dẫn trên host phải tuyệt đối hoặc bắt đầu bằng ~ (nhận "${base}")`);
+    else {
+      const key = `${hostName}:${base}`;
+      baseUsers.set(key, [...(baseUsers.get(key) ?? []), { id: w.id, worktree: w.worktree === true, writes: tools.some((t) => /^(Edit|Write)/.test(t)) || provider === "codex" }]);
+    }
+    if (w?.worktree !== true && (tools.some((t) => /^(Edit|Write)/.test(t)) || provider === "codex")) warns.push(`${at}: ghi code trên host "${hostName}" mà không có worktree — thay đổi nằm thẳng trong clone đó`);
+  } else if (isStr(w?.workdir)) {
+    const p = w.workdir.startsWith("~") ? join(homedir(), w.workdir.slice(1)) : w.workdir.startsWith("/") || /^[A-Za-z]:/.test(w.workdir) ? w.workdir : join(repo, w.workdir);
+    if (!existsSync(p)) warns.push(`${at}.workdir "${w.workdir}" chưa tồn tại trên máy này (${p})`);
+  }
   const soul = join(repo, ".agentroom", "agents", w?.id ?? "?", "SOUL.md");
   if (existsSync(soul) && /Viết tính cách, cách làm việc/.test(readFileSync(soul, "utf8"))) warns.push(`${at}: SOUL.md vẫn là bản mẫu chưa viết (.agentroom/agents/${w.id}/SOUL.md)`);
+}
+for (const [key, users] of baseUsers) {
+  const shared = users.filter((u) => !u.worktree && u.writes);
+  if (shared.length > 1) warns.push(`Các worker ${shared.map((u) => u.id).join(", ")} cùng ghi vào ${key} mà không có worktree — sẽ ghi đè lên nhau`);
 }
 if (!workers.some((w) => w?.coordinator)) warns.push("Không có worker coordinator: tin nhắn không @mention sẽ không ai nhận");
 
@@ -665,6 +759,6 @@ if (!existsSync(join(repo, "AGENTS.md")) && workers.some((w) => accounts[w?.acco
 
 warns.forEach((m) => console.log("⚠", m));
 errors.forEach((m) => console.log("✗", m));
-console.log(errors.length ? `\nKHÔNG ĐẠT: ${errors.length} lỗi, ${warns.length} cảnh báo` : `\nĐẠT (${workers.length} worker, ${schedIds.size} lịch, ${hookIds.size} webhook, ${warns.length} cảnh báo)`);
+console.log(errors.length ? `\nKHÔNG ĐẠT: ${errors.length} lỗi, ${warns.length} cảnh báo` : `\nĐẠT (${workers.length} worker, ${Object.keys(hosts).length} máy từ xa, ${schedIds.size} lịch, ${hookIds.size} webhook, ${warns.length} cảnh báo)`);
 process.exit(errors.length ? 1 : 0);
 ```

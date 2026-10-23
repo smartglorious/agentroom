@@ -17,7 +17,7 @@ const join = (sections: PromptSection[]): BuiltPrompt => {
 };
 
 /** Static persona prompt, appended to the provider's own coding-agent system prompt. */
-export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, skillsBlock = ""): BuiltPrompt {
+export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, skillsBlock = "", remote?: { host: string; base: string }): BuiltPrompt {
   const roster = team
     .filter((t) => t.id !== w.id)
     .map((t) => `- @${t.id} — ${t.name}, ${t.role}${t.skills.length ? ` (${t.skills.join(", ")})` : ""}`)
@@ -50,6 +50,12 @@ export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, s
     { name: "Trí nhớ cá nhân", text: m?.mine ? `## Trí nhớ của bạn\n${m.mine}` : "" },
     { name: "Nhật ký gần đây", text: m?.journal ? `## Nhật ký gần đây của bạn\n${m.journal}` : "" },
     { name: "Skills", text: skillsBlock ? `## Skills\n${skillsBlock}` : "" },
+    {
+      name: "Môi trường",
+      text: remote
+        ? `## Môi trường\nBạn chạy trên máy từ xa "${remote.host}" (repo ở ${remote.base}). Thay đổi của bạn chỉ nằm trên máy đó cho tới khi bạn commit và \`git push origin agentroom/${w.id}\` — hãy push khi xong việc để đồng đội và người dùng lấy được. Đừng giả định các máy khác thấy file của bạn.`
+        : "",
+    },
   ]);
 }
 

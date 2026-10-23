@@ -2,7 +2,7 @@
   "name": "agentroom",
   "displayName": "AgentRoom — AI team group chat",
   "description": "Nhiều AI worker (Claude Code / Codex) với vai trò riêng cùng làm việc trong một group chat ngay trong VS Code.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "agentroom",
   "license": "MIT",
   "engines": {
@@ -55,6 +55,14 @@
       {
         "command": "agentroom.newSkill",
         "title": "AgentRoom: Tạo skill mới"
+      },
+      {
+        "command": "agentroom.takeOver",
+        "title": "AgentRoom: Chiếm quyền điều phối (khi cửa sổ khác đang chạy)"
+      },
+      {
+        "command": "agentroom.checkHosts",
+        "title": "AgentRoom: Kiểm tra kết nối các máy (hosts)"
       }
     ],
     "configuration": {
@@ -109,7 +117,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node esbuild.mjs --tests && node --test out-test/*.test.js",
     "package": "npm run build && npx -y @vscode/vsce package",
-    "test:live": "node scripts/live/run.mjs"
+    "test:live": "node scripts/live/run.mjs",
+    "test:ssh": "node scripts/live/run.mjs ssh"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.309",
@@ -124,5 +133,14 @@
     "@types/vscode": "1.90.0",
     "esbuild": "^0.25.12",
     "typescript": "^5.9.3"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "AgentRoom chạy agent, lệnh và kết nối SSH theo cấu hình nằm trong repo, nên chỉ hoạt động trong workspace bạn tin tưởng."
+    }
   }
 }

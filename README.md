@@ -2,7 +2,7 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, tính cách, trí nhớ riêng) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: xem `docs/DESIGN.md` và `docs/PLAN-v0.2.md` trong mã nguồn. Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
+Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
 
 ## Tính năng
 
@@ -16,7 +16,9 @@ Thiết kế và kế hoạch: xem `docs/DESIGN.md` và `docs/PLAN-v0.2.md` tron
 | **Context Inspector** | Nút 🔍 trên tin nhắn: xem chính xác những gì đã gửi cho model, chia theo phần, kèm số token. |
 | **Lịch chạy** | Cron có timezone, chạy bù khi VS Code vừa mở lại, nút *Chạy ngay*. |
 | **Webhook** | `127.0.0.1`, bắt buộc HMAC, chống trùng, giới hạn tần suất, payload coi như dữ liệu không tin cậy, chế độ chỉ-đọc. |
-| **An toàn** | Worktree riêng cho từng dev, thẻ duyệt quyền (Claude), sandbox (Codex). |
+| **Nhiều máy** | Worker chạy trên máy này **và** trên các máy khác qua SSH, cùng lúc, cùng một repo git. Tự cài runner, không cần port forwarding, duyệt quyền xuyên máy, tab *Máy*. |
+| **Một cửa sổ điều phối** | Khóa `.agentroom/state/room.lock`: cửa sổ thứ hai không chạy song song làm hỏng dữ liệu, có thể chiếm quyền. |
+| **An toàn** | Worktree riêng cho từng dev, thẻ duyệt quyền (Claude), sandbox (Codex), xác nhận trước khi ssh tới host trong cấu hình repo. |
 
 ## Yêu cầu
 
@@ -27,7 +29,7 @@ Thiết kế và kế hoạch: xem `docs/DESIGN.md` và `docs/PLAN-v0.2.md` tron
 ## Cài từ file .vsix
 
 ```bash
-code --install-extension agentroom-0.4.0.vsix
+code --install-extension agentroom-0.5.0.vsix
 ```
 
 Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → chọn file.
@@ -36,9 +38,10 @@ Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → ch�
 
 ```bash
 npm install
-npm run build        # dist/extension.js
-npm test             # 59 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook
+npm run build        # dist/extension.js + dist/runner.mjs (file được cài lên máy từ xa)
+npm test             # 96 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH
 npm run test:live    # kịch bản thật với Claude (tốn vài cent, cần đã đăng nhập claude)
+npm run test:ssh     # nhiều máy qua sshd THẬT + Claude thật (cần openssh-server, root: scripts/live/ssh-sandbox.sh up)
 npm run package      # agentroom-<version>.vsix
 ```
 
@@ -64,13 +67,16 @@ workers:
     useSkills: [prisma-migration]      # skill thật: .agentroom/skills/prisma-migration/SKILL.md
     allowedTools: [Read, Grep, Glob, "Edit(apps/api/**)"]   # tool khác phải được duyệt trên UI
     instructions: Viết code kèm test.
+hosts:                                 # máy khác chạy worker qua SSH (xem docs/MULTI-MACHINE.md)
+  gpu-box: { ssh: "dev@gpu-box.example.com", repo: /home/dev/app }
+# accounts: gpu-claude: { provider: claude, host: gpu-box }   rồi worker dùng account đó sẽ chạy trên gpu-box
 schedules:
   - { id: nightly-tests, worker: qa, cron: "0 2 * * 1-5", timezone: Asia/Ho_Chi_Minh, prompt: Chạy toàn bộ test }
 webhooks:
   - { id: ci-failed, worker: lead, secretEnv: AGENTROOM_HOOK_SECRET, readOnly: true, match: { "workflow_run.conclusion": failure }, prompt: "CI fail ở {{workflow_run.head_branch}}" }
 ```
 
-Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1).
+Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1). Mỗi worker còn có `workdir` (clone riêng, kể cả trên cùng máy).
 
 ### Thư mục `.agentroom/`
 
@@ -81,12 +87,16 @@ Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1).
 | `agents/<id>/SOUL.md`, `MEMORY.md` | tính cách, trí nhớ dài hạn | ✔ |
 | `team/MEMORY.md` | trí nhớ chung | ✔ |
 | `agents/<id>/journal/` | nhật ký ngày | ✘ |
-| `state/` | chat, task, session, `usage.jsonl`, `turns/` (cho Inspector), `schedules.json` | ✘ |
+| `state/` | chat, task, session, `usage.jsonl`, `turns/` (cho Inspector), `schedules.json`, `room.lock` | ✘ |
 | `worktrees/`, `.plugin/` | worktree của worker, plugin skills tự sinh | ✘ |
 
 ### Settings
 
 `agentroom.maxAgentHops`, `agentroom.contextMessages`, `agentroom.memoryBudgetChars`, `agentroom.inspector.keepTurns` (0 = tắt), `agentroom.pricing` (giá Codex, USD/1M token; bỏ trống thì Codex chỉ có token), `agentroom.hookPort`, `agentroom.claudePath`, `agentroom.codexPath`.
+
+### Lệnh
+
+*Tạo cấu hình workers mẫu*, *Nạp lại workers.yaml*, *Dừng tất cả worker*, *Gom trí nhớ worker*, *Tạo skill mới*, *Kiểm tra kết nối các máy (hosts)*, *Chiếm quyền điều phối*.
 
 ## Tool agent dùng để phối hợp (MCP `agentroom`)
 

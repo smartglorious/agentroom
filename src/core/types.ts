@@ -13,6 +13,8 @@ export interface Account {
   /** Daily spend limit (API-equivalent USD). The account pauses at 100%. */
   budgetUsdPerDay?: number;
   warnAtPercent: number;
+  /** The machine this login lives on (a key of `hosts`); omitted = this machine. */
+  host?: string;
 }
 
 /** A persona: a role with skills, bound to a provider and a shared account. */
@@ -35,6 +37,8 @@ export interface Worker {
   coordinator: boolean;
   /** Codex sandbox; ignored for Claude. */
   sandbox: "read-only" | "workspace-write" | "danger-full-access";
+  /** Checkout this worker uses instead of the workspace (on its host's machine). */
+  workdir?: string;
 }
 
 export interface ScheduleDef {
@@ -66,7 +70,27 @@ export interface WebhookDef {
   readOnly: boolean;
 }
 
+/** user@host, host, alias or IPv4/IPv6 — never something that could be read as an ssh option. */
+export const SSH_TARGET = /^[A-Za-z0-9_][A-Za-z0-9_.@:%+-]*$/;
+
+/** A machine that can run workers, reached over ssh. */
+export interface HostDef {
+  name: string;
+  /** user@host, host or an alias from ~/.ssh/config. */
+  ssh: string;
+  port?: number;
+  identityFile?: string;
+  /** Default checkout of the repo on that machine. */
+  repo?: string;
+  /** Path to node on that machine (default: `node` from the login shell). */
+  node?: string;
+  claudePath?: string;
+  codexPath?: string;
+  connectTimeoutSec: number;
+}
+
 export interface RoomConfig {
+  hosts: HostDef[];
   accounts: Account[];
   workers: Worker[];
   schedules: ScheduleDef[];

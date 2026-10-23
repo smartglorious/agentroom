@@ -1,4 +1,4 @@
-// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.4.
+// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.5.
 // Cách chạy: node validate-agentroom.mjs <đường-dẫn-repo>
 // Cần: npm i yaml croner (cài ở thư mục tạm, không cài vào repo).
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
@@ -38,6 +38,27 @@ for (const dir of skillDirs) {
   }
 }
 
+// ---- hosts (máy chạy worker qua SSH) ----
+const SSH_TARGET = /^[A-Za-z0-9_][A-Za-z0-9_.@:%+-]*$/;
+const remotePath = (p) => p === "~" || p.startsWith("~/") || p.startsWith("/");
+const hosts = cfg.hosts ?? {};
+if (typeof hosts !== "object" || Array.isArray(hosts)) errors.push("hosts: phải là object {tên: {ssh, repo, …}}");
+const hostKnown = new Set(["ssh", "port", "identityFile", "repo", "node", "claudePath", "codexPath", "connectTimeoutSec"]);
+for (const [name, h] of Object.entries(typeof hosts === "object" && !Array.isArray(hosts) ? hosts : {})) {
+  const at = `hosts.${name}`;
+  if (!ID.test(name)) errors.push(`${at}: tên host phải bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 _ -`);
+  if (name === "local") errors.push(`${at}: "local" là tên dành riêng`);
+  if (!isStr(h?.ssh) || !SSH_TARGET.test(h.ssh)) errors.push(`${at}.ssh phải là user@host, host hoặc alias trong ~/.ssh/config (không được bắt đầu bằng '-', không có khoảng trắng)`);
+  if (h?.port !== undefined && !(Number.isInteger(h.port) && h.port >= 1 && h.port <= 65535)) errors.push(`${at}.port phải là số nguyên 1–65535`);
+  if (h?.identityFile !== undefined && (!isStr(h.identityFile) || h.identityFile.startsWith("-"))) errors.push(`${at}.identityFile không hợp lệ`);
+  for (const k of ["repo", "node", "claudePath", "codexPath"]) if (h?.[k] !== undefined && !isStr(h[k])) errors.push(`${at}.${k} phải là chuỗi`);
+  if (isStr(h?.repo) && !remotePath(h.repo)) errors.push(`${at}.repo phải là đường dẫn tuyệt đối hoặc bắt đầu bằng ~ (đây là đường dẫn TRÊN máy đó)`);
+  if (h?.connectTimeoutSec !== undefined && !(Number.isInteger(h.connectTimeoutSec) && h.connectTimeoutSec >= 1 && h.connectTimeoutSec <= 120)) errors.push(`${at}.connectTimeoutSec phải là số nguyên 1–120`);
+  for (const k of Object.keys(h ?? {})) if (!hostKnown.has(k)) warns.push(`${at}: trường "${k}" không được dùng (bị bỏ qua)`);
+  if (!h?.repo) warns.push(`${at}: chưa có repo mặc định — mọi worker trên host này phải có workdir`);
+  if (/(password|passwd|secret|token)/i.test(JSON.stringify(h ?? {}))) warns.push(`${at}: có vẻ chứa bí mật; SSH chỉ dùng khoá/ssh-agent, không đặt mật khẩu trong file`);
+}
+
 // ---- accounts ----
 const accounts = cfg.accounts ?? {};
 if (typeof accounts !== "object" || Array.isArray(accounts) || !Object.keys(accounts).length) errors.push("accounts: phải có ít nhất 1 account");
@@ -46,6 +67,8 @@ for (const [id, a] of Object.entries(accounts)) {
   if (a?.maxConcurrent !== undefined && !(Number.isInteger(a.maxConcurrent) && a.maxConcurrent >= 1)) errors.push(`accounts.${id}.maxConcurrent phải là số nguyên ≥ 1`);
   if (a?.budgetUsdPerDay !== undefined && !(typeof a.budgetUsdPerDay === "number" && a.budgetUsdPerDay > 0)) errors.push(`accounts.${id}.budgetUsdPerDay phải là số > 0`);
   if (a?.warnAtPercent !== undefined && !(typeof a.warnAtPercent === "number" && a.warnAtPercent >= 1 && a.warnAtPercent <= 100)) errors.push(`accounts.${id}.warnAtPercent phải nằm trong 1–100`);
+  if (a?.host !== undefined && !hosts?.[a.host]) errors.push(`accounts.${id}.host "${a.host}" không có trong hosts`);
+  if (a?.host && a?.home) warns.push(`accounts.${id}: home là đường dẫn TRÊN máy "${a.host}"`);
   if (a?.provider === "claude" && (a?.maxConcurrent ?? 1) > 3) warns.push(`accounts.${id}: maxConcurrent > 3 dễ hết quota subscription`);
 }
 
@@ -53,7 +76,8 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir"]);
+const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
   if (!ID.test(w?.id ?? "")) errors.push(`${at}.id phải bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 _ -`);
@@ -74,8 +98,27 @@ for (const [i, w] of workers.entries()) {
   if (provider === "codex" && w?.allowedTools) warns.push(`${at}: allowedTools không có tác dụng với Codex (dùng sandbox)`);
   if (provider === "codex" && w?.sandbox === "danger-full-access") warns.push(`${at}: sandbox danger-full-access — rủi ro cao`);
   if (provider === "codex" && (w?.useSkills ?? []).length) warns.push(`${at}: Codex không lọc được skill theo worker; skill chỉ được nhắc trong prompt (mức kiểm soát lỏng hơn Claude)`);
+  if (w?.workdir !== undefined && !isStr(w.workdir)) errors.push(`${at}.workdir phải là chuỗi`);
+  const hostName = accounts[w?.account]?.host;
+  if (hostName && hosts?.[hostName]) {
+    const base = w?.workdir ?? hosts[hostName].repo;
+    if (!base) errors.push(`${at}: chạy trên host "${hostName}" nên cần workdir (hoặc hosts.${hostName}.repo)`);
+    else if (!remotePath(base)) errors.push(`${at}: đường dẫn trên host phải tuyệt đối hoặc bắt đầu bằng ~ (nhận "${base}")`);
+    else {
+      const key = `${hostName}:${base}`;
+      baseUsers.set(key, [...(baseUsers.get(key) ?? []), { id: w.id, worktree: w.worktree === true, writes: tools.some((t) => /^(Edit|Write)/.test(t)) || provider === "codex" }]);
+    }
+    if (w?.worktree !== true && (tools.some((t) => /^(Edit|Write)/.test(t)) || provider === "codex")) warns.push(`${at}: ghi code trên host "${hostName}" mà không có worktree — thay đổi nằm thẳng trong clone đó`);
+  } else if (isStr(w?.workdir)) {
+    const p = w.workdir.startsWith("~") ? join(homedir(), w.workdir.slice(1)) : w.workdir.startsWith("/") || /^[A-Za-z]:/.test(w.workdir) ? w.workdir : join(repo, w.workdir);
+    if (!existsSync(p)) warns.push(`${at}.workdir "${w.workdir}" chưa tồn tại trên máy này (${p})`);
+  }
   const soul = join(repo, ".agentroom", "agents", w?.id ?? "?", "SOUL.md");
   if (existsSync(soul) && /Viết tính cách, cách làm việc/.test(readFileSync(soul, "utf8"))) warns.push(`${at}: SOUL.md vẫn là bản mẫu chưa viết (.agentroom/agents/${w.id}/SOUL.md)`);
+}
+for (const [key, users] of baseUsers) {
+  const shared = users.filter((u) => !u.worktree && u.writes);
+  if (shared.length > 1) warns.push(`Các worker ${shared.map((u) => u.id).join(", ")} cùng ghi vào ${key} mà không có worktree — sẽ ghi đè lên nhau`);
 }
 if (!workers.some((w) => w?.coordinator)) warns.push("Không có worker coordinator: tin nhắn không @mention sẽ không ai nhận");
 
@@ -135,5 +178,5 @@ if (!existsSync(join(repo, "AGENTS.md")) && workers.some((w) => accounts[w?.acco
 
 warns.forEach((m) => console.log("⚠", m));
 errors.forEach((m) => console.log("✗", m));
-console.log(errors.length ? `\nKHÔNG ĐẠT: ${errors.length} lỗi, ${warns.length} cảnh báo` : `\nĐẠT (${workers.length} worker, ${schedIds.size} lịch, ${hookIds.size} webhook, ${warns.length} cảnh báo)`);
+console.log(errors.length ? `\nKHÔNG ĐẠT: ${errors.length} lỗi, ${warns.length} cảnh báo` : `\nĐẠT (${workers.length} worker, ${Object.keys(hosts).length} máy từ xa, ${schedIds.size} lịch, ${hookIds.size} webhook, ${warns.length} cảnh báo)`);
 process.exit(errors.length ? 1 : 0);

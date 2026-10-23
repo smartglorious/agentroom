@@ -2,13 +2,25 @@ import { z } from "zod";
 import YAML from "yaml";
 import { Cron } from "croner";
 import { homedir } from "node:os";
-import { RoomConfig } from "./types";
+import { RoomConfig, SSH_TARGET } from "./types";
 
 const expandHome = (p?: string) => (p?.startsWith("~") ? homedir() + p.slice(1) : p);
 
 const ID = z.string().regex(/^[a-z][a-z0-9_-]*$/, "id: bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 '-' '_'");
 
+const HostSchema = z.object({
+  ssh: z.string().regex(SSH_TARGET, "ssh: dạng user@host, host hoặc alias trong ~/.ssh/config (không được bắt đầu bằng '-')"),
+  port: z.number().int().min(1).max(65535).optional(),
+  identityFile: z.string().min(1).refine((p) => !p.startsWith("-"), "identityFile không hợp lệ").optional(),
+  repo: z.string().min(1).optional(),
+  node: z.string().min(1).optional(),
+  claudePath: z.string().min(1).optional(),
+  codexPath: z.string().min(1).optional(),
+  connectTimeoutSec: z.number().int().min(1).max(120).default(15),
+});
+
 const AccountSchema = z.object({
+  host: z.string().optional(),
   provider: z.enum(["claude", "codex"]),
   home: z.string().optional(),
   apiKeyEnv: z.string().optional(),
@@ -30,6 +42,7 @@ const WorkerSchema = z.object({
   worktree: z.boolean().default(false),
   coordinator: z.boolean().default(false),
   sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).default("workspace-write"),
+  workdir: z.string().min(1).optional(),
 });
 
 const ScheduleSchema = z.object({
@@ -58,6 +71,7 @@ const WebhookSchema = z.object({
 });
 
 const FileSchema = z.object({
+  hosts: z.record(ID, HostSchema).default({}),
   accounts: z.record(z.string(), AccountSchema),
   workers: z.array(WorkerSchema).min(1),
   schedules: z.array(ScheduleSchema).default([]),
@@ -82,13 +96,25 @@ export function validCron(expr: string, timezone?: string): string | undefined {
   }
 }
 
+const isRemotePath = (p: string) => p === "~" || p.startsWith("~/") || p.startsWith("/");
+
 export function parseConfig(text: string): RoomConfig {
   const raw = FileSchema.parse(YAML.parse(text));
-  const accounts = Object.entries(raw.accounts).map(([id, a]) => ({ id, ...a, home: expandHome(a.home) }));
+  const hosts = Object.entries(raw.hosts).map(([name, h]) => ({ name, ...h }));
+  if (hosts.some((h) => h.name === "local")) throw new Error('Tên host "local" là tên dành riêng');
+  const hostNames = new Set(hosts.map((h) => h.name));
+  // `home` is a path on the account's own machine, so only expand ~ for local accounts.
+  const accounts = Object.entries(raw.accounts).map(([id, a]) => ({ id, ...a, home: a.host ? a.home : expandHome(a.home) }));
+  for (const a of accounts) if (a.host && !hostNames.has(a.host)) throw new Error(`Account ${a.id}: không có host "${a.host}" trong hosts:`);
   unique("worker", raw.workers.map((w) => w.id));
   const workers = raw.workers.map((w) => {
     const acc = accounts.find((a) => a.id === w.account);
     if (!acc) throw new Error(`Worker ${w.id}: không có account "${w.account}"`);
+    if (acc.host) {
+      const base = w.workdir ?? hosts.find((h) => h.name === acc.host)!.repo;
+      if (!base) throw new Error(`Worker ${w.id}: chạy trên host "${acc.host}" nên cần workdir (hoặc hosts.${acc.host}.repo)`);
+      if (!isRemotePath(base)) throw new Error(`Worker ${w.id}: đường dẫn trên host phải tuyệt đối hoặc bắt đầu bằng ~ (nhận "${base}")`);
+    }
     return { ...w, provider: acc.provider };
   });
   const known = new Set(workers.map((w) => w.id));
@@ -106,7 +132,7 @@ export function parseConfig(text: string): RoomConfig {
     if (!known.has(h.worker)) throw new Error(`Webhook ${h.id}: không có worker "${h.worker}"`);
     if (!h.secretEnv && !h.allowUnsigned) throw new Error(`Webhook ${h.id}: cần secretEnv (hoặc allowUnsigned: true chỉ để thử trên máy mình)`);
   }
-  return { accounts, workers, schedules: raw.schedules, webhooks: raw.webhooks };
+  return { hosts, accounts, workers, schedules: raw.schedules, webhooks: raw.webhooks };
 }
 
 export const SAMPLE_CONFIG = `# AgentRoom — định nghĩa account dùng chung và các worker (persona).
@@ -161,6 +187,16 @@ workers:
     allowedTools: [Read, Grep, Glob, "Bash(npm test:*)", "Bash(git diff:*)"]
     instructions: |
       Chạy test, đọc diff và báo lỗi cụ thể (file:dòng) cho người phụ trách.
+
+# Chạy worker trên máy khác qua SSH (cần khoá SSH/ssh-agent, Node ≥ 20 và claude/codex đã đăng nhập trên máy đó).
+# Mỗi account là một đăng nhập trên MỘT máy: thêm host: vào account để worker dùng account đó chạy ở máy kia.
+# hosts:
+#   gpu-box:
+#     ssh: dev@gpu-box.example.com   # hoặc alias trong ~/.ssh/config
+#     repo: /home/dev/app            # clone của repo trên máy đó (worker có thể đặt workdir riêng)
+#     # node: /usr/local/bin/node    # nếu node không có trong PATH của login shell
+# accounts:
+#   claude-gpu: { provider: claude, host: gpu-box, maxConcurrent: 2 }
 
 # Việc chạy theo lịch (chỉ chạy khi VS Code đang mở). Bỏ dấu # để bật.
 # schedules:

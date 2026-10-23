@@ -1,10 +1,12 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import type { CronEngine } from "../core/cron";
+import type { LockInfo } from "../core/lock";
 import type { Room } from "../core/room";
 import type { RoomConfig } from "../core/types";
 import type { UsageRange, UsageStore } from "../core/usage";
 import type { WebhookHandler } from "../core/webhooks";
+import type { HostManager } from "../remote/host";
 
 /** Messages the webview sends to the extension. */
 type FromWebview =
@@ -22,7 +24,9 @@ type FromWebview =
   | { type: "rejectSkill"; name: string }
   | { type: "allowBudget"; account: string }
   | { type: "copyHook"; id: string }
-  | { type: "newSkill" };
+  | { type: "newSkill" }
+  | { type: "hostCheck"; name?: string }
+  | { type: "takeOver" };
 
 export interface ViewContext {
   room: Room;
@@ -31,6 +35,7 @@ export interface ViewContext {
   hookPort?: number;
   usage: UsageStore;
   config: RoomConfig;
+  hosts?: HostManager;
 }
 
 export interface ViewHandlers {
@@ -48,19 +53,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private ctx?: ViewContext;
   private handlers?: ViewHandlers;
   private range: UsageRange = "today";
+  private locked?: LockInfo;
   private unsubscribe: (() => void)[] = [];
 
   constructor(private extensionUri: vscode.Uri) {}
 
   setHandlers(h: ViewHandlers) { this.handlers = h; }
 
+  /** Another window already runs this room: show who, and offer to take over. */
+  attachLocked(holder?: LockInfo) {
+    this.attach(undefined);
+    this.locked = holder ?? { token: "", pid: 0, host: "?", startedAt: 0, heartbeat: 0 };
+    this.post({ type: "locked", holder: this.locked });
+  }
+
   attach(ctx: ViewContext | undefined) {
     this.unsubscribe.forEach((u) => u());
     this.unsubscribe = [];
     this.ctx = ctx;
+    this.locked = undefined;
     if (!ctx) return void this.post({ type: "init", state: null });
-    const { room, cron, hooks } = ctx;
-
+    const { room, cron, hooks, hosts } = ctx;
     const sub = <T extends unknown[]>(target: { on(e: never, h: never): unknown; off(e: never, h: never): unknown }, event: string, map: (...a: T) => unknown) => {
       const h = (...a: T) => this.post(map(...a));
       target.on(event as never, h as never);
@@ -75,12 +88,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     sub(room, "usage", () => this.usagePayload());
     sub(cron, "change", () => ({ type: "schedules", schedules: cron.statuses() }));
     if (hooks) sub(hooks, "call", () => this.hooksPayload());
+    if (hosts) sub(hosts, "change", () => this.hostsPayload());
     this.post(this.initPayload());
   }
 
   private initPayload() {
     const c = this.ctx!;
-    return { type: "init", state: c.room.snapshot(), usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload() };
+    return { type: "init", state: c.room.snapshot(), usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload() };
+  }
+
+  private hostsPayload() {
+    return { type: "hosts", hosts: this.ctx?.hosts?.statuses() ?? [] };
   }
 
   private usagePayload() {
@@ -113,8 +131,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private onMessage(m: FromWebview) {
-    if (m.type === "ready") return void this.post(this.ctx ? this.initPayload() : { type: "init", state: null });
+    if (m.type === "ready") {
+      if (this.ctx) return void this.post(this.initPayload());
+      this.post({ type: "init", state: null });
+      return void (this.locked && this.post({ type: "locked", holder: this.locked }));
+    }
     if (m.type === "newSkill") return void vscode.commands.executeCommand("agentroom.newSkill");
+    if (m.type === "takeOver") return void vscode.commands.executeCommand("agentroom.takeOver");
     const c = this.ctx;
     if (!c) return;
     const room = c.room;
@@ -137,6 +160,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "approveSkill": try { room.approveSkill(String(m.name)); } catch (e) { vscode.window.showWarningMessage(String(e instanceof Error ? e.message : e)); } break;
       case "rejectSkill": room.rejectSkill(String(m.name)); break;
       case "allowBudget": if (c.config.accounts.some((a) => a.id === m.account)) room.allowBudgetToday(m.account); break;
+      case "hostCheck": void c.hosts?.check(typeof m.name === "string" ? m.name : undefined); break;
       case "copyHook": { const h = this.hooksPayload().hooks.find((x) => x.id === m.id); if (h?.url) this.handlers?.copy(h.url); break; }
     }
   }
@@ -155,12 +179,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <body>
   <header id="team"></header>
   <nav>
-    <button data-tab="chat" class="on">Chat</button><button data-tab="tasks">Tasks</button><button data-tab="cost">Chi phí</button><button data-tab="sched">Lịch</button><button data-tab="profile">Hồ sơ<span id="draftBadge" hidden></span></button>
+    <button data-tab="chat" class="on">Chat</button><button data-tab="tasks">Tasks</button><button data-tab="cost">Chi phí</button><button data-tab="sched">Lịch</button><button data-tab="hosts">Máy</button><button data-tab="profile">Hồ sơ<span id="draftBadge" hidden></span></button>
   </nav>
   <main id="chat" class="tab"></main>
   <section id="tasks" class="tab" hidden></section>
   <section id="cost" class="tab" hidden></section>
   <section id="sched" class="tab" hidden></section>
+  <section id="hosts" class="tab" hidden></section>
   <section id="profile" class="tab" hidden></section>
   <div id="approvals"></div>
   <form id="composer"><textarea id="input" rows="2" placeholder="Nhắn cả nhóm… dùng @id để gọi ai đó (Enter để gửi)"></textarea></form>

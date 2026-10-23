@@ -1,12 +1,13 @@
 // Live end-to-end checks against the REAL Claude Code CLI (costs a few cents, needs `claude` logged in).
 //   npm run test:live            all scenarios
 //   npm run test:live -- webhook only scenarios whose file name contains "webhook"
+//   npm run test:ssh            multi-machine scenario over real ssh (needs sshd: scripts/live/ssh-sandbox.sh up)
 import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 
 const filter = process.argv[2];
-const files = readdirSync("scripts/live").filter((f) => f.startsWith("e2e-") && f.endsWith(".ts") && (!filter || f.includes(filter)));
+const files = readdirSync("scripts/live").filter((f) => f.startsWith("e2e-") && f.endsWith(".ts") && (filter ? f.includes(filter) : !f.includes("ssh")));
 let failed = 0;
 for (const f of files) {
   const out = `out-test/${f.replace(/\.ts$/, ".mjs")}`;

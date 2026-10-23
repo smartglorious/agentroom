@@ -16,6 +16,8 @@ export interface TurnRequest {
   extraReadDirs?: string[];
   /** Only read-only tools allowed (untrusted triggers). */
   readOnly?: boolean;
+  /** Set when the account lives on another machine: where and with which skills to run. */
+  remote?: { host: string; base: string; skills: { name: string; dir: string }[] };
   signal: AbortSignal;
   /** Short progress lines ("Edit src/a.ts", "Bash npm test") for the UI. */
   onActivity(text: string): void;
@@ -27,6 +29,8 @@ export interface TurnResult {
   sessionId?: string;
   text: string;
   usage?: TurnUsage;
+  /** Where the turn actually ran (remote hosts decide this themselves). */
+  cwd?: string;
 }
 
 export interface AgentAdapter {

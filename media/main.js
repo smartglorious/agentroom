@@ -5,7 +5,7 @@
   const state = {
     workers: [], statuses: {}, tasks: [], drafts: [], accounts: [], todayByWorker: {},
     usage: null, range: "today", schedules: [], hooks: { port: null, hooks: [], calls: [] },
-    profile: null, profileWorker: null,
+    profile: null, profileWorker: null, hostList: [],
   };
 
   const STATE_LABEL = {
@@ -31,6 +31,7 @@
       const card = el("div", `worker ${s.state}`);
       card.title = `${w.role} · ${w.provider}${w.skills.length ? " · " + w.skills.join(", ") : ""}`;
       card.append(el("span", "dot"), el("b", null, w.name), el("span", "id", "@" + w.id));
+      if (w.host) { const h = el("span", "host", "⇄ " + w.host); h.title = "Chạy trên máy " + w.host; card.append(h); }
       const cost = state.todayByWorker[w.id];
       if (cost > 0) card.append(el("span", "cost", usd(cost)));
       card.append(el("span", "state", STATE_LABEL[s.state] + (s.activity ? ` — ${s.activity}` : "")));
@@ -260,6 +261,53 @@
     }
   }
 
+  // ---------- hosts ----------
+  const HOST_STATE = { idle: "chưa kết nối", connecting: "đang kết nối…", ready: "sẵn sàng", error: "lỗi" };
+
+  function renderHosts() {
+    const box = $("hosts");
+    box.replaceChildren();
+    const local = state.workers.filter((w) => !w.host);
+    box.append(el("h4", null, "Máy này"));
+    box.append(el("div", "meta", local.length ? local.map((w) => "@" + w.id).join(", ") : "(không có worker nào chạy ở máy này)"));
+
+    box.append(el("h4", null, `Máy từ xa (${state.hostList.length})`));
+    if (!state.hostList.length) {
+      box.append(el("p", "note", "Chưa có máy từ xa. Thêm mục hosts: vào .agentroom/workers.yaml rồi gán host: cho account (xem docs/MULTI-MACHINE.md). Cần khoá SSH, Node ≥ 20 và claude/codex đã đăng nhập trên máy đó."));
+      return;
+    }
+    box.append(btn("Kiểm tra tất cả", () => send({ type: "hostCheck" })));
+    for (const h of state.hostList) {
+      const card = el("div", "task host-card " + h.state);
+      const head = el("div", "row");
+      head.append(el("span", "dot " + h.state), el("b", null, h.name), el("span", "tag", h.ssh), el("span", "meta", HOST_STATE[h.state] || h.state));
+      head.append(btn(h.state === "ready" ? "Kiểm tra lại" : "Kết nối", () => send({ type: "hostCheck", name: h.name })));
+      card.append(head);
+      if (h.state === "ready") {
+        card.append(el("div", "meta", `${h.hostname || "?"} · ${h.platform || "?"} · node ${h.node || "?"}`));
+        card.append(el("div", "meta" + (h.claude ? "" : " err"), `claude: ${h.claude || "không tìm thấy (đặt hosts." + h.name + ".claudePath)"}`));
+        card.append(el("div", "meta" + (h.codex ? "" : " warn"), `codex: ${h.codex || "không tìm thấy"}`));
+      }
+      if (h.error) card.append(el("div", "meta err", h.error));
+      if (h.repo) card.append(el("div", "meta mono", "repo: " + h.repo));
+      const on = state.workers.filter((w) => w.host === h.name);
+      card.append(el("div", "meta", `Worker: ${on.length ? on.map((w) => "@" + w.id).join(", ") : "(chưa có)"}${h.inFlight ? ` · đang chạy ${h.inFlight} lượt` : ""}`));
+      box.append(card);
+    }
+  }
+
+  function renderLocked(holder) {
+    const chat = $("chat");
+    chat.replaceChildren();
+    const card = el("div", "task locked");
+    card.append(el("b", null, "Phòng này đang chạy ở một cửa sổ khác"));
+    const age = holder.heartbeat ? Math.max(0, Math.round((Date.now() - holder.heartbeat) / 1000)) : null;
+    card.append(el("div", "meta", `Máy ${holder.host}, pid ${holder.pid}${holder.startedAt ? ", từ " + when(holder.startedAt) : ""}${age != null ? `, tín hiệu cuối ${age}s trước` : ""}.`));
+    card.append(el("p", "note", "Chỉ một cửa sổ được điều phối mỗi thư mục .agentroom/: nếu hai cửa sổ cùng chạy, chat, bảng task và giới hạn account sẽ lệch nhau. Hãy dùng cửa sổ kia, hoặc chiếm quyền (cửa sổ kia sẽ tự dừng)."));
+    card.append(btn("Chiếm quyền điều phối", () => send({ type: "takeOver" })));
+    chat.append(card);
+  }
+
   // ---------- approvals ----------
   function renderApproval(req) {
     const card = el("div", "approval");
@@ -281,7 +329,7 @@
   }
 
   // ---------- tabs ----------
-  const TABS = ["chat", "tasks", "cost", "sched", "profile"];
+  const TABS = ["chat", "tasks", "cost", "sched", "hosts", "profile"];
   function showTab(name) {
     document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x.dataset.tab === name));
     for (const t of TABS) $(t).hidden = t !== name;
@@ -314,9 +362,10 @@
         if (data.usage) { state.usage = data.usage; state.range = data.usage.range; }
         state.schedules = data.schedules || [];
         state.hooks = data.hooks || state.hooks;
+        state.hostList = data.hosts ? data.hosts.hosts : [];
         s.messages.forEach(renderMessage);
         s.approvals.forEach(renderApproval);
-        renderTeam(); renderTasks(); renderCost(); renderSched(); renderProfile(); badge();
+        renderTeam(); renderTasks(); renderCost(); renderSched(); renderHosts(); renderProfile(); badge();
         break;
       }
       case "message": renderMessage(data.msg); break;
@@ -328,6 +377,8 @@
       case "drafts": state.drafts = data.drafts; badge(); renderProfile(); break;
       case "schedules": state.schedules = data.schedules; renderSched(); break;
       case "hooks": state.hooks = data; renderSched(); break;
+      case "hosts": state.hostList = data.hosts; renderHosts(); break;
+      case "locked": renderLocked(data.holder); break;
       case "profile": state.profile = data.profile; renderProfile(); break;
     }
   });

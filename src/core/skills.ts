@@ -102,14 +102,44 @@ export function claudeSkillOptions(w: Worker, pluginDir: string, registry: Skill
   return { plugins: [{ type: "local", path: pluginDir }], skills: names.map((n) => `${PLUGIN_NAME}:${n}`) };
 }
 
-/** Codex cannot filter skills per thread, so the persona lists them with absolute paths. */
-export function codexSkillsBlock(w: Worker, registry: SkillRegistry): string {
+/** Placeholder for the skills folder on a remote host; the runner substitutes the real path. */
+export const REMOTE_SKILLS = "@@SKILLS@@";
+
+/**
+ * Codex cannot filter skills per thread, so the persona lists them with absolute paths.
+ * `pathOf` overrides where the file is read from (a remote host keeps its own copies).
+ */
+export function codexSkillsBlock(w: Worker, registry: SkillRegistry, pathOf: (s: SkillInfo) => string = (s) => resolve(s.dir, "SKILL.md")): string {
   const list = w.useSkills.flatMap((n) => { const s = registry.get(n); return s ? [s] : []; });
   if (!list.length) return "";
   return [
     "Bạn có các skill sau. Khi task khớp mô tả, hãy ĐỌC file SKILL.md tương ứng rồi làm đúng theo đó:",
-    ...list.map((s) => `- ${s.name}: ${s.description}\n  file: ${resolve(s.dir, "SKILL.md")}`),
+    ...list.map((s) => `- ${s.name}: ${s.description}\n  file: ${pathOf(s)}`),
   ].join("\n");
+}
+
+export const MAX_SKILL_BYTES = 5 * 1024 * 1024;
+
+function walk(dir: string, rel = ""): { path: string; abs: string }[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    if (e.name === ".git" || e.name === "node_modules" || e.isSymbolicLink()) return [];
+    const abs = join(dir, e.name), r = rel ? `${rel}/${e.name}` : e.name;
+    return e.isDirectory() ? walk(abs, r) : e.isFile() ? [{ path: r, abs }] : [];
+  });
+}
+
+/** Reads skill folders into a transferable form. Refuses unreasonably large skills. */
+export function packSkills(skills: { name: string; dir: string }[]): { name: string; files: { path: string; b64: string }[] }[] {
+  let total = 0;
+  return skills.map((s) => ({
+    name: s.name,
+    files: walk(s.dir).map((f) => {
+      const buf = readFileSync(f.abs);
+      total += buf.length;
+      if (total > MAX_SKILL_BYTES) throw new Error(`Skills quá lớn để gửi sang máy khác (> ${MAX_SKILL_BYTES / 1024 / 1024} MB). Bỏ file lớn khỏi thư mục skill.`);
+      return { path: f.path, b64: buf.toString("base64") };
+    }),
+  }));
 }
 
 export function codexSkillDirs(w: Worker, registry: SkillRegistry): string[] {

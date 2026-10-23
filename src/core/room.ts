@@ -6,7 +6,7 @@ import { CONSOLIDATE_PROMPT, MemoryEntry, MemoryStore, ymd } from "./memory";
 import { buildPersona, buildTurn } from "./prompt";
 import { route } from "./router";
 import { isRateLimit, Scheduler } from "./scheduler";
-import { SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, claudeSkillOptions, codexSkillDirs, codexSkillsBlock } from "./skills";
+import { REMOTE_SKILLS, SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, claudeSkillOptions, codexSkillDirs, codexSkillsBlock } from "./skills";
 import { RoomStore } from "./store";
 import { TaskBoard } from "./tasks";
 import { ApprovalRequest, ChatMessage, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
@@ -23,6 +23,8 @@ export interface RoomDeps {
   config: RoomConfig;
   store: RoomStore;
   adapters: Record<Provider, AgentAdapter>;
+  /** Runs turns for accounts that live on another machine (see `hosts`). */
+  remote?: AgentAdapter;
   scheduler: Scheduler;
   options: RoomOptions;
   memory: MemoryStore;
@@ -88,7 +90,7 @@ export class Room extends EventEmitter<RoomEvents> {
   private inbox = new Map<string, ChatMessage[]>();
   private scheduled = new Set<string>();
   private running = new Map<string, RunningTurn>();
-  private approvals = new Map<string, { req: ApprovalRequest; resolve: (ok: boolean) => void }>();
+  private approvals = new Map<string, { req: ApprovalRequest; resolve: (ok: boolean) => void; key: string }>();
   private statuses = new Map<string, WorkerStatus>();
   private budgetPaused = new Set<string>();
   private budgetNotes = new Set<string>();
@@ -114,7 +116,9 @@ export class Room extends EventEmitter<RoomEvents> {
 
   snapshot() {
     return {
-      workers: this.workers.map(({ id, name, role, skills, useSkills, provider, coordinator, account }) => ({ id, name, role, skills, useSkills, provider, coordinator, account })),
+      workers: this.workers.map(({ id, name, role, skills, useSkills, provider, coordinator, account }) => ({
+        id, name, role, skills, useSkills, provider, coordinator, account, host: this.deps.config.accounts.find((a) => a.id === account)?.host,
+      })),
       messages: this.messages.slice(-200),
       statuses: [...this.statuses.values()],
       tasks: this.tasks.list(),
@@ -123,6 +127,7 @@ export class Room extends EventEmitter<RoomEvents> {
       accounts: this.deps.config.accounts.map((a) => ({
         id: a.id,
         provider: a.provider,
+        host: a.host,
         budgetUsdPerDay: a.budgetUsdPerDay,
         spentToday: this.deps.usage.costToday(a.id),
         paused: this.budgetPaused.has(a.id),
@@ -364,6 +369,9 @@ export class Room extends EventEmitter<RoomEvents> {
     this.setStatus(worker.id, "working");
     const taskId = batch.find((m) => m.taskId)?.taskId;
     const account = this.deps.config.accounts.find((a) => a.id === worker.account)!;
+    // Session ids only mean something on the machine that created them, so remote ones are kept apart.
+    const host = account.host;
+    const sessKey = host ? `${key}@${host}` : key;
 
     const turnId = newTurnId();
     const startedAt = this.now();
@@ -386,29 +394,38 @@ export class Room extends EventEmitter<RoomEvents> {
       const seen = this.cursors[key] ?? 0;
       const recent = this.messages.filter((m) => m.ts > seen).slice(-this.deps.options.contextMessages);
       const memory = this.deps.memory.blocks(worker, this.deps.options.memoryBudgetChars);
-      const claudeSkills = worker.provider === "claude" ? claudeSkillOptions(worker, this.deps.pluginDir, this.deps.skills) : undefined;
-      const skillsBlock = worker.provider === "codex" ? codexSkillsBlock(worker, this.deps.skills) : "";
-      const persona = buildPersona(worker, this.workers, memory, skillsBlock);
+      const remote = host
+        ? { host, base: worker.workdir ?? this.deps.config.hosts.find((h) => h.name === host)?.repo ?? "", skills: worker.useSkills.flatMap((n) => { const s = this.deps.skills.get(n); return s ? [{ name: s.name, dir: s.dir }] : []; }) }
+        : undefined;
+      if (host && (!remote?.base || !this.deps.remote)) throw new Error(`Không chạy được worker ${worker.id} trên host "${host}": thiếu workdir/repo hoặc chưa cấu hình kết nối`);
+      // The runner on a remote host builds its own plugin and keeps its own copy of the skills.
+      const claudeSkills = worker.provider === "claude" && !host ? claudeSkillOptions(worker, this.deps.pluginDir, this.deps.skills) : undefined;
+      const skillsBlock = worker.provider === "codex"
+        ? codexSkillsBlock(worker, this.deps.skills, host ? (s) => `${REMOTE_SKILLS}/${s.name}/SKILL.md` : undefined)
+        : "";
+      const persona = buildPersona(worker, this.workers, memory, skillsBlock, host ? { host, base: remote!.base } : undefined);
       const turn = buildTurn(worker, this.workers, recent, batch, this.tasks.list());
-      const cwd = await this.deps.resolveCwd(worker);
+      const cwd = host ? `${host}:${remote!.base}` : await this.deps.resolveCwd(worker);
       record = {
-        turnId, ts: startedAt, worker: worker.id, account: account.id, model: worker.model, sessionKey: key,
-        resumed: !!this.sessions[key], taskId, cwd, readOnly,
+        turnId, ts: startedAt, worker: worker.id, account: account.id, model: worker.model, sessionKey: sessKey,
+        resumed: !!this.sessions[sessKey], taskId, cwd, readOnly,
         allowedTools: readOnly ? ["(chỉ đọc)"] : worker.allowedTools, useSkills: worker.useSkills,
         systemSections: sectionInfo(persona.sections), promptSections: sectionInfo(turn.sections),
         systemAppend: persona.text, prompt: turn.text,
       };
 
-      const result = await this.deps.adapters[worker.provider].runTurn({
+      const adapter = host ? this.deps.remote! : this.deps.adapters[worker.provider];
+      const result = await adapter.runTurn({
         worker,
         account,
         cwd,
+        remote,
         systemAppend: persona.text,
         prompt: turn.text,
-        sessionId: this.sessions[key],
+        sessionId: this.sessions[sessKey],
         mcpUrl: this.deps.mcpUrl(worker.id),
         claudeSkills,
-        extraReadDirs: worker.provider === "codex" ? codexSkillDirs(worker, this.deps.skills) : undefined,
+        extraReadDirs: worker.provider === "codex" && !host ? codexSkillDirs(worker, this.deps.skills) : undefined,
         readOnly,
         signal: abort.signal,
         onActivity: (a) => {
@@ -417,13 +434,14 @@ export class Room extends EventEmitter<RoomEvents> {
           if ((tool === "Edit" || tool === "Write") && rest.length) rest.join(" ").split(/,\s*/).forEach((f) => edited.add(f.split("/").slice(-2).join("/")));
           this.setStatus(worker.id, "working", a);
         },
-        approve: (tool, input) => this.requestApproval(worker.id, tool, input, abort.signal),
+        approve: (tool, input) => this.requestApproval(worker.id, tool, input, abort.signal, key),
       });
 
       if (result.sessionId) {
-        this.sessions[key] = result.sessionId;
+        this.sessions[sessKey] = result.sessionId;
         this.deps.store.saveSessions(this.sessions);
       }
+      if (result.cwd && record) record.cwd = host ? `${host}:${result.cwd}` : result.cwd;
       this.cursors[key] = startedAt;
       this.deps.store.saveCursors(this.cursors);
       finish(result.usage);
@@ -439,6 +457,8 @@ export class Room extends EventEmitter<RoomEvents> {
       throw err;
     } finally {
       this.running.delete(key);
+      // A turn that ended without answering (connection lost, crash) must not leave its approval card behind.
+      for (const [id, a] of [...this.approvals]) if (a.key === key) this.respondApproval(id, false);
     }
   }
 
@@ -451,10 +471,10 @@ export class Room extends EventEmitter<RoomEvents> {
     } catch { /* the journal is best effort */ }
   }
 
-  private requestApproval(workerId: string, tool: string, input: unknown, signal: AbortSignal): Promise<boolean> {
+  private requestApproval(workerId: string, tool: string, input: unknown, signal: AbortSignal, key: string): Promise<boolean> {
     const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input };
     return new Promise((resolve) => {
-      this.approvals.set(req.id, { req, resolve });
+      this.approvals.set(req.id, { req, resolve, key });
       signal.addEventListener("abort", () => this.respondApproval(req.id, false), { once: true });
       this.setStatus(workerId, "waiting_approval", tool);
       this.emit("approval", req);
