@@ -13,7 +13,9 @@ const AccountSchema = z.object({
 });
 
 const WorkerSchema = z.object({
-  id: z.string().regex(/^[a-z][\w-]*$/, "id: chữ thường, số, '-' hoặc '_'"),
+  id: z.string()
+    .regex(/^[a-z][a-z0-9_-]*$/, "id: bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 '-' '_'")
+    .refine((id) => !["all", "user", "system"].includes(id), "id: all/user/system là tên dành riêng"),
   name: z.string(),
   role: z.string(),
   skills: z.array(z.string()).default([]),
@@ -92,7 +94,7 @@ workers:
     role: QA Engineer
     account: claude-main
     skills: [viết test, tìm bug, review]
-    allowedTools: [Read, Grep, Glob, Bash]
+    allowedTools: [Read, Grep, Glob, "Bash(npm test:*)", "Bash(git diff:*)"]
     instructions: |
       Chạy test, đọc diff và báo lỗi cụ thể (file:dòng) cho người phụ trách.
 `;
