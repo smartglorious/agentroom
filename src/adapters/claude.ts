@@ -8,6 +8,9 @@ const load = () => (sdk ??= import("@anthropic-ai/claude-agent-sdk"));
 
 /** Runs one worker turn as a Claude Code session via the Claude Agent SDK. */
 export class ClaudeAdapter implements AgentAdapter {
+  /** `executable` returns the user's `claude` CLI path, or undefined to use the SDK's bundled one. */
+  constructor(private executable: () => string | undefined = () => undefined) {}
+
   async runTurn(req: TurnRequest): Promise<TurnResult> {
     const { query } = await load();
     const abortController = new AbortController();
@@ -15,6 +18,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
     const options: Options = {
       cwd: req.cwd,
+      pathToClaudeCodeExecutable: this.executable(),
       resume: req.sessionId,
       model: req.worker.model,
       systemPrompt: { type: "preset", preset: "claude_code", append: req.systemAppend },

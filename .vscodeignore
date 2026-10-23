@@ -6,3 +6,16 @@ docs/**
 esbuild.mjs
 tsconfig.json
 **/*.map
+out/**
+.agentroom/**
+# Platform binaries of the SDKs: the extension uses the user's installed claude/codex CLI instead.
+node_modules/@anthropic-ai/claude-agent-sdk-*/**
+node_modules/@anthropic-ai/sdk/**
+node_modules/@openai/codex/**
+node_modules/@openai/codex-linux-*/**
+node_modules/@openai/codex-darwin-*/**
+node_modules/@openai/codex-win32-*/**
+node_modules/typescript/**
+node_modules/esbuild/**
+node_modules/@esbuild/**
+node_modules/@types/**

@@ -11,9 +11,13 @@ const load = () => (sdk ??= import("@openai/codex-sdk"));
  * mode configured per worker instead of AgentRoom's approval cards.
  */
 export class CodexAdapter implements AgentAdapter {
+  /** `executable` returns the user's `codex` CLI path, or undefined to use the SDK's bundled one. */
+  constructor(private executable: () => string | undefined = () => undefined) {}
+
   async runTurn(req: TurnRequest): Promise<TurnResult> {
     const { Codex } = await load();
     const codex = new Codex({
+      codexPathOverride: this.executable(),
       env: accountEnv(req.account, "CODEX_HOME", "OPENAI_API_KEY"),
       config: { mcp_servers: { agentroom: { url: req.mcpUrl } } },
     });

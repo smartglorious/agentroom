@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { ClaudeAdapter } from "./adapters/claude";
 import { CodexAdapter } from "./adapters/codex";
+import { findExecutable } from "./core/cli";
 import { parseConfig, SAMPLE_CONFIG } from "./core/config";
 import { Room } from "./core/room";
 import { Scheduler } from "./core/scheduler";
@@ -20,6 +21,14 @@ export async function activate(ctx: vscode.ExtensionContext) {
 
   const root = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
+  // Resolved on every turn so a CLI installed after activation is picked up.
+  const cli = (name: "claude" | "codex") => () => {
+    const override = vscode.workspace.getConfiguration("agentroom").get<string>(`${name}Path`);
+    const found = findExecutable(name, override);
+    if (!found) throw new Error(`Không tìm thấy CLI "${name}". Hãy cài ${name === "claude" ? "Claude Code" : "Codex CLI"} hoặc đặt agentroom.${name}Path.`);
+    return found;
+  };
+
   const load = async () => {
     room?.stopAll();
     mcp?.dispose();
@@ -34,7 +43,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
       room = new Room({
         config,
         store: new RoomStore(join(ws, ".agentroom", "state")),
-        adapters: { claude: new ClaudeAdapter(), codex: new CodexAdapter() },
+        adapters: { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex")) },
         scheduler: new Scheduler(),
         options: { maxAgentHops: settings.get("maxAgentHops", 6), contextMessages: settings.get("contextMessages", 30) },
         resolveCwd: (w) => ensureWorktree(ws, w),

@@ -57,6 +57,8 @@
           "default": 6,
           "description": "Số lượt agent→agent tối đa tính từ một tin nhắn của người dùng (chống vòng lặp)."
         },
+        "agentroom.claudePath": { "type": "string", "default": "", "description": "Đường dẫn tới CLI claude (bỏ trống = tìm trong PATH)." },
+        "agentroom.codexPath": { "type": "string", "default": "", "description": "Đường dẫn tới CLI codex (bỏ trống = tìm trong PATH)." },
         "agentroom.contextMessages": {
           "type": "number",
           "default": 30,
@@ -70,7 +72,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node esbuild.mjs --tests && node --test out-test/*.test.js",
-    "package": "npx @vscode/vsce package"
+    "package": "npm run build && npx -y @vscode/vsce package"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.309",

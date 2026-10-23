@@ -2,14 +2,23 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, hướng dẫn) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: [docs/DESIGN.md](docs/DESIGN.md).
+Thiết kế và kế hoạch: xem `docs/DESIGN.md` trong mã nguồn.
 
 ## Yêu cầu
 
-- VS Code ≥ 1.90, Node ≥ 20
-- Đã đăng nhập Claude Code (`claude` → `/login`) và/hoặc Codex (`codex login`), hoặc có API key
+- VS Code ≥ 1.90
+- Đã cài và đăng nhập **Claude Code** (`claude` → `/login`) và/hoặc **Codex CLI** (`codex login`). Extension dùng chính CLI này, nên không gói kèm binary.
+  Nếu `claude`/`codex` không nằm trong PATH, đặt `agentroom.claudePath` / `agentroom.codexPath` trong Settings.
 
-## Chạy thử
+## Cài từ file .vsix
+
+```bash
+code --install-extension agentroom-0.1.0.vsix
+```
+
+Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → chọn file.
+
+## Build từ mã nguồn (cần Node ≥ 20)
 
 ```bash
 npm install
