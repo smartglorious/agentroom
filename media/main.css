@@ -1,0 +1,34 @@
+body { margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); }
+#team { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; border-bottom: 1px solid var(--vscode-panel-border); }
+.worker { display: flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 10px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); cursor: pointer; font-size: 11px; max-width: 100%; }
+.worker .id { opacity: .7; }
+.worker .state { opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.worker .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--vscode-disabledForeground); }
+.worker.working .dot { background: var(--vscode-charts-green); }
+.worker.queued .dot { background: var(--vscode-charts-blue); }
+.worker.waiting_approval .dot, .worker.rate_limited .dot { background: var(--vscode-charts-yellow); }
+.worker.error .dot { background: var(--vscode-charts-red); }
+.worker .stop { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 2px; }
+nav { display: flex; gap: 2px; padding: 2px 6px; }
+nav button { background: none; border: 0; color: var(--vscode-foreground); opacity: .6; cursor: pointer; padding: 4px 8px; }
+nav button.on { opacity: 1; border-bottom: 2px solid var(--vscode-focusBorder); }
+#chat, #tasks { flex: 1; overflow-y: auto; padding: 6px; }
+.msg { margin: 0 0 8px; padding: 6px 8px; border-radius: 6px; background: var(--vscode-editor-inactiveSelectionBackground); }
+.msg.from-user { background: var(--vscode-inputOption-activeBackground); }
+.msg.from-system { background: none; opacity: .75; font-size: 11px; border-left: 2px solid var(--vscode-panel-border); border-radius: 0; }
+.msg .head { display: flex; gap: 6px; align-items: baseline; font-size: 11px; margin-bottom: 2px; }
+.msg .head time { margin-left: auto; opacity: .5; }
+.msg .to, .msg .tag { opacity: .6; }
+.msg .body { white-space: pre-wrap; word-break: break-word; }
+.mention { color: var(--vscode-textLink-foreground); font-weight: 600; }
+.empty { opacity: .7; padding: 12px; }
+#tasks .col { margin-bottom: 10px; }
+#tasks h4 { margin: 4px 0; text-transform: uppercase; font-size: 10px; opacity: .7; }
+.task { padding: 4px 6px; margin: 4px 0; border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
+.task .meta, .task .result { font-size: 11px; opacity: .75; }
+.approval { margin: 4px 6px; padding: 6px; border: 1px solid var(--vscode-charts-yellow); border-radius: 6px; }
+.approval pre { max-height: 120px; overflow: auto; font-size: 11px; background: var(--vscode-textCodeBlock-background); padding: 4px; }
+.approval button { margin-right: 6px; border: 0; padding: 3px 10px; border-radius: 3px; cursor: pointer; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+.approval .deny { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+#composer { padding: 6px; border-top: 1px solid var(--vscode-panel-border); }
+#input { width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); padding: 4px; }
