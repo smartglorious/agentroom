@@ -1,4 +1,4 @@
-import { Account, Worker } from "../core/types";
+import { Account, TurnUsage, Worker } from "../core/types";
 
 export interface TurnRequest {
   worker: Worker;
@@ -11,6 +11,11 @@ export interface TurnRequest {
   sessionId?: string;
   /** AgentRoom MCP endpoint for this worker. */
   mcpUrl: string;
+  /** Real skills to enable (Claude plugin) / directories the sandbox may read (Codex). */
+  claudeSkills?: { plugins: { type: "local"; path: string }[]; skills: string[] };
+  extraReadDirs?: string[];
+  /** Only read-only tools allowed (untrusted triggers). */
+  readOnly?: boolean;
   signal: AbortSignal;
   /** Short progress lines ("Edit src/a.ts", "Bash npm test") for the UI. */
   onActivity(text: string): void;
@@ -21,6 +26,7 @@ export interface TurnRequest {
 export interface TurnResult {
   sessionId?: string;
   text: string;
+  usage?: TurnUsage;
 }
 
 export interface AgentAdapter {
@@ -43,3 +49,5 @@ export function summarizeInput(input: unknown): string {
   const s = typeof v === "string" ? v : "";
   return s.length > 80 ? s.slice(0, 77) + "..." : s;
 }
+
+export const READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "LS", "NotebookRead", "TodoWrite"];

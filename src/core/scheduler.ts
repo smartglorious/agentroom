@@ -65,6 +65,21 @@ export class Scheduler {
     });
   }
 
+  /** Holds the account (no new jobs start) until `untilMs`. Running jobs are not interrupted. */
+  pauseUntil(account: string, untilMs: number) {
+    const l = this.lane(account);
+    l.pausedUntil = Math.max(l.pausedUntil, untilMs);
+    this.pump(account);
+  }
+
+  resume(account: string) {
+    const l = this.lane(account);
+    l.pausedUntil = 0;
+    l.strikes = 0;
+    if (l.timer) { clearTimeout(l.timer); l.timer = undefined; }
+    this.pump(account);
+  }
+
   /** Drops queued (not running) jobs whose key starts with `prefix`. */
   cancelQueued(prefix: string) {
     for (const lane of this.lanes.values()) {
@@ -91,7 +106,7 @@ export class Scheduler {
     const l = this.lane(account);
     const wait = l.pausedUntil - this.now();
     if (wait > 0) {
-      if (!l.timer) l.timer = setTimeout(() => { l.timer = undefined; this.pump(account); }, wait);
+      if (!l.timer) { l.timer = setTimeout(() => { l.timer = undefined; this.pump(account); }, wait); if (wait > 60_000) l.timer.unref?.(); }
       return;
     }
     while (l.running < l.max && l.queue.length) {

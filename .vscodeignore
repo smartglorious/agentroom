@@ -19,3 +19,7 @@ node_modules/typescript/**
 node_modules/esbuild/**
 node_modules/@esbuild/**
 node_modules/@types/**
+scripts/**
+*.zip
+*.vsix
+agentroom-*

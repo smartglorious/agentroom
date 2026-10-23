@@ -1,56 +1,139 @@
-// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.1.
+// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.4.
 // Cách chạy: node validate-agentroom.mjs <đường-dẫn-repo>
-import { readFileSync, existsSync } from "node:fs";
+// Cần: npm i yaml croner (cài ở thư mục tạm, không cài vào repo).
+import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const YAML = require("yaml");
+const { Cron } = require("croner");
 
 const repo = process.argv[2] ?? ".";
 const file = join(repo, ".agentroom", "workers.yaml");
 const errors = [], warns = [];
 if (!existsSync(file)) { console.error(`✗ Không có ${file}`); process.exit(1); }
 const cfg = YAML.parse(readFileSync(file, "utf8")) ?? {};
+const ID = /^[a-z][a-z0-9_-]*$/;
+const isStr = (v) => typeof v === "string" && v.length > 0;
+const isBool = (v) => typeof v === "boolean";
+const strList = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
 
+// ---- skills có sẵn (cùng thứ tự ưu tiên với extension) ----
+const skillDirs = [join(repo, ".agentroom", "skills"), join(repo, ".claude", "skills"), join(homedir(), ".claude", "skills")];
+const skills = new Set();
+for (const dir of skillDirs) {
+  if (!existsSync(dir)) continue;
+  for (const entry of readdirSync(dir)) {
+    if (entry.startsWith("_") || entry.startsWith(".")) continue;
+    const f = join(dir, entry, "SKILL.md");
+    if (!existsSync(f) || !statSync(join(dir, entry)).isDirectory()) continue;
+    const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(f, "utf8"));
+    let meta = {};
+    try { meta = m ? YAML.parse(m[1]) ?? {} : {}; } catch { /* bỏ qua */ }
+    if (!isStr(meta.description)) { errors.push(`Skill ${join(dir, entry)}: thiếu description trong frontmatter`); continue; }
+    const name = isStr(meta.name) ? meta.name : entry;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) { errors.push(`Skill ${join(dir, entry)}: tên "${name}" không hợp lệ (a-z, 0-9, '-')`); continue; }
+    skills.add(name);
+  }
+}
+
+// ---- accounts ----
 const accounts = cfg.accounts ?? {};
-if (typeof accounts !== "object" || !Object.keys(accounts).length) errors.push("accounts: phải có ít nhất 1 account");
+if (typeof accounts !== "object" || Array.isArray(accounts) || !Object.keys(accounts).length) errors.push("accounts: phải có ít nhất 1 account");
 for (const [id, a] of Object.entries(accounts)) {
   if (!["claude", "codex"].includes(a?.provider)) errors.push(`accounts.${id}.provider phải là claude hoặc codex`);
   if (a?.maxConcurrent !== undefined && !(Number.isInteger(a.maxConcurrent) && a.maxConcurrent >= 1)) errors.push(`accounts.${id}.maxConcurrent phải là số nguyên ≥ 1`);
+  if (a?.budgetUsdPerDay !== undefined && !(typeof a.budgetUsdPerDay === "number" && a.budgetUsdPerDay > 0)) errors.push(`accounts.${id}.budgetUsdPerDay phải là số > 0`);
+  if (a?.warnAtPercent !== undefined && !(typeof a.warnAtPercent === "number" && a.warnAtPercent >= 1 && a.warnAtPercent <= 100)) errors.push(`accounts.${id}.warnAtPercent phải nằm trong 1–100`);
   if (a?.provider === "claude" && (a?.maxConcurrent ?? 1) > 3) warns.push(`accounts.${id}: maxConcurrent > 3 dễ hết quota subscription`);
 }
 
+// ---- workers ----
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox"]);
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
-  if (!/^[a-z][a-z0-9_-]*$/.test(w?.id ?? "")) errors.push(`${at}.id phải bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 _ -`);
+  if (!ID.test(w?.id ?? "")) errors.push(`${at}.id phải bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 _ -`);
   if (ids.has(w?.id)) errors.push(`${at}: trùng id`);
   ids.add(w?.id);
-  if (w?.id === "all" || w?.id === "user" || w?.id === "system") errors.push(`${at}.id "${w.id}" là tên dành riêng`);
-  for (const k of ["name", "role", "account"]) if (typeof w?.[k] !== "string" || !w[k]) errors.push(`${at}.${k} bắt buộc (chuỗi)`);
+  if (["all", "user", "system"].includes(w?.id)) errors.push(`${at}.id "${w.id}" là tên dành riêng`);
+  for (const k of ["name", "role", "account"]) if (!isStr(w?.[k])) errors.push(`${at}.${k} bắt buộc (chuỗi)`);
   if (w?.account && !accounts[w.account]) errors.push(`${at}.account "${w.account}" không có trong accounts`);
-  for (const k of ["skills", "allowedTools"]) if (w?.[k] !== undefined && !(Array.isArray(w[k]) && w[k].every((s) => typeof s === "string"))) errors.push(`${at}.${k} phải là danh sách chuỗi`);
-  for (const k of ["worktree", "coordinator"]) if (w?.[k] !== undefined && typeof w[k] !== "boolean") errors.push(`${at}.${k} phải là true/false`);
+  for (const k of ["skills", "useSkills", "allowedTools"]) if (w?.[k] !== undefined && !strList(w[k])) errors.push(`${at}.${k} phải là danh sách chuỗi`);
+  for (const k of ["worktree", "coordinator"]) if (w?.[k] !== undefined && !isBool(w[k])) errors.push(`${at}.${k} phải là true/false`);
   if (w?.sandbox !== undefined && !["read-only", "workspace-write", "danger-full-access"].includes(w.sandbox)) errors.push(`${at}.sandbox không hợp lệ`);
   for (const k of Object.keys(w ?? {})) if (!known.has(k)) warns.push(`${at}: trường "${k}" không được dùng (bị bỏ qua)`);
+  for (const s of strList(w?.useSkills) ? w.useSkills : []) if (!skills.has(s)) errors.push(`${at}.useSkills "${s}" không tồn tại (tìm trong .agentroom/skills, .claude/skills, ~/.claude/skills)`);
   const provider = accounts[w?.account]?.provider;
   const tools = w?.allowedTools ?? [];
   if (provider === "claude" && tools.some((t) => /^(Edit|Write)$/.test(t)) && !w?.worktree) warns.push(`${at}: được Edit/Write toàn repo mà không có worktree`);
   if (provider === "claude" && tools.some((t) => t === "Bash")) warns.push(`${at}: "Bash" không giới hạn — nên dùng Bash(<lệnh>:*)`);
   if (provider === "codex" && w?.allowedTools) warns.push(`${at}: allowedTools không có tác dụng với Codex (dùng sandbox)`);
   if (provider === "codex" && w?.sandbox === "danger-full-access") warns.push(`${at}: sandbox danger-full-access — rủi ro cao`);
+  if (provider === "codex" && (w?.useSkills ?? []).length) warns.push(`${at}: Codex không lọc được skill theo worker; skill chỉ được nhắc trong prompt (mức kiểm soát lỏng hơn Claude)`);
+  const soul = join(repo, ".agentroom", "agents", w?.id ?? "?", "SOUL.md");
+  if (existsSync(soul) && /Viết tính cách, cách làm việc/.test(readFileSync(soul, "utf8"))) warns.push(`${at}: SOUL.md vẫn là bản mẫu chưa viết (.agentroom/agents/${w.id}/SOUL.md)`);
 }
 if (!workers.some((w) => w?.coordinator)) warns.push("Không có worker coordinator: tin nhắn không @mention sẽ không ai nhận");
 
+// ---- schedules ----
+const schedules = cfg.schedules ?? [];
+if (!Array.isArray(schedules)) errors.push("schedules: phải là danh sách");
+const schedIds = new Set();
+for (const [i, s] of (Array.isArray(schedules) ? schedules : []).entries()) {
+  const at = `schedules[${i}]${s?.id ? ` (${s.id})` : ""}`;
+  if (!ID.test(s?.id ?? "")) errors.push(`${at}.id không hợp lệ`);
+  if (schedIds.has(s?.id)) errors.push(`${at}: trùng id`);
+  schedIds.add(s?.id);
+  if (s?.worker !== "*" && !ids.has(s?.worker)) errors.push(`${at}.worker "${s?.worker}" không tồn tại (dùng "*" cho mọi worker)`);
+  if (!isStr(s?.cron)) errors.push(`${at}.cron bắt buộc`);
+  else {
+    try { new Cron(s.cron, { paused: true, timezone: s.timezone }).nextRun(); }
+    catch (e) { errors.push(`${at}: cron/timezone không hợp lệ (${e.message.split("\n")[0]})`); }
+  }
+  if (!s?.prompt === !s?.builtin) errors.push(`${at}: cần đúng một trong prompt hoặc builtin`);
+  if (s?.builtin !== undefined && s.builtin !== "consolidate-memory") errors.push(`${at}.builtin chỉ nhận consolidate-memory`);
+  if (s?.session !== undefined && !["fresh", "persistent"].includes(s.session)) errors.push(`${at}.session phải là fresh hoặc persistent`);
+  for (const k of ["skipIfRunning", "notify", "enabled"]) if (s?.[k] !== undefined && !isBool(s[k])) errors.push(`${at}.${k} phải là true/false`);
+  if (s?.catchUpHours !== undefined && !(typeof s.catchUpHours === "number" && s.catchUpHours >= 0)) errors.push(`${at}.catchUpHours phải là số ≥ 0`);
+  if (s?.worker === "*" && !s?.builtin) warns.push(`${at}: prompt chạy cho MỌI worker — tốn quota; cân nhắc chọn một worker`);
+}
+
+// ---- webhooks ----
+const webhooks = cfg.webhooks ?? [];
+if (!Array.isArray(webhooks)) errors.push("webhooks: phải là danh sách");
+const hookIds = new Set();
+for (const [i, h] of (Array.isArray(webhooks) ? webhooks : []).entries()) {
+  const at = `webhooks[${i}]${h?.id ? ` (${h.id})` : ""}`;
+  if (!ID.test(h?.id ?? "")) errors.push(`${at}.id không hợp lệ`);
+  if (hookIds.has(h?.id)) errors.push(`${at}: trùng id`);
+  hookIds.add(h?.id);
+  if (!ids.has(h?.worker)) errors.push(`${at}.worker "${h?.worker}" không tồn tại`);
+  if (!isStr(h?.prompt)) errors.push(`${at}.prompt bắt buộc`);
+  if (!h?.secretEnv && h?.allowUnsigned !== true) errors.push(`${at}: cần secretEnv (tên biến môi trường chứa HMAC secret) hoặc allowUnsigned: true chỉ để thử trên máy mình`);
+  if (h?.secretEnv !== undefined && !isStr(h.secretEnv)) errors.push(`${at}.secretEnv phải là chuỗi`);
+  if (h?.secretEnv && /^[A-Za-z0-9+/=_-]{20,}$/.test(h.secretEnv) && !/^[A-Z][A-Z0-9_]*$/.test(h.secretEnv)) errors.push(`${at}.secretEnv trông như một giá trị bí mật; chỉ ghi TÊN biến môi trường`);
+  if (h?.match !== undefined && (typeof h.match !== "object" || Array.isArray(h.match))) errors.push(`${at}.match phải là object {đường.dẫn: giá-trị}`);
+  if (h?.maxPerHour !== undefined && !(Number.isInteger(h.maxPerHour) && h.maxPerHour >= 1)) errors.push(`${at}.maxPerHour phải là số nguyên ≥ 1`);
+  if (h?.allowUnsigned === true) warns.push(`${at}: allowUnsigned — chỉ dùng thử trên máy mình, đừng mở tunnel`);
+  if (h?.readOnly !== true) warns.push(`${at}: readOnly chưa bật — dữ liệu từ bên ngoài sẽ chạy trong worker có quyền ghi; nên đặt readOnly: true`);
+  const tw = workers.find((w) => w?.id === h?.worker);
+  if (tw?.coordinator !== true && h?.readOnly !== true) warns.push(`${at}: gọi worker không phải coordinator với quyền ghi`);
+}
+
+// ---- file phụ trợ ----
 const gi = join(repo, ".agentroom", ".gitignore");
-if (!existsSync(gi) || !/worktrees/.test(readFileSync(gi, "utf8")) || !/state/.test(readFileSync(gi, "utf8"))) errors.push(".agentroom/.gitignore phải chứa state/ và worktrees/");
+const giText = existsSync(gi) ? readFileSync(gi, "utf8") : "";
+if (!/state\//.test(giText) || !/worktrees\//.test(giText)) errors.push(".agentroom/.gitignore phải chứa state/ và worktrees/");
+if (!/\.plugin\//.test(giText)) warns.push(".agentroom/.gitignore nên chứa .plugin/ (plugin skills tự sinh)");
+if (!/journal/.test(giText)) warns.push(".agentroom/.gitignore nên chứa agents/*/journal/ (nhật ký hằng ngày)");
 if (!existsSync(join(repo, "CLAUDE.md")) && workers.some((w) => accounts[w?.account]?.provider === "claude")) warns.push("Thiếu CLAUDE.md");
 if (!existsSync(join(repo, "AGENTS.md")) && workers.some((w) => accounts[w?.account]?.provider === "codex")) warns.push("Thiếu AGENTS.md");
 
 warns.forEach((m) => console.log("⚠", m));
 errors.forEach((m) => console.log("✗", m));
-console.log(errors.length ? `\nKHÔNG ĐẠT: ${errors.length} lỗi, ${warns.length} cảnh báo` : `\nĐẠT (${workers.length} worker, ${warns.length} cảnh báo)`);
+console.log(errors.length ? `\nKHÔNG ĐẠT: ${errors.length} lỗi, ${warns.length} cảnh báo` : `\nĐẠT (${workers.length} worker, ${schedIds.size} lịch, ${hookIds.size} webhook, ${warns.length} cảnh báo)`);
 process.exit(errors.length ? 1 : 0);

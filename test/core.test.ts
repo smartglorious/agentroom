@@ -1,15 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { parseConfig, SAMPLE_CONFIG } from "../src/core/config";
 import { parseMentions, route } from "../src/core/router";
 import { RateLimitError, Scheduler } from "../src/core/scheduler";
 import { TaskBoard } from "../src/core/tasks";
-import { Room } from "../src/core/room";
-import { RoomStore } from "../src/core/store";
-import { AgentAdapter, TurnRequest } from "../src/adapters/types";
+import { Fake, idle, makeRoom } from "./helpers";
 
 const cfg = parseConfig(SAMPLE_CONFIG);
 const W = cfg.workers;
@@ -65,34 +60,6 @@ test("scheduler: rate limit pauses the account and retries the job", async () =>
   assert.ok(Date.now() - t0 >= 15);
 });
 
-/** Fake adapter: replies by script, records prompts. */
-class Fake implements AgentAdapter {
-  prompts: { worker: string; prompt: string; session?: string }[] = [];
-  constructor(private reply: (req: TurnRequest) => string) {}
-  async runTurn(req: TurnRequest) {
-    this.prompts.push({ worker: req.worker.id, prompt: req.prompt, session: req.sessionId });
-    await new Promise((r) => setTimeout(r, 5));
-    return { sessionId: `s-${req.worker.id}`, text: this.reply(req) };
-  }
-}
-
-function makeRoom(fake: Fake, hops = 6) {
-  return new Room({
-    config: cfg,
-    store: new RoomStore(mkdtempSync(join(tmpdir(), "agentroom-"))),
-    adapters: { claude: fake, codex: fake },
-    scheduler: new Scheduler(),
-    options: { maxAgentHops: hops, contextMessages: 30 },
-    resolveCwd: async () => tmpdir(),
-    mcpUrl: (id) => `http://x/${id}`,
-  });
-}
-
-const idle = (room: Room) => new Promise<void>((resolve) => {
-  const check = () => (room.snapshot().statuses.every((s) => s.state === "idle" || s.state === "error") ? resolve() : setTimeout(check, 10));
-  setTimeout(check, 20);
-});
-
 test("room: lead delegates to be, be reports to qa, session is resumed", async () => {
   const fake = new Fake((req) => {
     if (req.worker.id === "lead") return req.prompt.includes("xong") ? "Tổng kết cho @user" : "@be làm API login";
@@ -100,7 +67,7 @@ test("room: lead delegates to be, be reports to qa, session is resumed", async (
     if (req.worker.id === "qa") return "Test pass. @lead xong";
     return "";
   });
-  const room = makeRoom(fake);
+  const { room } = makeRoom(fake);
   room.post("user", "Làm tính năng login");
   await idle(room);
   assert.deepEqual(fake.prompts.map((p) => p.worker), ["lead", "be", "qa", "lead"]);
@@ -110,7 +77,7 @@ test("room: lead delegates to be, be reports to qa, session is resumed", async (
 
 test("room: two agents pinging each other stop at the hop limit", async () => {
   const fake = new Fake((req) => (req.worker.id === "be" ? "@qa" : "@be"));
-  const room = makeRoom(fake, 4);
+  const { room } = makeRoom(fake, { options: { maxAgentHops: 4, contextMessages: 30, memoryBudgetChars: 12000 } });
   room.post("user", "@be bắt đầu");
   await idle(room);
   assert.equal(fake.prompts.length, 4);
@@ -118,9 +85,33 @@ test("room: two agents pinging each other stop at the hop limit", async () => {
 
 test("room: assigning a task notifies the assignee on a separate task session", async () => {
   const fake = new Fake(() => "ok");
-  const room = makeRoom(fake);
+  const { room } = makeRoom(fake);
   const t = room.createTask("lead", { title: "Viết API", assignee: "be" });
   await idle(room);
   assert.equal(fake.prompts.length, 1);
   assert.match(fake.prompts[0].prompt, new RegExp(t.id));
+});
+
+test("room: a failing worker is not re-invoked by its own error message", async () => {
+  const fake = new Fake(() => { throw new Error("boom"); });
+  const { room } = makeRoom(fake);
+  room.post("user", "@be làm đi");
+  await idle(room);
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(fake.calls.length, 1);
+  const err = room.snapshot().messages.find((m) => m.from === "system")!;
+  assert.match(err.text, /boom/);
+  assert.deepEqual(err.to, []);
+});
+
+test("room: completing a task does not wake the finisher", async () => {
+  const fake = new Fake(() => "ok");
+  const { room } = makeRoom(fake);
+  const t = room.createTask("lead", { title: "X", assignee: "be" });
+  await idle(room);
+  fake.calls.length = 0;
+  room.claimTask("be", t.id);
+  room.completeTask("be", t.id, "xong");
+  await idle(room);
+  assert.deepEqual(fake.calls.map((c) => c.worker.id), ["lead"]);
 });

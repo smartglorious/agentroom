@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ScheduleState } from "./cron";
 import { ChatMessage, Task } from "./types";
 
 /**
@@ -8,6 +9,7 @@ import { ChatMessage, Task } from "./types";
  *   tasks.json     — task board snapshot
  *   sessions.json  — "<worker>:<thread>" → provider session/thread id (for resume)
  *   cursors.json   — last message id each worker has seen
+ *   schedules.json — cron bookkeeping (last runs, disabled schedules)
  */
 export class RoomStore {
   constructor(readonly dir: string) {
@@ -34,6 +36,9 @@ export class RoomStore {
 
   loadCursors(): Record<string, number> { return this.readJson("cursors.json", {}); }
   saveCursors(c: Record<string, number>) { this.writeJson("cursors.json", c); }
+
+  loadSchedules(): ScheduleState { return this.readJson("schedules.json", { lastRun: {}, disabled: [], last: {} }); }
+  saveSchedules(s: ScheduleState) { this.writeJson("schedules.json", s); }
 
   private readJson<T>(name: string, fallback: T): T {
     const f = join(this.dir, name);

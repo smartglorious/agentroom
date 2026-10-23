@@ -2,6 +2,7 @@ import { createServer, IncomingMessage, Server } from "node:http";
 import { randomBytes } from "node:crypto";
 import { AddressInfo } from "node:net";
 import { z } from "zod";
+import { MemoryError, KINDS } from "../core/memory";
 import type { Room } from "../core/room";
 
 type McpSdk = typeof import("@modelcontextprotocol/sdk/server/mcp.js");
@@ -96,6 +97,40 @@ export class AgentRoomMcp {
       inputSchema: { id: z.string() },
     }, async ({ id }) => {
       try { return text(JSON.stringify(room.claimTask(me, id))); } catch (e) { return fail(e); }
+    });
+
+    const memo = <T>(fn: () => T) => { try { return text(JSON.stringify(fn())); } catch (e) { return e instanceof MemoryError ? fail(e) : fail(e); } };
+
+    server.registerTool("remember", {
+      description: "Ghi một điều đáng nhớ vào trí nhớ bền vững (còn nguyên ở các session sau). scope: me = riêng bạn, team = cả đội. Mỗi mục một ý, ≤ 500 ký tự, KHÔNG lưu bí mật.",
+      inputSchema: { scope: z.enum(["me", "team"]).default("me"), kind: z.enum(KINDS as [string, ...string[]]).default("fact"), text: z.string() },
+    }, async ({ scope, kind, text: t }) => memo(() => room.memory.add(scope, me, kind as never, t)));
+
+    server.registerTool("forget", {
+      description: "Xoá một mục trí nhớ theo id (vd M7). Mục kind=decision chỉ xoá được khi người dùng yêu cầu rõ (force=true).",
+      inputSchema: { scope: z.enum(["me", "team"]).default("me"), id: z.string(), force: z.boolean().default(false) },
+    }, async ({ scope, id, force }) => memo(() => room.memory.forget(scope, me, id, force)));
+
+    server.registerTool("recall", {
+      description: "Tìm trong trí nhớ và nhật ký 60 ngày gần nhất (khớp mọi từ khoá, không phân biệt hoa thường).",
+      inputSchema: { query: z.string(), limit: z.number().int().min(1).max(50).default(10) },
+    }, async ({ query, limit }) => {
+      const hits = room.memory.recall(me, query, limit);
+      return text(hits.length ? hits.map((h) => `[${h.where}] ${h.text}`).join("\n") : "(không có kết quả)");
+    });
+
+    server.registerTool("journal", {
+      description: "Ghi thêm một dòng vào nhật ký hôm nay của bạn (việc đã làm, vướng mắc).",
+      inputSchema: { text: z.string() },
+    }, async ({ text: t }) => {
+      try { room.memory.journal(me, t); return text("Đã ghi."); } catch (e) { return fail(e); }
+    });
+
+    server.registerTool("propose_skill", {
+      description: "Đề xuất một skill mới từ kinh nghiệm (quy trình lặp lại được). Skill chỉ có hiệu lực sau khi người dùng duyệt. name: a-z, 0-9, '-'. description: khi nào nên dùng. body: các bước (markdown).",
+      inputSchema: { name: z.string(), description: z.string(), body: z.string() },
+    }, async ({ name, description, body }) => {
+      try { room.proposeSkill(me, name, description, body); return text("Đã gửi đề xuất, chờ người dùng duyệt."); } catch (e) { return fail(e); }
     });
 
     server.registerTool("complete_task", {

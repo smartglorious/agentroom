@@ -10,6 +10,9 @@ export interface Account {
   apiKeyEnv?: string;
   /** How many turns may run at once on this account. */
   maxConcurrent: number;
+  /** Daily spend limit (API-equivalent USD). The account pauses at 100%. */
+  budgetUsdPerDay?: number;
+  warnAtPercent: number;
 }
 
 /** A persona: a role with skills, bound to a provider and a shared account. */
@@ -18,6 +21,8 @@ export interface Worker {
   name: string;
   role: string;
   skills: string[];
+  /** Real SKILL.md skills enabled for this worker (names from the skill registry). */
+  useSkills: string[];
   provider: Provider;
   account: string;
   model?: string;
@@ -32,9 +37,40 @@ export interface Worker {
   sandbox: "read-only" | "workspace-write" | "danger-full-access";
 }
 
+export interface ScheduleDef {
+  id: string;
+  /** Worker id, or "*" for every worker. */
+  worker: string;
+  cron: string;
+  timezone?: string;
+  prompt?: string;
+  builtin?: "consolidate-memory";
+  /** fresh: new session each run. persistent: one shared session per schedule. */
+  session: "fresh" | "persistent";
+  skipIfRunning: boolean;
+  catchUpHours: number;
+  notify: boolean;
+  enabled: boolean;
+}
+
+export interface WebhookDef {
+  id: string;
+  worker: string;
+  /** Env var holding the HMAC secret. Required unless allowUnsigned. */
+  secretEnv?: string;
+  /** Accept unsigned requests (local testing only). */
+  allowUnsigned: boolean;
+  match: Record<string, string | number | boolean>;
+  prompt: string;
+  maxPerHour: number;
+  readOnly: boolean;
+}
+
 export interface RoomConfig {
   accounts: Account[];
   workers: Worker[];
+  schedules: ScheduleDef[];
+  webhooks: WebhookDef[];
 }
 
 export const HUMAN = "user";
@@ -52,6 +88,10 @@ export interface ChatMessage {
   depth: number;
   /** Optional task the message belongs to (selects which session of a worker answers). */
   taskId?: string;
+  /** Turn that produced this message (for the Context Inspector). */
+  turnId?: string;
+  /** Run the recipients' turn with read-only tools (untrusted triggers such as webhooks). */
+  readOnly?: boolean;
 }
 
 export type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
@@ -68,7 +108,7 @@ export interface Task {
   updatedAt: number;
 }
 
-export type WorkerState = "idle" | "queued" | "working" | "waiting_approval" | "rate_limited" | "error";
+export type WorkerState = "idle" | "queued" | "working" | "waiting_approval" | "rate_limited" | "over_budget" | "error";
 
 export interface WorkerStatus {
   id: string;
@@ -81,4 +121,17 @@ export interface ApprovalRequest {
   workerId: string;
   tool: string;
   input: unknown;
+}
+
+/** Normalised token/cost numbers for one turn. */
+export interface TurnUsage {
+  model?: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Provider-reported (Claude) or estimated from the pricing table (Codex). */
+  costUsd?: number;
+  estimated: boolean;
+  numTurns?: number;
 }

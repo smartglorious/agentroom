@@ -1,5 +1,7 @@
 # AgentRoom — Thiết kế & Kế hoạch triển khai
 
+> Phần bổ sung v0.2–v0.4 (trí nhớ, skills, chi phí, Inspector, cron, webhook) nằm ở `docs/PLAN-v0.2.md`, kèm kết quả triển khai.
+
 > VS Code extension cho phép nhiều **AI worker** (mỗi worker là một persona: vai trò + kỹ năng + hướng dẫn riêng) chạy trên **Claude Code** hoặc **Codex**, dùng chung account, cùng làm việc trong **một group chat**.
 
 ## 1. Mục tiêu & phạm vi
@@ -101,7 +103,7 @@ be xong → complete_task(T1) → T2 (UI, dependsOn T1) mở → báo @fe
 | | 3.2 | Task board có dependency + tab Tasks | `tasks.ts`, `main.js` | 1 | Hoàn thành task → task phụ thuộc mở, người phụ trách được báo | ✅ |
 | | 3.3 | Git worktree theo worker | `worktree.ts` | 0.5 | Worker `worktree: true` làm việc trong `.agentroom/worktrees/<id>` | ✅ |
 | **P4 Hoàn thiện** | 4.1 | Review diff từng worktree + nút merge | `ui/diff.ts` (mới) | 2 | Mở diff `agentroom/<id>` so với nhánh chính; merge 1 click | ⬜ |
-| | 4.2 | Hiển thị chi phí/token theo worker & account | adapters, `main.js` | 1 | Claude `total_cost_usd`, Codex `usage` cộng dồn trên team bar | ⬜ |
+| | 4.2 | Hiển thị chi phí/token theo worker & account | adapters, `main.js` | 1 | Claude `total_cost_usd`, Codex `usage` cộng dồn trên team bar | ✅ (v0.3, xem `PLAN-v0.2.md`) |
 | | 4.3 | Tóm tắt ngữ cảnh dài (summary message định kỳ) | `prompt.ts` | 1.5 | Room > N tin nhắn → tự tạo bản tóm tắt dùng làm ngữ cảnh | ⬜ |
 | | 4.4 | Template đội ngũ (SOP: PM → Dev → QA), lệnh chọn template | `config.ts` | 1 | `AgentRoom: Init` cho chọn template | ⬜ |
 | | 4.5 | Codex qua `codex app-server` để có duyệt quyền tương tác | `adapters/codexAppServer.ts` (mới) | 2 | Lệnh Codex cần duyệt hiện thẻ như Claude | ⬜ |

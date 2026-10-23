@@ -275,3 +275,56 @@ webhooks:
 - **v0.4.0** = C
 
 Mỗi bản: typecheck, toàn bộ test, chạy thật một lượt Claude, đóng gói `.vsix`, cập nhật SETUP-GUIDE và validator.
+
+---
+
+## Kết quả triển khai (v0.4.0)
+
+Cả ba giai đoạn đã hoàn thành và được đóng gói thành v0.4.0. **59 test tự động đều đạt** và 3 kịch bản chạy thật với Claude đạt (`npm run test:live`, mỗi lần chạy tốn khoảng $0,1–0,3).
+
+| # | Hạng mục | Trạng thái | Ghi chú |
+|---|---|---|---|
+| A-1 | `MemoryStore` | ✅ | `src/core/memory.ts` |
+| A-2 | Trí nhớ vào persona + journal tự động | ✅ | Chạy thật: trí nhớ ghi ở session này có mặt ở session mới |
+| A-3 | Tool `remember`/`forget`/`recall`/`journal` | ✅ | Kiểm tra bằng MCP client thật |
+| A-4 | `SkillRegistry` | ✅ | `src/core/skills.ts` |
+| A-5 | Claude: plugin local + `skills` | ✅ | Chạy thật: skill được bật dùng được, skill không bật bị model từ chối |
+| A-6 | Codex: khối `<skills>` + `additionalDirectories` | ✅ (unit test) | **Chưa chạy thật** với Codex (môi trường chặn mạng tới OpenAI) |
+| A-7 | `propose_skill` + duyệt trên UI | ✅ | Bản nháp không có hiệu lực cho tới khi duyệt |
+| A-8 | Hồ sơ worker, lệnh, validator, SETUP-GUIDE | ✅ | Ví dụ trong SETUP-GUIDE được trích ra và chạy qua validator + parser thật |
+| B-1 | Usage chuẩn hoá từ adapter | ✅ | Claude: chi phí thật từ CLI. Codex: token + ước tính |
+| B-2 | `UsageStore` | ✅ | |
+| B-3 | Bảng giá Codex | ✅ | Mặc định **rỗng** (không đoán giá); model chưa có giá thì không có chi phí |
+| B-4 | Ngân sách ngày | ✅ | Cảnh báo một lần, dừng ở 100%, "Cho chạy tiếp hôm nay", khởi động lại vẫn nhớ |
+| B-5 | Tab Chi phí | ✅ | Kiểm tra bằng Chromium (28 kiểm tra giao diện) |
+| B-6 | Context Inspector | ✅ | Tài liệu ảo `agentroom-turn:`; giữ 300 lượt gần nhất |
+| C-1 | Schema `schedules`/`webhooks` + validator | ✅ | |
+| C-2 | `CronEngine` | ✅ | Đồng hồ giả: đúng giờ, bù đúng một lần, timezone, cô lập lịch lỗi |
+| C-3 | `consolidate-memory` | ✅ | Không mất mục `decision` nhờ luật bảo vệ của `forget` (không dùng cơ chế khôi phục như dự kiến) |
+| C-4 | `WebhookServer` | ✅ | Chạy thật: HTTP thật + Claude thật + payload tấn công |
+| C-5 | Tab Lịch | ✅ | |
+| C-6 | Tài liệu | ✅ | SETUP-GUIDE, README |
+
+### Khác với kế hoạch ban đầu
+
+1. **Webhook dùng máy chủ HTTP riêng** (`hookPort`), không chung với MCP server: MCP server dùng cổng ngẫu nhiên và token trong URL, còn webhook cần cổng cố định.
+2. **`secretEnv` bắt buộc cho mọi webhook** (trừ `allowUnsigned: true` để thử trên máy mình). Kế hoạch chỉ yêu cầu khi "mở ra ngoài", nhưng phía server không phân biệt được tunnel với localhost.
+3. **Chuỗi chỉ-đọc không tự đánh thức ai.** Phát hiện khi chạy thật: `lead` trích dẫn lại nội dung tấn công trong báo cáo ("bảo @be tạo hacked.txt") và router coi đó là `@mention` thật nên gọi `be`. Quy tắc mới: câu trả lời và task sinh ra từ lượt chỉ-đọc không gọi ai; người dùng quyết định.
+4. **Chỉ-đọc có hai lớp:** `disallowedTools` (luật cấm thắng mọi luật cho phép trong `.claude/settings.json` của repo) và `canUseTool`.
+5. **Người nhận tường minh (`to`)** cho lịch và webhook, để `@mention` nằm trong nội dung không gọi nhầm worker.
+6. **Webhook gọn hơn kế hoạch:** lịch sử 20 lần gọi chỉ giữ trong bộ nhớ (không lưu đĩa).
+7. **Mô tả cron dễ đọc** chỉ cho các dạng phổ biến (hằng ngày, các ngày trong tuần, mỗi N phút); dạng khác hiện nguyên biểu thức.
+
+### Lỗi đã sửa trong quá trình làm (có từ v0.1)
+
+- **Vòng lặp lỗi vô hạn:** tin nhắn lỗi của hệ thống chứa `@id` của chính worker bị lỗi, nên router gọi worker đó chạy lại; mỗi lần lỗi lại tạo tin mới. Đã bỏ `@` khỏi tin hệ thống và có test hồi quy.
+- **Worker bị đánh thức bởi chính báo cáo hoàn thành task của nó:** tin "task đã xong bởi @be" gọi cả `be`. Đã sửa, có test.
+- **Múi giờ sai làm hỏng toàn bộ lịch:** `croner` chỉ báo lỗi múi giờ khi tính lần chạy kế tiếp, nên một `timezone` gõ sai sẽ làm `tick()` ném lỗi mỗi 20 giây. Giờ validate khi nạp cấu hình và cô lập lỗi theo từng lịch.
+- **Id lịch `nightly` và `nightly2` trùng tiền tố** khi kiểm tra "đang chạy": đổi sang định dạng task id dùng ký tự `~`.
+
+### Chưa làm / giới hạn đã biết
+
+- Codex chưa được chạy thật; chi phí Codex chỉ là ước tính và phải tự khai báo giá.
+- Lịch chỉ chạy khi VS Code mở (giới hạn của VS Code extension).
+- Context Inspector không xem được system prompt của CLI và lịch sử session đã resume (chỉ thấy phần chênh lệch token).
+- Giao diện chưa được thử trong VS Code thật; đã thử bằng Chromium với API VS Code giả lập.

@@ -15,7 +15,7 @@
 5. **Sự thật lấy từ repo.** Lệnh build/test, cấu trúc thư mục, stack đều phải lấy từ file thật (package.json, Makefile, CI, …). Không đoán. Không tìm thấy thì ghi `TODO: xác nhận với người dùng`.
 6. Ghi lại mọi thứ đã làm để báo cáo ở Bước 9.
 
-## Kiến thức nền về AgentRoom v0.1 (để cấu hình đúng)
+## Kiến thức nền về AgentRoom v0.4 (để cấu hình đúng)
 
 - AgentRoom là VS Code extension. Nó đọc **`.agentroom/workers.yaml`** ở thư mục gốc workspace.
 - **Account** là một login Claude Code hoặc Codex dùng chung. **Worker** là một persona (vai trò, kỹ năng, hướng dẫn) chạy trên một account. Nhiều worker có thể dùng chung một account.
@@ -34,7 +34,19 @@
   Mọi thao tác ngoài danh sách sẽ hiện thẻ **Cho phép / Từ chối** để người dùng duyệt.
 - **Codex** không có bước duyệt. An toàn của Codex dựa vào `sandbox`: `read-only`, `workspace-write` (mặc định), hoặc `danger-full-access`.
 - Trạng thái chạy được lưu trong `.agentroom/state/`, worktree trong `.agentroom/worktrees/`. Cả hai **không** được commit.
-- Agent phối hợp qua các tool MCP `agentroom`: `post_message`, `read_channel`, `list_tasks`, `create_task`, `claim_task`, `complete_task`.
+- Agent phối hợp qua các tool MCP `agentroom`: `post_message`, `read_channel`, `list_tasks`, `create_task`, `claim_task`, `complete_task`, và các tool trí nhớ/skill: `remember`, `forget`, `recall`, `journal`, `propose_skill`.
+- **Trí nhớ bền vững** (mỗi worker, dạng file, nằm ở thư mục gốc workspace nên mọi session đều đọc chung):
+  - `.agentroom/agents/<id>/SOUL.md`: tính cách và cách làm việc. **Người dùng viết**, agent không tự sửa.
+  - `.agentroom/agents/<id>/MEMORY.md`: những điều đã chắt lọc, agent ghi qua tool `remember` (mỗi mục có id `[Mn]`, kind `fact`/`lesson`/`decision`). Mục `decision` được bảo vệ, chỉ xoá khi người dùng yêu cầu.
+  - `.agentroom/agents/<id>/journal/<ngày>.md`: nhật ký, hệ thống tự ghi một dòng sau mỗi lượt.
+  - `.agentroom/team/MEMORY.md`: trí nhớ chung của cả đội.
+  - Mỗi lượt, persona của worker chứa SOUL + trí nhớ + nhật ký gần đây (tối đa `agentroom.memoryBudgetChars`, mặc định 12000 ký tự). Nội dung giống khóa/mật khẩu bị từ chối khi ghi.
+- **Skills thật** (`useSkills`): quy trình dạng `SKILL.md` (frontmatter `name`, `description`). Tìm theo thứ tự `.agentroom/skills/<tên>/`, `.claude/skills/<tên>/`, `~/.claude/skills/<tên>/`. Claude chỉ thấy đúng skill được bật; Codex được nhắc trong prompt (mức kiểm soát lỏng hơn). Agent có thể `propose_skill`: bản nháp nằm ở `.agentroom/skills/_drafts/`, **chỉ có hiệu lực sau khi người dùng bấm Duyệt**.
+- **Chi phí và ngân sách**: mỗi lượt ghi vào `.agentroom/state/usage.jsonl`. Claude trả chi phí thật; Codex chỉ có token nên chi phí là **ước tính** theo setting `agentroom.pricing` (model không có trong bảng thì không có chi phí). `accounts.<id>.budgetUsdPerDay` tạm dừng account khi chạm 100% trong ngày (cảnh báo ở `warnAtPercent`).
+- **Context Inspector**: nút 🔍 trên tin nhắn của agent mở đúng những gì đã gửi cho model ở lượt đó (lưu `.agentroom/state/turns/`, giữ `agentroom.inspector.keepTurns` lượt gần nhất, mặc định 300).
+- **Lịch chạy (`schedules`)**: cron 5 trường, chỉ chạy khi VS Code đang mở. Lịch bị lỡ khi VS Code đóng được chạy bù **một** lần nếu trễ không quá `catchUpHours` (mặc định 6). `builtin: consolidate-memory` bảo worker tự gom trí nhớ.
+- **Webhook (`webhooks`)**: máy chủ chỉ nghe `127.0.0.1:<agentroom.hookPort>` (mặc định 47321), đường dẫn `/hook/<id>`. **Bắt buộc ký HMAC SHA-256** (header `X-Hub-Signature-256`, tương thích GitHub) với secret lấy từ biến môi trường `secretEnv`. Muốn nhận từ Internet thì người dùng tự mở tunnel.
+- **Chuỗi chỉ-đọc (nguồn không tin cậy)**: webhook có `readOnly: true` chạy worker chỉ với tool đọc (tool ghi/Bash/web bị cấm hẳn). Câu trả lời và task tạo ra trong lượt đó **không tự đánh thức ai** qua `@mention`; người dùng đọc rồi tự nhắn `@<worker> ...` để tiếp tục. Nội dung payload luôn được bọc trong `<untrusted_payload>`.
 
 ---
 
@@ -184,13 +196,21 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 
 **Không bao giờ** đưa vào: `Bash` (không giới hạn), `Bash(git push:*)`, `Bash(rm:*)`, hoặc `Edit` / `Write` không kèm đường dẫn.
 
+### 4.4 Luật cho trí nhớ, skills, ngân sách, lịch và webhook
+
+1. **SOUL.md**: mỗi worker có một bản, 5–15 dòng: cách làm việc, ưu tiên, điều không bao giờ làm. Soạn **nháp từ vai trò** của worker rồi để người dùng sửa (Bước 5.4). Không đưa thông tin bí mật vào.
+2. **Skills**: chỉ tạo skill cho quy trình **lặp lại và có nhiều bước** đã thấy trong repo (ví dụ "đổi schema DB", "thêm endpoint kèm test"). Mỗi skill một việc, `description` nói rõ *khi nào dùng*. Không tạo skill cho thứ đã có trong `CLAUDE.md`. Mỗi worker bật 0–4 skill.
+3. **Ngân sách**: account dùng API key thì đặt `budgetUsdPerDay` (hỏi người dùng con số). Account subscription thì **bỏ qua** (chi phí chỉ là giá trị tương đương); dùng `maxConcurrent` để kiểm soát.
+4. **Lịch**: chỉ thêm khi người dùng yêu cầu. Gợi ý hợp lý: `qa` chạy test ban đêm, `lead` viết standup buổi sáng, `memory-gc` hằng đêm (`worker: "*"`, `builtin: consolidate-memory`). Luôn đặt `timezone` theo người dùng.
+5. **Webhook**: chỉ thêm khi người dùng yêu cầu. Luôn `secretEnv` + `readOnly: true` + worker nhận là coordinator, `match` đủ hẹp (ví dụ chỉ `conclusion: failure`). Không bao giờ ghi giá trị secret vào file.
+
 🛑 **HỎI NGƯỜI DÙNG:** trình bảng phân công dự kiến (worker, vai trò, vùng, provider, model) và chờ đồng ý trước khi viết YAML.
 
 ---
 
 ## Bước 5: Viết `.agentroom/workers.yaml`
 
-### 5.1 Schema chính xác (v0.1)
+### 5.1 Schema chính xác (v0.4)
 
 **`accounts.<account-id>`**
 
@@ -200,6 +220,8 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `home` | | chuỗi | login mặc định | `~` được mở rộng |
 | `apiKeyEnv` | | chuỗi | | tên biến môi trường chứa key |
 | `maxConcurrent` | | số nguyên ≥ 1 | `1` | |
+| `budgetUsdPerDay` | | số > 0 | không giới hạn | tạm dừng account khi chi phí trong ngày chạm mức này |
+| `warnAtPercent` | | số 1–100 | `80` | cảnh báo trong chat |
 
 **`workers[]`**
 
@@ -209,13 +231,43 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `name` | ✔ | chuỗi | | tên hiển thị (có thể có dấu) |
 | `role` | ✔ | chuỗi | | |
 | `account` | ✔ | chuỗi | | phải có trong `accounts` |
-| `skills` | | danh sách chuỗi | `[]` | |
+| `skills` | | danh sách chuỗi | `[]` | thẻ mô tả, hiển thị cho đồng đội |
+| `useSkills` | | danh sách tên skill | `[]` | skill **thật** được bật (phải tồn tại) |
 | `model` | | chuỗi | mặc định của CLI | |
 | `instructions` | | chuỗi (dùng `\|` cho nhiều dòng) | `""` | |
 | `allowedTools` | | danh sách chuỗi | `[Read, Grep, Glob]` | chỉ Claude |
 | `worktree` | | bool | `false` | `true` cho mọi dev sửa code |
 | `coordinator` | | bool | `false` | ít nhất một worker nên là `true` |
 | `sandbox` | | `read-only` \| `workspace-write` \| `danger-full-access` | `workspace-write` | chỉ Codex |
+
+**`schedules[]`** (tùy chọn)
+
+| Trường | Bắt buộc | Kiểu | Mặc định | Ghi chú |
+|---|---|---|---|---|
+| `id` | ✔ | như id worker | | duy nhất |
+| `worker` | ✔ | id worker hoặc `"*"` | | `"*"` = mọi worker |
+| `cron` | ✔ | chuỗi cron 5 trường | | ví dụ `"0 2 * * 1-5"` (phải đặt trong nháy kép) |
+| `timezone` | | IANA | giờ máy | ví dụ `Asia/Ho_Chi_Minh` |
+| `prompt` | một trong hai | chuỗi | | nội dung giao cho worker |
+| `builtin` | một trong hai | `consolidate-memory` | | không dùng cùng `prompt` |
+| `session` | | `fresh` \| `persistent` | `fresh` | `fresh`: session mới mỗi lần |
+| `skipIfRunning` | | bool | `true` | bỏ qua nếu lần trước chưa xong |
+| `catchUpHours` | | số ≥ 0 | `6` | chạy bù một lần nếu bị lỡ không quá số giờ này |
+| `notify` | | bool | `false` | hiện thông báo VS Code khi worker trả lời |
+| `enabled` | | bool | `true` | |
+
+**`webhooks[]`** (tùy chọn)
+
+| Trường | Bắt buộc | Kiểu | Mặc định | Ghi chú |
+|---|---|---|---|---|
+| `id` | ✔ | như id worker | | URL: `http://127.0.0.1:<hookPort>/hook/<id>` |
+| `worker` | ✔ | id worker | | |
+| `prompt` | ✔ | chuỗi | | `{{a.b.c}}` được thay bằng trường của payload (một dòng, ≤ 500 ký tự) |
+| `secretEnv` | ✔ (hoặc `allowUnsigned`) | tên biến môi trường | | chứa HMAC secret; **chỉ ghi tên biến** |
+| `allowUnsigned` | | bool | `false` | chỉ để thử trên máy mình |
+| `match` | | object | `{}` | `{ "workflow_run.conclusion": failure }`: mọi cặp phải khớp |
+| `maxPerHour` | | số nguyên ≥ 1 | `6` | vượt thì trả 429 |
+| `readOnly` | | bool | `false` | **nên `true`**: chỉ tool đọc, chuỗi chỉ-đọc |
 
 Trường không có trong bảng sẽ bị bỏ qua.
 
@@ -253,6 +305,7 @@ workers:
     account: claude-main
     worktree: true
     skills: [NestJS, Prisma, PostgreSQL]
+    useSkills: [prisma-migration]          # chỉ khi skill này tồn tại (Bước 5.4)
     allowedTools:
       - Read
       - Grep
@@ -295,6 +348,29 @@ workers:
       Chỉ báo "đạt" khi test pass và không còn lỗi nghiêm trọng.
 ```
 
+Thêm vào cuối file **chỉ khi người dùng yêu cầu** lịch hoặc webhook (Bước 4.4):
+
+```yaml
+schedules:
+  - id: nightly-tests
+    worker: qa
+    cron: "0 2 * * 1-5"
+    timezone: Asia/Ho_Chi_Minh
+    prompt: Chạy toàn bộ test trên main. Nếu fail, tạo task cho đúng người phụ trách vùng.
+  - id: memory-gc
+    worker: "*"
+    cron: "0 3 * * *"
+    builtin: consolidate-memory
+
+webhooks:
+  - id: ci-failed
+    worker: lead
+    secretEnv: AGENTROOM_HOOK_SECRET
+    readOnly: true
+    match: { "workflow_run.conclusion": failure }
+    prompt: "CI fail ở nhánh {{workflow_run.head_branch}} ({{workflow_run.html_url}}). Tìm nguyên nhân và đề xuất người sửa."
+```
+
 ### 5.3 Viết `instructions` tốt
 
 Mỗi worker cần có:
@@ -307,6 +383,37 @@ Không lặp lại nội dung đã có trong `CLAUDE.md`. Giữ dưới 15 dòng
 
 ---
 
+### 5.4 Viết `SOUL.md` và skills
+
+**SOUL.md** (mỗi worker). Extension tự tạo file mẫu khi nạp cấu hình; nếu chưa có thì tạo tay `.agentroom/agents/<id>/SOUL.md`. Viết nháp từ vai trò và `instructions`, ví dụ:
+
+```markdown
+# Minh (@be) — SOUL
+Bạn cẩn thận, ưa giải pháp đơn giản nhất chạy được.
+- Viết test trước khi sửa lỗi; không sửa migration cũ.
+- Gặp yêu cầu mơ hồ thì hỏi @lead một câu cụ thể thay vì đoán.
+- Không bao giờ chạm vào `infra/` hay file `.env`.
+```
+
+Báo người dùng: đây là bản **nháp**, họ nên sửa cho đúng ý. Đừng ghi quá 15 dòng. Validator sẽ cảnh báo nếu file vẫn là bản mẫu rỗng.
+
+**Skills.** Với mỗi quy trình lặp lại xác định ở Bước 4.4, tạo `.agentroom/skills/<tên>/SKILL.md`:
+
+```markdown
+---
+name: prisma-migration
+description: Dùng khi cần thay đổi schema DB. Tạo migration mới (không sửa migration cũ), chạy migrate rồi test.
+---
+1. Sửa `apps/api/prisma/schema.prisma`.
+2. `pnpm --filter api prisma migrate dev --name <mô tả ngắn>`.
+3. Chạy `pnpm --filter api test`; sửa tới khi pass.
+4. Báo @fe nếu API contract đổi.
+```
+
+Quy tắc: `name` chỉ gồm `a-z 0-9 -` và trùng tên thư mục; `description` bắt buộc và nói *khi nào dùng*; các bước lấy từ quy trình thật của repo (CONTRIBUTING, CI, lịch sử commit), không bịa. Sau đó thêm tên skill vào `useSkills` của đúng worker. Không đặt bí mật trong skill (file vẫn đọc được qua Read/Bash).
+
+---
+
 ## Bước 6: `.gitignore`
 
 Tạo `.agentroom/.gitignore` với nội dung:
@@ -314,10 +421,12 @@ Tạo `.agentroom/.gitignore` với nội dung:
 ```
 state/
 worktrees/
+.plugin/
 survey.md
+agents/*/journal/
 ```
 
-Nếu `.gitignore` ở thư mục gốc đang ignore toàn bộ `.agentroom`, hãy báo người dùng. `workers.yaml` **nên** được commit để cả team dùng chung.
+Nếu `.gitignore` ở thư mục gốc đang ignore toàn bộ `.agentroom`, hãy báo người dùng. **Nên commit** để cả team dùng chung: `workers.yaml`, `skills/`, `agents/*/SOUL.md`, `agents/*/MEMORY.md`, `team/MEMORY.md`. **Không commit**: `state/` (chứa lịch sử chat, chi phí, nội dung gửi cho model), `worktrees/`, `.plugin/`, nhật ký.
 
 **Kiểm tra:** `git check-ignore -v .agentroom/worktrees/x .agentroom/state/x` in ra 2 dòng, và `git check-ignore .agentroom/workers.yaml` không in gì.
 
@@ -351,7 +460,7 @@ Tạo script kiểm tra **ngoài repo** (để không làm bẩn repo) rồi ch�
 ```bash
 CHECK_DIR="$(mktemp -d)"
 # Ghi nội dung ở Phụ lục A vào "$CHECK_DIR/validate-agentroom.mjs"
-(cd "$CHECK_DIR" && npm init -y >/dev/null && npm i --silent yaml)
+(cd "$CHECK_DIR" && npm init -y >/dev/null && npm i --silent yaml croner)
 node "$CHECK_DIR/validate-agentroom.mjs" "$(git rev-parse --show-toplevel)"
 ```
 
@@ -364,6 +473,9 @@ Kiểm tra thủ công thêm:
 - [ ] Mỗi vùng ở Bước 2 có đúng một người phụ trách (khớp bảng "Vùng sở hữu" trong `CLAUDE.md`).
 - [ ] Đường dẫn trong `Edit(...)` / `Write(...)` tồn tại thật (`ls <đường dẫn>`).
 - [ ] Lệnh trong `Bash(...)` khớp lệnh thật ở Bước 2.
+- [ ] Mọi tên trong `useSkills` có `SKILL.md` thật; mỗi skill có `description` nói rõ khi nào dùng.
+- [ ] Mỗi worker có `SOUL.md` đã viết nháp (không còn là bản mẫu rỗng).
+- [ ] Mỗi webhook có `secretEnv` (chỉ là **tên** biến), `readOnly: true`, `match` hẹp; lịch có `timezone`.
 - [ ] Không có giá trị bí mật trong YAML, CLAUDE.md hay AGENTS.md (`grep -nEi "sk-|api[_-]?key\s*[:=]\s*\S{12,}|password" CLAUDE.md AGENTS.md .agentroom/workers.yaml` không ra kết quả đáng ngờ).
 
 ---
@@ -376,6 +488,9 @@ Gửi người dùng báo cáo gồm:
 2. **Bảng đội:** id, tên, vai trò, vùng, provider, model.
 3. **Kết quả kiểm tra** ở Bước 8 và các cảnh báo được giữ lại.
 4. **Việc người dùng cần tự làm:**
+   - Đọc và sửa các `SOUL.md` nháp.
+   - Nếu có webhook: đặt biến môi trường `secretEnv` (giá trị là một chuỗi ngẫu nhiên dài) **trước khi mở VS Code**, và dùng cùng giá trị đó làm secret khi cấu hình webhook ở bên gửi (GitHub: Settings → Webhooks → Secret). Muốn nhận từ GitHub thì tự mở tunnel tới cổng `agentroom.hookPort`.
+   - Nếu dùng Codex và muốn thấy chi phí: điền `agentroom.pricing` trong Settings (USD / 1 triệu token). Bỏ trống thì Codex chỉ hiện token.
    - Cài extension AgentRoom (file `.vsix`: Extensions → `…` → Install from VSIX).
    - Đăng nhập `claude` / `codex` nếu chưa.
    - Mở repo trong VS Code → biểu tượng AgentRoom ở activity bar. Nếu chưa thấy worker: `Ctrl+Shift+P` → **AgentRoom: Nạp lại workers.yaml**.
@@ -399,6 +514,13 @@ Gửi người dùng báo cáo gồm:
 | Trạng thái "hết quota" | Account dùng chung bị giới hạn | Giảm `maxConcurrent`, ít worker hơn, hoặc thêm account |
 | Worktree thiếu dependency hoặc `.env` | Worktree là checkout mới | Chạy lệnh cài trong worktree; copy `.env` nếu được phép |
 | Hai agent nhắn qua lại không dứt | Instructions khuyến khích @mention lẫn nhau | Sửa instructions; giảm `agentroom.maxAgentHops` |
+| Tab "Chi phí" không có số tiền cho Codex | Chưa khai báo giá | Điền `agentroom.pricing` cho đúng tên model; bỏ trống thì chỉ có token |
+| Account tự dừng, worker báo "hết ngân sách" | Chạm `budgetUsdPerDay` | Bấm "Cho chạy tiếp hôm nay" ở tab Chi phí, hoặc nâng ngân sách |
+| Lịch không chạy | VS Code đang đóng, hoặc lịch bị tắt | Lịch chỉ chạy khi VS Code mở; xem tab Lịch. Bị lỡ quá `catchUpHours` thì bỏ qua |
+| Webhook trả 401 | Sai chữ ký hoặc secret khác nhau | Secret ở bên gửi phải bằng giá trị của biến `secretEnv` |
+| Webhook trả 503 | Biến môi trường `secretEnv` chưa được đặt cho VS Code | Đặt biến rồi khởi động lại VS Code |
+| Webhook chạy nhưng không ai làm tiếp | Chuỗi chỉ-đọc không tự gọi ai | Đúng thiết kế: đọc báo cáo rồi nhắn `@<worker> ...` để tiếp tục |
+| Cảnh báo "skills" khi nạp | `useSkills` trỏ tới skill không tồn tại, hoặc `SKILL.md` thiếu `description` | Chạy lại Bước 8, sửa theo thông báo |
 | Codex sửa file ngoài vùng | Codex không có thẻ duyệt | Nhắc vùng trong `instructions`; dùng `sandbox: read-only` cho vai trò chỉ đọc |
 
 ---
@@ -406,60 +528,143 @@ Gửi người dùng báo cáo gồm:
 ## Phụ lục A: `validate-agentroom.mjs`
 
 ```js
-// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.1.
+// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.4.
 // Cách chạy: node validate-agentroom.mjs <đường-dẫn-repo>
-import { readFileSync, existsSync } from "node:fs";
+// Cần: npm i yaml croner (cài ở thư mục tạm, không cài vào repo).
+import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const YAML = require("yaml");
+const { Cron } = require("croner");
 
 const repo = process.argv[2] ?? ".";
 const file = join(repo, ".agentroom", "workers.yaml");
 const errors = [], warns = [];
 if (!existsSync(file)) { console.error(`✗ Không có ${file}`); process.exit(1); }
 const cfg = YAML.parse(readFileSync(file, "utf8")) ?? {};
+const ID = /^[a-z][a-z0-9_-]*$/;
+const isStr = (v) => typeof v === "string" && v.length > 0;
+const isBool = (v) => typeof v === "boolean";
+const strList = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
 
+// ---- skills có sẵn (cùng thứ tự ưu tiên với extension) ----
+const skillDirs = [join(repo, ".agentroom", "skills"), join(repo, ".claude", "skills"), join(homedir(), ".claude", "skills")];
+const skills = new Set();
+for (const dir of skillDirs) {
+  if (!existsSync(dir)) continue;
+  for (const entry of readdirSync(dir)) {
+    if (entry.startsWith("_") || entry.startsWith(".")) continue;
+    const f = join(dir, entry, "SKILL.md");
+    if (!existsSync(f) || !statSync(join(dir, entry)).isDirectory()) continue;
+    const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(f, "utf8"));
+    let meta = {};
+    try { meta = m ? YAML.parse(m[1]) ?? {} : {}; } catch { /* bỏ qua */ }
+    if (!isStr(meta.description)) { errors.push(`Skill ${join(dir, entry)}: thiếu description trong frontmatter`); continue; }
+    const name = isStr(meta.name) ? meta.name : entry;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) { errors.push(`Skill ${join(dir, entry)}: tên "${name}" không hợp lệ (a-z, 0-9, '-')`); continue; }
+    skills.add(name);
+  }
+}
+
+// ---- accounts ----
 const accounts = cfg.accounts ?? {};
-if (typeof accounts !== "object" || !Object.keys(accounts).length) errors.push("accounts: phải có ít nhất 1 account");
+if (typeof accounts !== "object" || Array.isArray(accounts) || !Object.keys(accounts).length) errors.push("accounts: phải có ít nhất 1 account");
 for (const [id, a] of Object.entries(accounts)) {
   if (!["claude", "codex"].includes(a?.provider)) errors.push(`accounts.${id}.provider phải là claude hoặc codex`);
   if (a?.maxConcurrent !== undefined && !(Number.isInteger(a.maxConcurrent) && a.maxConcurrent >= 1)) errors.push(`accounts.${id}.maxConcurrent phải là số nguyên ≥ 1`);
+  if (a?.budgetUsdPerDay !== undefined && !(typeof a.budgetUsdPerDay === "number" && a.budgetUsdPerDay > 0)) errors.push(`accounts.${id}.budgetUsdPerDay phải là số > 0`);
+  if (a?.warnAtPercent !== undefined && !(typeof a.warnAtPercent === "number" && a.warnAtPercent >= 1 && a.warnAtPercent <= 100)) errors.push(`accounts.${id}.warnAtPercent phải nằm trong 1–100`);
   if (a?.provider === "claude" && (a?.maxConcurrent ?? 1) > 3) warns.push(`accounts.${id}: maxConcurrent > 3 dễ hết quota subscription`);
 }
 
+// ---- workers ----
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox"]);
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
-  if (!/^[a-z][a-z0-9_-]*$/.test(w?.id ?? "")) errors.push(`${at}.id phải bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 _ -`);
+  if (!ID.test(w?.id ?? "")) errors.push(`${at}.id phải bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 _ -`);
   if (ids.has(w?.id)) errors.push(`${at}: trùng id`);
   ids.add(w?.id);
-  if (w?.id === "all" || w?.id === "user" || w?.id === "system") errors.push(`${at}.id "${w.id}" là tên dành riêng`);
-  for (const k of ["name", "role", "account"]) if (typeof w?.[k] !== "string" || !w[k]) errors.push(`${at}.${k} bắt buộc (chuỗi)`);
+  if (["all", "user", "system"].includes(w?.id)) errors.push(`${at}.id "${w.id}" là tên dành riêng`);
+  for (const k of ["name", "role", "account"]) if (!isStr(w?.[k])) errors.push(`${at}.${k} bắt buộc (chuỗi)`);
   if (w?.account && !accounts[w.account]) errors.push(`${at}.account "${w.account}" không có trong accounts`);
-  for (const k of ["skills", "allowedTools"]) if (w?.[k] !== undefined && !(Array.isArray(w[k]) && w[k].every((s) => typeof s === "string"))) errors.push(`${at}.${k} phải là danh sách chuỗi`);
-  for (const k of ["worktree", "coordinator"]) if (w?.[k] !== undefined && typeof w[k] !== "boolean") errors.push(`${at}.${k} phải là true/false`);
+  for (const k of ["skills", "useSkills", "allowedTools"]) if (w?.[k] !== undefined && !strList(w[k])) errors.push(`${at}.${k} phải là danh sách chuỗi`);
+  for (const k of ["worktree", "coordinator"]) if (w?.[k] !== undefined && !isBool(w[k])) errors.push(`${at}.${k} phải là true/false`);
   if (w?.sandbox !== undefined && !["read-only", "workspace-write", "danger-full-access"].includes(w.sandbox)) errors.push(`${at}.sandbox không hợp lệ`);
   for (const k of Object.keys(w ?? {})) if (!known.has(k)) warns.push(`${at}: trường "${k}" không được dùng (bị bỏ qua)`);
+  for (const s of strList(w?.useSkills) ? w.useSkills : []) if (!skills.has(s)) errors.push(`${at}.useSkills "${s}" không tồn tại (tìm trong .agentroom/skills, .claude/skills, ~/.claude/skills)`);
   const provider = accounts[w?.account]?.provider;
   const tools = w?.allowedTools ?? [];
   if (provider === "claude" && tools.some((t) => /^(Edit|Write)$/.test(t)) && !w?.worktree) warns.push(`${at}: được Edit/Write toàn repo mà không có worktree`);
   if (provider === "claude" && tools.some((t) => t === "Bash")) warns.push(`${at}: "Bash" không giới hạn — nên dùng Bash(<lệnh>:*)`);
   if (provider === "codex" && w?.allowedTools) warns.push(`${at}: allowedTools không có tác dụng với Codex (dùng sandbox)`);
   if (provider === "codex" && w?.sandbox === "danger-full-access") warns.push(`${at}: sandbox danger-full-access — rủi ro cao`);
+  if (provider === "codex" && (w?.useSkills ?? []).length) warns.push(`${at}: Codex không lọc được skill theo worker; skill chỉ được nhắc trong prompt (mức kiểm soát lỏng hơn Claude)`);
+  const soul = join(repo, ".agentroom", "agents", w?.id ?? "?", "SOUL.md");
+  if (existsSync(soul) && /Viết tính cách, cách làm việc/.test(readFileSync(soul, "utf8"))) warns.push(`${at}: SOUL.md vẫn là bản mẫu chưa viết (.agentroom/agents/${w.id}/SOUL.md)`);
 }
 if (!workers.some((w) => w?.coordinator)) warns.push("Không có worker coordinator: tin nhắn không @mention sẽ không ai nhận");
 
+// ---- schedules ----
+const schedules = cfg.schedules ?? [];
+if (!Array.isArray(schedules)) errors.push("schedules: phải là danh sách");
+const schedIds = new Set();
+for (const [i, s] of (Array.isArray(schedules) ? schedules : []).entries()) {
+  const at = `schedules[${i}]${s?.id ? ` (${s.id})` : ""}`;
+  if (!ID.test(s?.id ?? "")) errors.push(`${at}.id không hợp lệ`);
+  if (schedIds.has(s?.id)) errors.push(`${at}: trùng id`);
+  schedIds.add(s?.id);
+  if (s?.worker !== "*" && !ids.has(s?.worker)) errors.push(`${at}.worker "${s?.worker}" không tồn tại (dùng "*" cho mọi worker)`);
+  if (!isStr(s?.cron)) errors.push(`${at}.cron bắt buộc`);
+  else {
+    try { new Cron(s.cron, { paused: true, timezone: s.timezone }).nextRun(); }
+    catch (e) { errors.push(`${at}: cron/timezone không hợp lệ (${e.message.split("\n")[0]})`); }
+  }
+  if (!s?.prompt === !s?.builtin) errors.push(`${at}: cần đúng một trong prompt hoặc builtin`);
+  if (s?.builtin !== undefined && s.builtin !== "consolidate-memory") errors.push(`${at}.builtin chỉ nhận consolidate-memory`);
+  if (s?.session !== undefined && !["fresh", "persistent"].includes(s.session)) errors.push(`${at}.session phải là fresh hoặc persistent`);
+  for (const k of ["skipIfRunning", "notify", "enabled"]) if (s?.[k] !== undefined && !isBool(s[k])) errors.push(`${at}.${k} phải là true/false`);
+  if (s?.catchUpHours !== undefined && !(typeof s.catchUpHours === "number" && s.catchUpHours >= 0)) errors.push(`${at}.catchUpHours phải là số ≥ 0`);
+  if (s?.worker === "*" && !s?.builtin) warns.push(`${at}: prompt chạy cho MỌI worker — tốn quota; cân nhắc chọn một worker`);
+}
+
+// ---- webhooks ----
+const webhooks = cfg.webhooks ?? [];
+if (!Array.isArray(webhooks)) errors.push("webhooks: phải là danh sách");
+const hookIds = new Set();
+for (const [i, h] of (Array.isArray(webhooks) ? webhooks : []).entries()) {
+  const at = `webhooks[${i}]${h?.id ? ` (${h.id})` : ""}`;
+  if (!ID.test(h?.id ?? "")) errors.push(`${at}.id không hợp lệ`);
+  if (hookIds.has(h?.id)) errors.push(`${at}: trùng id`);
+  hookIds.add(h?.id);
+  if (!ids.has(h?.worker)) errors.push(`${at}.worker "${h?.worker}" không tồn tại`);
+  if (!isStr(h?.prompt)) errors.push(`${at}.prompt bắt buộc`);
+  if (!h?.secretEnv && h?.allowUnsigned !== true) errors.push(`${at}: cần secretEnv (tên biến môi trường chứa HMAC secret) hoặc allowUnsigned: true chỉ để thử trên máy mình`);
+  if (h?.secretEnv !== undefined && !isStr(h.secretEnv)) errors.push(`${at}.secretEnv phải là chuỗi`);
+  if (h?.secretEnv && /^[A-Za-z0-9+/=_-]{20,}$/.test(h.secretEnv) && !/^[A-Z][A-Z0-9_]*$/.test(h.secretEnv)) errors.push(`${at}.secretEnv trông như một giá trị bí mật; chỉ ghi TÊN biến môi trường`);
+  if (h?.match !== undefined && (typeof h.match !== "object" || Array.isArray(h.match))) errors.push(`${at}.match phải là object {đường.dẫn: giá-trị}`);
+  if (h?.maxPerHour !== undefined && !(Number.isInteger(h.maxPerHour) && h.maxPerHour >= 1)) errors.push(`${at}.maxPerHour phải là số nguyên ≥ 1`);
+  if (h?.allowUnsigned === true) warns.push(`${at}: allowUnsigned — chỉ dùng thử trên máy mình, đừng mở tunnel`);
+  if (h?.readOnly !== true) warns.push(`${at}: readOnly chưa bật — dữ liệu từ bên ngoài sẽ chạy trong worker có quyền ghi; nên đặt readOnly: true`);
+  const tw = workers.find((w) => w?.id === h?.worker);
+  if (tw?.coordinator !== true && h?.readOnly !== true) warns.push(`${at}: gọi worker không phải coordinator với quyền ghi`);
+}
+
+// ---- file phụ trợ ----
 const gi = join(repo, ".agentroom", ".gitignore");
-if (!existsSync(gi) || !/worktrees/.test(readFileSync(gi, "utf8")) || !/state/.test(readFileSync(gi, "utf8"))) errors.push(".agentroom/.gitignore phải chứa state/ và worktrees/");
+const giText = existsSync(gi) ? readFileSync(gi, "utf8") : "";
+if (!/state\//.test(giText) || !/worktrees\//.test(giText)) errors.push(".agentroom/.gitignore phải chứa state/ và worktrees/");
+if (!/\.plugin\//.test(giText)) warns.push(".agentroom/.gitignore nên chứa .plugin/ (plugin skills tự sinh)");
+if (!/journal/.test(giText)) warns.push(".agentroom/.gitignore nên chứa agents/*/journal/ (nhật ký hằng ngày)");
 if (!existsSync(join(repo, "CLAUDE.md")) && workers.some((w) => accounts[w?.account]?.provider === "claude")) warns.push("Thiếu CLAUDE.md");
 if (!existsSync(join(repo, "AGENTS.md")) && workers.some((w) => accounts[w?.account]?.provider === "codex")) warns.push("Thiếu AGENTS.md");
 
 warns.forEach((m) => console.log("⚠", m));
 errors.forEach((m) => console.log("✗", m));
-console.log(errors.length ? `\nKHÔNG ĐẠT: ${errors.length} lỗi, ${warns.length} cảnh báo` : `\nĐẠT (${workers.length} worker, ${warns.length} cảnh báo)`);
+console.log(errors.length ? `\nKHÔNG ĐẠT: ${errors.length} lỗi, ${warns.length} cảnh báo` : `\nĐẠT (${workers.length} worker, ${schedIds.size} lịch, ${hookIds.size} webhook, ${warns.length} cảnh báo)`);
 process.exit(errors.length ? 1 : 0);
 ```
