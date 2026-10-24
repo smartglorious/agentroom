@@ -9,6 +9,10 @@ export interface Account {
   home?: string;
   /** Env var holding an API key (ANTHROPIC_API_KEY / OPENAI_API_KEY style). */
   apiKeyEnv?: string;
+  /** Claude: send requests to another Anthropic-compatible endpoint (for example DeepSeek's) instead of Anthropic. */
+  baseUrl?: string;
+  /** Claude, with baseUrl: name of the env var holding that endpoint's token. The token itself never goes in workers.yaml. */
+  authTokenEnv?: string;
   /** How many turns may run at once on this account. */
   maxConcurrent: number;
   /** Daily spend limit (API-equivalent USD). The account pauses at 100%. */

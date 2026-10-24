@@ -199,3 +199,22 @@ test("prompt: notices the room posts for the person (addressed to nobody) are no
   assert.ok(!last.prompt.includes("đã dùng 90%"));
   assert.match(last.prompt, /\bb\b/);
 });
+
+import { accountEnv } from "../src/adapters/types";
+
+test("account gateway: baseUrl + authTokenEnv point Claude at another endpoint and never send an Anthropic key there", () => {
+  const save = { ...process.env };
+  process.env.ANTHROPIC_API_KEY = "sk-ant-real"; process.env.DEEPSEEK_API_KEY = "ds-token"; delete process.env.ANTHROPIC_BASE_URL;
+  try {
+    const cfg = parseConfig(`accounts:\n  ds: { provider: claude, baseUrl: "https://api.deepseek.com/anthropic", authTokenEnv: DEEPSEEK_API_KEY }\n  main: { provider: claude }\nworkers:\n  - { id: be, name: B, role: R, account: ds }\n`);
+    const ds = accountEnv(cfg.accounts[0], "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY");
+    assert.equal(ds.ANTHROPIC_BASE_URL, "https://api.deepseek.com/anthropic");
+    assert.equal(ds.ANTHROPIC_AUTH_TOKEN, "ds-token");
+    assert.equal(ds.ANTHROPIC_API_KEY, undefined, "the Anthropic key is not leaked to the other endpoint");
+    const plain = accountEnv(cfg.accounts[1], "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY");
+    assert.equal(plain.ANTHROPIC_BASE_URL, undefined);
+    assert.equal(plain.ANTHROPIC_API_KEY, "sk-ant-real");
+    assert.throws(() => parseConfig(`accounts:\n  ds: { provider: claude, baseUrl: "https://x.example", authTokenEnv: "sk-abc 123" }\nworkers:\n  - { id: be, name: B, role: R, account: ds }\n`), /authTokenEnv/);
+    assert.throws(() => parseConfig(`accounts:\n  ds: { provider: claude, baseUrl: "not a url" }\nworkers:\n  - { id: be, name: B, role: R, account: ds }\n`));
+  } finally { for (const k of ["ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_BASE_URL"]) { if (save[k] === undefined) delete process.env[k]; else process.env[k] = save[k]; } }
+});
