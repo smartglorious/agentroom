@@ -278,7 +278,8 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 
 | Khóa | Kiểu | Mặc định | Ý nghĩa |
 |---|---|---|---|
-| `chainTurns` | số nguyên 2–100 | `10` | Số lượt worker tối đa mà MỘT tin nhắn của người dùng (hoặc một lịch/webhook) được phép kéo theo. Hết thì tạm dừng và báo |
+| `chainTurns` | số nguyên 2–100 | `6` | Số lượt worker tối đa mà MỘT tin nhắn của người dùng (hoặc một lịch/webhook) được phép kéo theo. Hết thì tạm dừng và báo |
+| `maxFanout` | số nguyên 1–20 | `3` | Số worker tối đa mà MỘT tin của worker được đánh thức (những người được @mention đầu tiên). Tin của người dùng không bị giới hạn. Mỗi worker được gọi phải đọc lại cả session nên đây là khoản tốn nhất |
 | `usdPerTask` | số > 0 | không giới hạn | Task đã tốn bằng này (USD) thì các worker thôi làm tiếp việc đó với nhau; bạn vẫn nhắn vào task để tiếp tục |
 
 **`schedules[]`** (tùy chọn)
@@ -762,10 +763,11 @@ for (const [i, s] of (Array.isArray(schedules) ? schedules : []).entries()) {
 // ---- limits ----
 if (cfg.limits !== undefined) {
   const l = cfg.limits;
-  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, usdPerTask }");
+  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, maxFanout, usdPerTask }");
   else {
-    for (const k of Object.keys(l)) if (!["chainTurns", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
+    for (const k of Object.keys(l)) if (!["chainTurns", "maxFanout", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
     if (l.chainTurns !== undefined && !(Number.isInteger(l.chainTurns) && l.chainTurns >= 2 && l.chainTurns <= 100)) errors.push("limits.chainTurns phải là số nguyên từ 2 đến 100");
+    if (l.maxFanout !== undefined && !(Number.isInteger(l.maxFanout) && l.maxFanout >= 1 && l.maxFanout <= 20)) errors.push("limits.maxFanout phải là số nguyên 1-20");
     if (l.usdPerTask !== undefined && !(typeof l.usdPerTask === "number" && l.usdPerTask > 0)) errors.push("limits.usdPerTask phải là số > 0");
   }
 }

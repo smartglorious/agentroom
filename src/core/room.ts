@@ -251,7 +251,7 @@ export class Room extends EventEmitter<RoomEvents> {
     const replyBack = from === HUMAN && target && this.hasWorker(target.from) && !parseMentions(text, this.workers).length ? [target.from] : undefined;
     // A slash command registered by a plugin is for the plugin, not for the workers.
     const command = from === HUMAN && !opts.to ? this.deps.plugins?.matchCommand(text) : undefined;
-    const to = command ? [] : opts.to ? opts.to.filter((id) => this.hasWorker(id)) : replyBack ?? (readOnly ? [] : route({ from, text, depth }, this.workers, this.deps.options));
+    const to = command ? [] : opts.to ? opts.to.filter((id) => this.hasWorker(id)) : replyBack ?? (readOnly ? [] : route({ from, text, depth }, this.workers, { ...this.deps.options, maxFanout: this.deps.config.limits.maxFanout }));
     const taskId = opts.taskId ?? (from === HUMAN ? target?.taskId : undefined);
     const id = randomUUID();
     // A human or trigger message starts a conversation; a worker's messages belong to the one its running turn is part of.

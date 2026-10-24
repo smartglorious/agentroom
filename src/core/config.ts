@@ -75,12 +75,14 @@ const WebhookSchema = z.object({
 });
 
 const LimitsSchema = z.object({
-  chainTurns: z.number().int().min(2).max(100).default(10),
+  chainTurns: z.number().int().min(2).max(100).default(6),
+  /** Most workers one worker message may wake. */
+  maxFanout: z.number().int().min(1).max(20).default(3),
   usdPerTask: z.number().positive().optional(),
 });
 
 const FileSchema = z.object({
-  limits: LimitsSchema.default(() => ({ chainTurns: 10 })),
+  limits: LimitsSchema.default(() => ({ chainTurns: 6, maxFanout: 3 })),
   hosts: z.record(ID, HostSchema).default({}),
   accounts: z.record(z.string(), AccountSchema),
   workers: z.array(WorkerSchema).min(1),

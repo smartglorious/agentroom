@@ -30,7 +30,7 @@ export interface DaemonFile {
 
 export const DEFAULT_SETTINGS: DaemonSettings = {
   detail: "summary", approveFromPhone: "safe", summaryChars: 600, quietHours: "",
-  hookPort: 47321, maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12000, inspectorKeepTurns: 300, agentDebounceMs: 1500, planPollMinutes: 10,
+  hookPort: 47321, maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12000, inspectorKeepTurns: 300, agentDebounceMs: 8000, planPollMinutes: 10,
   language: "vi", claudePath: "", codexPath: "", pricing: {},
 };
 

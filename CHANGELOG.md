@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.2
+- **Bớt đánh thức worker không cần thiết** (mỗi lần một worker được gọi, nó đọc lại cả session: trên log thật, 38 lượt cho 5 tin của người dùng, ~11 triệu token cache đọc, 13 lượt chỉ để nói "không có việc cho mình"). (1) Dòng bắt đầu bằng `cc:`/`FYI:` trong tin của worker không đánh thức ai. (2) Một tin của worker đánh thức tối đa `limits.maxFanout` (mặc định 3) người. (3) `limits.chainTurns` mặc định 10 → 6. (4) Gom tin `agentroom.agentDebounceMs` mặc định 1500 → 8000 ms (các tin đến gần nhau được trả lời trong một lượt). (5) Persona dặn: chỉ @ người phải làm ngay, dùng `cc:` để báo, tin tối đa ~10 dòng. Persona đổi nên session của mọi worker bắt đầu lại một lần. Tin của người dùng không bị giới hạn. **Chưa đo mức tiết kiệm thật**; cần so lại `usage.jsonl` sau một buổi làm việc.
+
 ## 0.14.1
 - **Đổi session khi context quá lớn (Claude):** mỗi lần gọi trong một session đọc lại toàn bộ context nên session sống lâu làm mọi lượt sau đắt hơn (trên log thật, `fw`/`be` đọc ~520–570 nghìn token cache mỗi lượt). Khi context ước tính của một lượt (trung bình mỗi lần gọi) vượt `contextLimit` của worker (mặc định 150000 token; **điều phối viên mặc định không bị đổi**; `0` = tắt), session bị bỏ và lượt sau bắt đầu session mới, nhận lại trí nhớ, nhật ký và chat gần đây như khi persona đổi. Chat có một dòng hệ thống báo việc này.
 - **Cắt output Bash:** đặt `BASH_MAX_OUTPUT_LENGTH=15000` (mặc định của Claude Code là 30000) cho tiến trình Claude, trừ khi bạn đã đặt biến này. **Chưa đo mức tiết kiệm thật** và chưa kiểm chứng biến này với bản CLI của bạn.

@@ -113,6 +113,8 @@ export interface RoomConfig {
 export interface Limits {
   /** Most worker turns that one human (or trigger) message may set off in total. */
   chainTurns: number;
+  /** Most workers one worker message may wake (the first ones it mentions). */
+  maxFanout: number;
   /** Stop agent-to-agent work on a task that has already cost this much (USD). The user can still continue it. */
   usdPerTask?: number;
 }
