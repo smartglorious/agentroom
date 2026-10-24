@@ -2,6 +2,12 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.7
+- **Sửa an toàn (0.14.6):** account có `baseUrl` mà biến `authTokenEnv` chưa có giá trị trong tiến trình thì **không chạy** và báo lỗi rõ. Trước đó CLI sẽ quay về phiên đăng nhập Claude của bạn và gửi nó tới endpoint khác. Nếu bạn đã chạy `claude-ds` khi biến chưa có, nên coi token phiên đăng nhập Claude có thể đã tới endpoint đó và đăng xuất rồi đăng nhập lại Claude.
+- **Lượt im lặng quá lâu bị dừng:** `limits.turnIdleMinutes` (mặc định 20, `0` = tắt). Trước đây một CLI treo giữ worker mãi và không báo gì. Thẻ duyệt đang chờ người không tính là im lặng.
+- **Không còn im lặng khi worker chạy xong mà không có nội dung** trả lời tin của bạn: có một dòng báo kèm số token.
+- **Tự tìm `claude` trong extension Claude Code của VS Code/Cursor** (chọn phiên bản mới nhất) khi không thấy `claude` trong PATH hoặc `agentroom.claudePath` sai. Chưa thử trên Windows thật (chỉ cây thư mục giả).
+
 ## 0.14.6
 - **Account Claude dùng endpoint khác** (`baseUrl` + `authTokenEnv`): chạy worker Claude Code với model khác qua cổng tương thích API Anthropic, ví dụ DeepSeek (`https://api.deepseek.com/anthropic`). Token ở biến môi trường (chỉ ghi tên biến vào YAML); khóa Anthropic không bao giờ bị gửi sang endpoint đó; không đo gói đăng ký cho account này. **Chưa kiểm chứng với DeepSeek thật** (chưa có khóa); chỉ test phần dựng biến môi trường và cấu hình. Cũng sửa `scripts/validate-agentroom.mjs`: `contextLimit` không còn bị báo là khóa lạ.
 

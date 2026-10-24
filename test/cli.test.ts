@@ -45,3 +45,19 @@ test("cli(posix): unchanged — bare name from PATH, absolute path must exist", 
   assert.equal(findExecutable("claude", join(d, "claude"), { platform: "linux" }), join(d, "claude"));
   assert.equal(findExecutable("claude", join(d, "missing"), { platform: "linux" }), undefined);
 });
+
+import { claudeFromEditorExtension } from "../src/core/cli";
+
+test("claude from an editor's Claude Code extension: the newest version wins, other editors count, nothing found gives undefined", () => {
+  const home = mkdtempSync(join(tmpdir(), "ar-home-"));
+  const mk = (editor: string, name: string) => { const d = join(home, editor, "extensions", name, "resources", "native-binary"); mkdirSync(d, { recursive: true }); writeFileSync(join(d, "claude.exe"), "x"); return join(d, "claude.exe"); };
+  assert.equal(claudeFromEditorExtension(home, "win32"), undefined);
+  mk(".vscode", "anthropic.claude-code-2.1.99-win32-x64");
+  const newest = mk(".vscode", "anthropic.claude-code-2.1.310-win32-x64");
+  mk(".cursor", "anthropic.claude-code-2.1.12-win32-x64");
+  mk(".vscode", "other.publisher-9.9.9");
+  assert.equal(claudeFromEditorExtension(home, "win32"), newest, "2.1.310 is newer than 2.1.99 (numeric, not alphabetical)");
+  assert.equal(claudeFromEditorExtension(home, "linux"), undefined, "no `claude` (non-.exe) file on linux in this tree");
+  assert.equal(findExecutable("claude", undefined, { platform: "win32", env: { PATH: "C:\\nope" }, home }), newest, "used when nothing is on PATH");
+  assert.equal(findExecutable("codex", undefined, { platform: "win32", env: { PATH: "C:\\nope" }, home }), undefined, "only for claude");
+});

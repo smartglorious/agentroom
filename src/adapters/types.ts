@@ -1,3 +1,4 @@
+import { tr } from "../core/i18n";
 import type { Autonomy } from "../core/autonomy";
 import { Account, TurnUsage, Worker } from "../core/types";
 
@@ -67,8 +68,10 @@ export function accountEnv(account: Account, homeVar: string, keyVar: string): R
     // Another endpoint: its token replaces any Anthropic key that happens to be in the environment, so the key is never sent there.
     env.ANTHROPIC_BASE_URL = account.baseUrl;
     delete env.ANTHROPIC_API_KEY;
-    if (account.authTokenEnv && process.env[account.authTokenEnv]) env.ANTHROPIC_AUTH_TOKEN = process.env[account.authTokenEnv]!;
-    else delete env.ANTHROPIC_AUTH_TOKEN;
+    // Without this token the CLI would fall back to the person's own Claude login and send THAT to the other endpoint.
+    const token = account.authTokenEnv ? process.env[account.authTokenEnv] : undefined;
+    if (!token) throw new Error(tr("Account {id} dùng baseUrl nhưng biến môi trường {name} chưa có giá trị trong tiến trình này, nên không chạy (để không gửi phiên đăng nhập Claude của bạn sang endpoint khác). Đặt biến rồi khởi động lại VS Code.", { id: account.id, name: account.authTokenEnv ?? "authTokenEnv" }));
+    env.ANTHROPIC_AUTH_TOKEN = token;
   }
   return env;
 }

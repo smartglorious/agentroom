@@ -148,9 +148,9 @@ test("rules: the persona tells workers about [NOOP] and not to @mention just to 
 
 test("config: limits default to 6 turns per conversation, 3 workers woken per worker message and no task budget; bad values are rejected", () => {
   const d = parseConfig(CFG());
-  assert.deepEqual(d.limits, { chainTurns: 6, maxFanout: 3 });
+  assert.deepEqual(d.limits, { chainTurns: 6, maxFanout: 3, turnIdleMinutes: 20 });
   const c = parseConfig(CFG("limits: { chainTurns: 6, usdPerTask: 0.5 }\n"));
-  assert.deepEqual(c.limits, { chainTurns: 6, maxFanout: 3, usdPerTask: 0.5 });
+  assert.deepEqual(c.limits, { chainTurns: 6, maxFanout: 3, turnIdleMinutes: 20, usdPerTask: 0.5 });
   assert.equal(parseConfig(CFG("limits: { maxFanout: 1 }\n")).limits.maxFanout, 1);
   assert.throws(() => parseConfig(CFG("limits: { maxFanout: 0 }\n")));
   assert.throws(() => parseConfig(CFG("limits: { chainTurns: 1 }\n")));
@@ -214,7 +214,32 @@ test("account gateway: baseUrl + authTokenEnv point Claude at another endpoint a
     const plain = accountEnv(cfg.accounts[1], "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY");
     assert.equal(plain.ANTHROPIC_BASE_URL, undefined);
     assert.equal(plain.ANTHROPIC_API_KEY, "sk-ant-real");
+    delete process.env.DEEPSEEK_API_KEY;
+    assert.throws(() => accountEnv(cfg.accounts[0], "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"), /DEEPSEEK_API_KEY.*không gửi phiên đăng nhập/s, "no token: refuse instead of falling back to the Claude login");
+    process.env.DEEPSEEK_API_KEY = "ds-token";
     assert.throws(() => parseConfig(`accounts:\n  ds: { provider: claude, baseUrl: "https://x.example", authTokenEnv: "sk-abc 123" }\nworkers:\n  - { id: be, name: B, role: R, account: ds }\n`), /authTokenEnv/);
     assert.throws(() => parseConfig(`accounts:\n  ds: { provider: claude, baseUrl: "not a url" }\nworkers:\n  - { id: be, name: B, role: R, account: ds }\n`));
   } finally { for (const k of ["ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_BASE_URL"]) { if (save[k] === undefined) delete process.env[k]; else process.env[k] = save[k]; } }
+});
+
+test("watchdog: a turn that goes silent is stopped with one clear notice and the worker is free again; an approval card is not silence", async () => {
+  const fake = new Fake((req) => new Promise<string>((_, rej) => { req.signal.addEventListener("abort", () => rej(new Error("aborted")), { once: true }); }));
+  const r = makeRoom(fake, { config: parseConfig(CFG()), options: { maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12_000, turnIdleMs: 60 } });
+  r.room.post("user", "@be làm gì đó");
+  await new Promise((x) => setTimeout(x, 400));
+  const notes = sys(r.room).filter((m) => /im lặng quá/.test(m.text));
+  assert.equal(notes.length, 1);
+  assert.ok(!notes[0].text.includes("@"));
+  assert.notEqual(r.room.snapshot().statuses.find((s) => s.id === "be")?.state, "working", "the worker is not stuck 'working'");
+});
+
+test("empty answer: a person's message that gets no content back is reported instead of silence; a [NOOP]/tool-posted answer is not", async () => {
+  const silent = rig(() => ({ sessionId: "s", text: "", usage: { input: 5, output: 0, cacheRead: 100, cacheWrite: 10, estimated: false } }));
+  silent.room.post("user", "@be làm gì đó");
+  await settle(silent.room);
+  assert.ok(sys(silent.room).some((m) => /chạy xong nhưng không có nội dung/.test(m.text) && /115/.test(m.text)));
+  const noop = rig(() => "[NOOP]");
+  noop.room.post("user", "@be làm gì đó");
+  await settle(noop.room);
+  assert.ok(!sys(noop.room).some((m) => /chạy xong nhưng không có nội dung/.test(m.text)));
 });

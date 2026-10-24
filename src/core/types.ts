@@ -119,6 +119,8 @@ export interface Limits {
   chainTurns: number;
   /** Most workers one worker message may wake (the first ones it mentions). */
   maxFanout: number;
+  /** Minutes without activity after which a running turn is stopped (0 = never). */
+  turnIdleMinutes: number;
   /** Stop agent-to-agent work on a task that has already cost this much (USD). The user can still continue it. */
   usdPerTask?: number;
 }

@@ -24,6 +24,8 @@ export interface RoomOptions {
   memoryBudgetChars: number;
   /** Wait this long before waking a worker for a message from another worker, so replies that arrive together become one turn. */
   agentDebounceMs?: number;
+  /** Overrides limits.turnIdleMinutes (milliseconds; tests). */
+  turnIdleMs?: number;
 }
 
 export interface RoomDeps {
@@ -634,6 +636,17 @@ export class Room extends EventEmitter<RoomEvents> {
     const tools: Record<string, number> = {};
     const edited = new Set<string>();
     let record: TurnRecord | undefined;
+    // A turn whose CLI hangs (waiting for the network, a dead endpoint) would hold the worker for ever: stop it after a long silence.
+    const idleMs = this.deps.options.turnIdleMs ?? this.deps.config.limits.turnIdleMinutes * 60_000;
+    let lastActive = this.now();
+    let timedOut = false;
+    const watchdog = idleMs > 0 ? setInterval(() => {
+      if (this.now() - lastActive < idleMs) return;
+      if ([...this.approvals.values()].some((p) => p.key === key)) { lastActive = this.now(); return; }   // waiting for a person is not silence
+      timedOut = true;
+      abort.abort();
+    }, Math.max(5, Math.min(30_000, Math.round(idleMs / 4)))) : undefined;
+    watchdog?.unref?.();
 
     const finish = (usage: TurnUsage | undefined, error?: string, context?: TurnRecord["context"]) => {
       if (record) this.deps.inspector.save({ ...record, usage, error, context });
@@ -702,12 +715,13 @@ export class Room extends EventEmitter<RoomEvents> {
         onRateLimit: () => this.plan?.touch(account.id),
         autonomy: this.autonomyOf(worker.id),
         onActivity: (a) => {
+          lastActive = this.now();
           const [tool, ...rest] = a.split(" ");
           tools[tool] = (tools[tool] ?? 0) + 1;
           if ((tool === "Edit" || tool === "Write") && rest.length) rest.join(" ").split(/,\s*/).forEach((f) => edited.add(f.split("/").slice(-2).join("/")));
           this.setStatus(worker.id, "working", a);
         },
-        approve: (tool, input) => this.requestApproval(worker.id, tool, input, abort.signal, key, { cwd: approvalCwd, host }),
+        approve: async (tool, input) => { lastActive = this.now(); try { return await this.requestApproval(worker.id, tool, input, abort.signal, key, { cwd: approvalCwd, host }); } finally { lastActive = this.now(); } },
       });
 
       if (result.sessionId) {
@@ -734,13 +748,27 @@ export class Room extends EventEmitter<RoomEvents> {
       this.checkBudget(account.id);
       this.emit("usage");
       if (text && !noop && !repeat) this.post(worker.id, text, { taskId, depth: depth + 1, turnId, readOnly });
+      // Nothing came back for a person's message and the worker said nothing through its tools either: say so instead of staying silent.
+      else if (!text && !noop && batch.some((m) => m.from === HUMAN) && !this.messages.some((m) => m.from === worker.id && m.ts >= startedAt)) {
+        this.post(SYSTEM, tr("ℹ️ {name} chạy xong nhưng không có nội dung trả lời (token vào {i}, ra {o}). Xem 🔍 để biết lượt đó, hoặc nhắn lại.", { name: worker.name, i: (result.usage?.input ?? 0) + (result.usage?.cacheRead ?? 0) + (result.usage?.cacheWrite ?? 0), o: result.usage?.output ?? 0 }), { to: [], alert: true });
+      }
     } catch (err) {
+      if (timedOut) {
+        const msg = tr("⏱️ {name} im lặng quá {m} phút nên lượt bị dừng (CLI có thể đang treo hoặc chờ mạng). Nhắn lại để thử tiếp; đổi giới hạn bằng limits.turnIdleMinutes (0 = tắt).", { name: worker.name, m: Math.max(1, Math.round(idleMs / 60_000)) });
+        finish(undefined, trVi("Quá thời gian im lặng"));
+        this.emit("usage");
+        this.noteIssue({ kind: "error", source: "turn", title: trVi("Lượt của worker bị dừng vì im lặng quá lâu"), worker: worker.id });
+        this.setStatus(worker.id, "error", msg);
+        this.post(SYSTEM, msg, { to: [], alert: true });
+        return;
+      }
       // The scheduler retries rate-limited jobs, so keep their messages for the retry.
       if (isRateLimit(err)) this.inbox.set(key, [...batch, ...(this.inbox.get(key) ?? [])]);
       else if (!abort.signal.aborted) { finish(undefined, err instanceof Error ? err.message : String(err)); this.emit("usage"); }
       if (abort.signal.aborted) return;
       throw err;
     } finally {
+      if (watchdog) clearInterval(watchdog);
       this.running.delete(key);
       // A turn that ended without answering (connection lost, crash) must not leave its approval card behind.
       for (const [id, a] of [...this.approvals]) if (a.key === key) this.respondApproval(id, false);
