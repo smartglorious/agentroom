@@ -89,6 +89,8 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
   private questions = new Map<string, { msg: string; chat: number; tg: number; text: string; items: { id: string; label: string }[] }>();
   private questionOf = new Map<string, string>();
   private questionSeq = 0;
+  /** An answer that came in before the phone message of its question was registered (the send had not returned yet). */
+  private earlyAnswers = new Map<string, { option: string; where: string }>();
   private pendingPin?: { user: number; action: PinAction; expiresAt: number; prompt?: number };
   private guard: PinGuard;
   private started = false;
@@ -233,6 +235,8 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
       if (m.options && key) {
         this.questions.set(key, { msg: m.id, chat: p.chat, tg: id, text, items: m.options.items });
         this.questionOf.set(m.id, key);
+        const early = this.earlyAnswers.get(m.id);
+        if (early) { this.earlyAnswers.delete(m.id); void this.closeQuestion(m.id, early.option, early.where); }
         if (this.questions.size > 100) { const old = this.questions.keys().next().value!; this.questionOf.delete(this.questions.get(old)!.msg); this.questions.delete(old); }
       }
     }
@@ -241,7 +245,11 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
   private async closeQuestion(msgId: string, optionId: string, where: string) {
     const key = this.questionOf.get(msgId);
     const q = key && this.questions.get(key);
-    if (!key || !q) return;
+    if (!key || !q) {
+      // The question may still be on its way to the phone: close it as soon as it is there.
+      if (this.earlyAnswers.size < 50) this.earlyAnswers.set(msgId, { option: optionId, where });
+      return;
+    }
     this.questions.delete(key);
     this.questionOf.delete(msgId);
     const label = q.items.find((i) => i.id === optionId)?.label ?? optionId;
