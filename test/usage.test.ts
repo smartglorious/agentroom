@@ -231,3 +231,18 @@ test("usage: old logs with cumulative numbers (no sessionId) are corrected when 
   assert.deepEqual(s.all().map((r) => Math.round(r.costUsd! * 100) / 100), [0.17, 0.04, 0.54, 0.14, 0.78]);
   assert.equal(readFileSync(join(dir, "usage.jsonl"), "utf8"), raw);
 });
+
+test("inspector: a new session's fixed context (as the CLI reports it) is saved and rendered, biggest first", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ar-ctx-"));
+  const fake = new Fake((req) => ({ sessionId: "s1", text: "ok", context: req.sessionId ? undefined : { categories: [{ name: "Tools", tokens: 8000 }, { name: "Memory files", tokens: 61000 }], total: 69000 } }));
+  const r = makeRoom(fake, { config: parseConfig(`accounts: { c: { provider: claude, maxConcurrent: 2 } }\nworkers:\n  - { id: be, name: Minh, role: Dev, account: c, coordinator: true }\n`) });
+  r.room.post("user", "@be a"); await idle(r.room);
+  r.room.post("user", "@be b"); await idle(r.room);
+  const recs = readdirSync(join(r.dir, ".agentroom", "state", "turns")).sort().map((f) => JSON.parse(readFileSync(join(r.dir, ".agentroom", "state", "turns", f), "utf8")) as TurnRecord);
+  const withCtx = recs.filter((x) => x.context);
+  assert.equal(withCtx.length, 1, "only the new session's first turn has it");
+  const text = renderTurn(withCtx[0]);
+  assert.ok(text.indexOf("Memory files") < text.indexOf("| Tools"), "biggest category first");
+  assert.match(text, /\*\*Tổng\*\* \| \*\*69,?000|Tổng/);
+  void dir;
+});

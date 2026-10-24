@@ -187,3 +187,15 @@ test("room: a worker's message with cc lines wakes only the asked worker; the pe
   const p = buildPersona(parseConfig(CFG()).workers[1], parseConfig(CFG()).workers);
   assert.match(p.stable.text, /bắt đầu bằng `cc:`/);
 });
+
+test("prompt: notices the room posts for the person (addressed to nobody) are not sent to workers", async () => {
+  const { fake, room } = rig(() => "ok");
+  room.post("user", "@be a");
+  await settle(room);
+  (room as unknown as { post(f: string, t: string, o: object): unknown }).post("system", "⚠️ Gói của account c đã dùng 90%.", { to: [], alert: true });
+  room.post("user", "@be b");
+  await settle(room);
+  const last = fake.calls.filter((c) => c.worker.id === "be").pop()!;
+  assert.ok(!last.prompt.includes("đã dùng 90%"));
+  assert.match(last.prompt, /\bb\b/);
+});
