@@ -65,7 +65,8 @@ const u = usage.all();
 check("usage recorded with real cost", u.length === 2 && u.every((x) => (x.costUsd ?? 0) > 0 && x.input + x.cacheRead > 0), JSON.stringify(u.map((x) => [x.sessionKey, x.costUsd, x.model])));
 const turnId = [...room.snapshot().messages].reverse().find((m) => m.from === "be")!.turnId!;
 const rec = new TurnInspector(state, 50).load(turnId);
-check("inspector record has real usage and sections", !!rec?.usage && rec.systemSections.length >= 2 && /Trí nhớ cá nhân/.test(JSON.stringify(rec.systemSections)));
+// The system prompt is the stable persona only; the memory of a brand-new session rides in the turn prompt.
+check("inspector record has real usage and sections", !!rec?.usage && rec.systemSections.length >= 1 && !/Trí nhớ cá nhân/.test(JSON.stringify(rec.systemSections)) && /Trí nhớ cá nhân/.test(JSON.stringify(rec.promptSections)));
 const day = room.memory.journalDates("be")[0];
 check("journal auto-written", room.memory.readJournal("be", day).includes("[T1]"));
 

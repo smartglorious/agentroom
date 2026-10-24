@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 
 const filter = process.argv[2];
-const files = readdirSync("scripts/live").filter((f) => f.startsWith("e2e-") && f.endsWith(".ts") && (filter ? f.includes(filter) : !f.includes("ssh")));
+const files = readdirSync("scripts/live").filter((f) => (f.startsWith("e2e-") || f.startsWith("bench-")) && f.endsWith(".ts") && (filter ? f.includes(filter) : !f.includes("ssh") && !f.startsWith("bench-")));
 let failed = 0;
 for (const f of files) {
   const out = `out-test/${f.replace(/\.ts$/, ".mjs")}`;
@@ -18,7 +18,7 @@ for (const f of files) {
   });
   console.log(`\n=== ${f} ===`);
   const r = spawnSync(process.execPath, [out], { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", env: { ...process.env, NODE_NO_WARNINGS: "1" } });
-  process.stdout.write((r.stdout ?? "").split("\n").filter((l) => /^(PASS|FAIL|total cost|\s+\[)/.test(l)).map((l) => l.slice(0, 220)).join("\n") + "\n");
+  process.stdout.write((r.stdout ?? "").split("\n").filter((l) => /^(PASS|FAIL|BENCH|total cost|\s+\[)/.test(l)).map((l) => l.slice(0, 220)).join("\n") + "\n");
   if (r.status !== 0) failed++;
 }
 console.log(failed ? `\n${failed} scenario(s) FAILED` : "\nAll live scenarios passed");

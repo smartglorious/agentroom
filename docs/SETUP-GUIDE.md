@@ -270,6 +270,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `color` | | chuỗi `#rrggbb` | tự chọn từ bảng 10 màu | màu của worker trong chat; bỏ trống thì tự gán, tránh trùng màu đã chọn |
 | `workdir` | | đường dẫn | workspace (hoặc `hosts.<tên>.repo`) | clone worker dùng; trên máy này có thể tương đối, trên host phải tuyệt đối/`~/…` |
 | `sandbox` | | `read-only` \| `workspace-write` \| `danger-full-access` | `workspace-write` | chỉ Codex |
+| `tools` | | danh sách tên tool | lõi (`Read, Grep, Glob, Edit, Write, Bash`) + các tool trong `allowedTools` | **Chỉ Claude.** Những built-in tool được NẠP cho worker. Mỗi tool nạp tốn token ở mọi lượt (đo: nạp hết ≈ 33 nghìn token mỗi session, bộ lõi ≈ 8 nghìn, chỉ `Read, Grep, Glob` ≈ 6 nghìn). `allowedTools` chỉ tự duyệt, không giới hạn việc nạp. Thêm tool ngoài lõi (`WebFetch`, `WebSearch`, `Agent`, `TodoWrite`…) bằng cách ghi vào `allowedTools` hoặc `tools:`. Lượt chỉ-đọc luôn chỉ có `Read, Grep, Glob`. `Skill` tự được thêm khi có `useSkills`. Worker chỉ điều phối nên đặt `tools: [Read, Grep, Glob]` |
 | `autonomy` | | `manual` \| `auto` \| `full` | `manual` | mức tự chủ: `manual` hỏi mọi thao tác chưa được duyệt trước; `auto` tự duyệt việc an toàn trong thư mục của worker, chặn xóa file/hệ thống/sudo, hỏi khi không chắc. **`full` ghi ở đây không có hiệu lực** (chạy Auto): Full Access chỉ do người dùng bật trên máy của mình. Xem `docs/AUTONOMY.md` |
 
 **`schedules[]`** (tùy chọn)
@@ -671,7 +672,7 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
 const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
@@ -683,7 +684,14 @@ for (const [i, w] of workers.entries()) {
   if (w?.account && !accounts[w.account]) errors.push(`${at}.account "${w.account}" không có trong accounts`);
   for (const k of ["skills", "useSkills", "allowedTools"]) if (w?.[k] !== undefined && !strList(w[k])) errors.push(`${at}.${k} phải là danh sách chuỗi`);
   for (const k of ["worktree", "coordinator"]) if (w?.[k] !== undefined && !isBool(w[k])) errors.push(`${at}.${k} phải là true/false`);
-  if (w?.autonomy !== undefined && !["manual", "auto", "full"].includes(w.autonomy)) errors.push(`${at}.autonomy phải là manual, auto hoặc full`);
+  if (w?.tools !== undefined) {
+    if (!Array.isArray(w.tools) || w.tools.some((t) => !isStr(t))) errors.push(`${at}.tools phải là danh sách tên tool`);
+    else if (provider === "claude") {
+      for (const a of w.allowedTools ?? []) { const base = String(a).replace(/\(.*$/, ""); if (base && !base.startsWith("mcp__") && !w.tools.includes(base)) warns.push(`${at}: allowedTools có "${base}" nhưng tools: không có, nên tool này không được nạp`); }
+      if ((w.useSkills ?? []).length && !w.tools.includes("Skill")) warns.push(`${at}: có useSkills (Skill được tự thêm vào tools)`);
+    } else warns.push(`${at}: tools không có tác dụng với Codex`);
+  }
+  if (w?.autonomy !== undefined && ["manual", "auto", "full"].includes(w.autonomy)) errors.push(`${at}.autonomy phải là manual, auto hoặc full`);
   if (w?.autonomy === "full") warns.push(`${at}: autonomy: full trong workers.yaml KHÔNG có hiệu lực (sẽ chạy Auto). Full Access chỉ do người dùng bật trên máy của mình`);
   if (w?.sandbox !== undefined && !["read-only", "workspace-write", "danger-full-access"].includes(w.sandbox)) errors.push(`${at}.sandbox không hợp lệ`);
   for (const k of Object.keys(w ?? {})) if (!known.has(k)) warns.push(`${at}: trường "${k}" không được dùng (bị bỏ qua)`);

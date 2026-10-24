@@ -43,6 +43,10 @@ export class RoomStore {
   loadSessions(): Record<string, string> { return this.readJson("sessions.json", {}); }
   saveSessions(s: Record<string, string>) { this.writeJson("sessions.json", s); }
 
+  /** Per session: hash of the persona it was started with, and of the memory it last saw. */
+  loadSessionMeta(): Record<string, { persona: string; mem: string }> { return this.readJson("sessionmeta.json", {}); }
+  saveSessionMeta(m: Record<string, { persona: string; mem: string }>) { this.writeJson("sessionmeta.json", m); }
+
   loadCursors(): Record<string, number> { return this.readJson("cursors.json", {}); }
   saveCursors(c: Record<string, number>) { this.writeJson("cursors.json", c); }
 

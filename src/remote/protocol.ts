@@ -18,6 +18,7 @@ export interface WireWorker {
   role: string;
   model?: string;
   allowedTools: string[];
+  tools?: string[];
   sandbox: "read-only" | "workspace-write" | "danger-full-access";
   useSkills: string[];
   worktree: boolean;

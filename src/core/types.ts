@@ -32,6 +32,8 @@ export interface Worker {
   instructions: string;
   /** Claude tool names pre-approved without asking. Others go through approval. */
   allowedTools: string[];
+  /** Built-in tools this worker may use at all (Claude). Every loaded tool costs prompt tokens on every turn; see claudeToolSet. */
+  tools?: string[];
   /** Give this worker its own git worktree (recommended for anyone who edits code). */
   worktree: boolean;
   /** Receives messages that mention nobody; plans and delegates. */

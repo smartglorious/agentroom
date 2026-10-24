@@ -1,6 +1,26 @@
 # Kế hoạch giảm token (bản 2, sau khi đo và tra cứu)
 
-Trạng thái: **kế hoạch, chưa triển khai**. Bản 1 chỉ dựa vào đọc mã. Bản này thêm (a) **số đo thật** bằng Claude CLI và Agent SDK của chính dự án (mô hình `haiku`, SDK 0.3.309, mỗi phép đo là một lượt "Say OK." nên tổng token vào ≈ kích thước tiền tố cố định), và (b) tài liệu chính thức của Anthropic. Nguồn ở mục 8. Con số nào là đo thật, con số nào là từ tài liệu, con số nào là ước tính đều được ghi rõ.
+Trạng thái: **S1 (bộ tool tường minh), S2 (prompt ổn định) và công cụ đo `bench:tokens` đã triển khai và đo (mục 0)**; các mục S3–S10 còn lại là kế hoạch. Bản 1 chỉ dựa vào đọc mã. Bản này thêm (a) **số đo thật** bằng Claude CLI và Agent SDK của chính dự án (mô hình `haiku`, SDK 0.3.309, mỗi phép đo là một lượt "Say OK." nên tổng token vào ≈ kích thước tiền tố cố định), và (b) tài liệu chính thức của Anthropic. Nguồn ở mục 8. Con số nào là đo thật, con số nào là từ tài liệu, con số nào là ước tính đều được ghi rõ.
+
+## 0. Kết quả đo sau khi triển khai S1 + S2
+
+Cùng một kịch bản (`npm run bench:tokens`: ba worker lead/be/qa, ba tin nhắn của người dùng, Claude thật, model `haiku`), **3 lần chạy mỗi bản**, từng lần một:
+
+| | Trước (`main`) | Sau (S1 + S2) | Thay đổi |
+|---|---|---|---|
+| Token vào mỗi lượt, từng lần | 77.049 · 93.006 · 95.056 | 33.730 · 41.587 · 31.330 | |
+| **Token vào mỗi lượt, trung bình** | **≈ 88 nghìn** | **≈ 35,5 nghìn** | **−60%** |
+| Tổng token vào, trung bình | ≈ 2,04 triệu | ≈ 0,90 triệu | −56% |
+| Chi phí ước tính của CLI, trung bình | $0,182 | $0,093 | −49% |
+| Số lượt (dao động) | 23 · 17 · 29 | 26 · 26 · 24 | |
+
+Cách đọc và giới hạn:
+- **Token mỗi lượt là con số đáng tin nhất**, vì nó phản ánh kích thước tiền tố cố định và gần như không phụ thuộc số lượt. Tổng token và chi phí nhiễu hơn: số lượt dao động từ 17 đến 29 vì các worker nhắn qua lại khó đoán (đây chính là vấn đề S8, chưa giải quyết).
+- Phần lớn mức giảm đến từ **S1**: bộ tool tường minh thay cho việc nạp hết (≈ 33 nghìn → ≈ 6–8 nghìn token mỗi session, đo riêng bằng `scripts/measure-prefix.mjs`).
+- Ghi cache mỗi lượt **tăng** (≈ 2,2 → ≈ 3,9 nghìn trung bình ở lần đo đầu) và token ra cũng tăng ở lần đo đầu; chưa phân tích nguyên nhân, có thể do kịch bản và nhiễu.
+- **Chỉ số "worker thêm được `sub()` vào file" không dùng được để so sánh chất lượng**: thành công 1/3 lần ở bản cũ và 0/3 lần ở bản mới, vì kịch bản có nhiều qua lại lộn xộn. Ở một lần chạy của bản mới, worker `be` từng trả lời "tôi là QA"; chưa có bằng chứng đó là lỗi do thay đổi này (bản cũ cũng thất bại 2/3 lần), nhưng cũng chưa loại trừ được. Cần một kịch bản chất lượng riêng (S10) trước khi kết luận về chất lượng.
+- Kiểm chứng chức năng với Claude thật trên bản mới: `memory-skills` (Skill vẫn chạy với bộ tool giới hạn; công cụ `remember` ghi qua MCP; trí nhớ sang session mới), `readonly` (lượt chỉ-đọc không bị nới), `webhook` (chặn chỉ dẫn trong payload). Cả ba đều qua.
+- Đo trên model `haiku`, một kịch bản nhỏ, `settingSources: []`. Dự án thật có `CLAUDE.md` và nhiều lịch sử hơn nên tỉ lệ phần trăm sẽ nhỏ hơn; mức tiết kiệm tuyệt đối từ S1 giữ nguyên.
 
 ## 1. Phát hiện quan trọng nhất (đã đo)
 
