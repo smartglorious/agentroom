@@ -21,7 +21,7 @@ npm run bench:tokens   # đo token trước/sau mỗi thay đổi liên quan pro
 - `src/core/` lõi không phụ thuộc VS Code: `room.ts` (điều phối), `router.ts`, `scheduler.ts`, `tasks.ts`, `prompt.ts`, `memory.ts`, `skills.ts`, `usage.ts`, `plan.ts` (hạn mức gói), `autonomy.ts` (chính sách Manual/Auto/Full), `cron.ts`, `cleanup.ts`, `issues.ts` (gom lỗi cục bộ), `i18n.ts` + `i18n-en.ts` (hai ngôn ngữ), `webhooks.ts`, `lock.ts`, `config.ts`.
 - `src/adapters/` Claude (Agent SDK), Codex, remote. `src/remote/` runner và SSH. `src/channels/telegram/`. `src/daemon/`. `src/mcp/` server MCP của phòng. `src/ui/` + `media/` giao diện.
 - `test/` test đơn vị; `scripts/live/` kịch bản thật; `scripts/validate-agentroom.mjs` (bản sao nằm ở Phụ lục A của `docs/SETUP-GUIDE.md`: sửa một nơi thì cập nhật nơi kia).
-- Tài liệu: `docs/DESIGN.md`, `SETUP-GUIDE.md`, `MULTI-MACHINE.md`, `TELEGRAM.md`, `DAEMON.md`, `PLAN-USAGE.md`, `AUTONOMY.md`, `PLAN-v0.8-tokens.md`, `CLEANUP.md`, `ISSUES.md`, `I18N.md`.
+- Tài liệu: `docs/DESIGN.md`, `SETUP-GUIDE.md`, `MULTI-MACHINE.md`, `TELEGRAM.md`, `DAEMON.md`, `PLAN-USAGE.md`, `AUTONOMY.md`, `PLAN-v0.8-tokens.md`, `CLEANUP.md`, `ISSUES.md`, `I18N.md`, `ROADMAP.md` (việc sẽ làm sau).
 
 ## Quy tắc đã chốt (đừng phá)
 
