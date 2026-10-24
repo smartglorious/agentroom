@@ -99,8 +99,9 @@ test("room: memory written in one session is in the persona of a brand-new sessi
   await idle(room);
   assert.equal(fake.calls.length, 2);
   assert.notEqual(fake.calls[1].sessionId, "s-be", "task B must start a new session");
-  assert.match(fake.calls[1].systemAppend, /Chạy migrate trước khi test/);
-  assert.match(fake.calls[1].systemAppend, /Trí nhớ của bạn/);
+  assert.match(fake.calls[1].prompt, /Chạy migrate trước khi test/, "a new session is told its memory in its first message");
+  assert.match(fake.calls[1].prompt, /Trí nhớ của bạn/);
+  assert.doesNotMatch(fake.calls[1].systemAppend, /Chạy migrate trước khi test/, "the system prompt stays stable: memory is not in it");
 });
 
 test("room: each turn writes a journal line with the files that were edited", async () => {

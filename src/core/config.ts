@@ -44,6 +44,7 @@ const WorkerSchema = z.object({
   sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).default("workspace-write"),
   workdir: z.string().min(1).optional(),
   autonomy: z.enum(["manual", "auto", "full"]).default("manual"),
+  tools: z.array(z.string().min(1)).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "color: dạng #rrggbb").optional(),
 });
 
@@ -166,6 +167,7 @@ workers:
     coordinator: true
     skills: [phân tích yêu cầu, chia task, review]
     allowedTools: [Read, Grep, Glob]
+    tools: [Read, Grep, Glob]        # chỉ nạp các tool này: mỗi tool nạp tốn token ở MỌI lượt
     instructions: |
       Bạn không tự viết code. Hãy chia việc thành task (create_task) và giao cho
       đúng người bằng @mention. Khi mọi task xong, tổng kết cho người dùng.

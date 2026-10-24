@@ -68,6 +68,7 @@ workers:
     account: claude-main
     worktree: true                     # git worktree riêng: .agentroom/worktrees/be
     color: "#e5703a"                   # tuỳ chọn: màu trong chat (bỏ trống = tự gán)
+    tools: [Read, Grep, Glob, Edit, Write, Bash]   # tuỳ chọn: built-in tool được nạp (mỗi tool tốn token ở mọi lượt); mặc định bộ lõi này
     autonomy: auto                     # manual (mặc định) | auto. `full` chỉ bật được ở giao diện/daemon, không bật qua file này
     skills: [Node.js, SQL]             # thẻ mô tả hiển thị cho đồng đội
     useSkills: [prisma-migration]      # skill thật: .agentroom/skills/prisma-migration/SKILL.md

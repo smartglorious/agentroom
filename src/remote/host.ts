@@ -290,7 +290,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
 }
 
 export const wireWorker = (w: Worker): TurnMessage["worker"] => ({
-  id: w.id, name: w.name, role: w.role, model: w.model, allowedTools: w.allowedTools, sandbox: w.sandbox, useSkills: w.useSkills, worktree: w.worktree,
+  id: w.id, name: w.name, role: w.role, model: w.model, allowedTools: w.allowedTools, tools: w.tools, sandbox: w.sandbox, useSkills: w.useSkills, worktree: w.worktree,
 });
 
 export const wireAccount = (a: Account): TurnMessage["account"] => ({ id: a.id, provider: a.provider, home: a.home, apiKeyEnv: a.apiKeyEnv });

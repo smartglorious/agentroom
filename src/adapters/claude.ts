@@ -1,7 +1,7 @@
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { RateLimitError } from "../core/scheduler";
 import { TurnUsage } from "../core/types";
-import { AgentAdapter, READ_ONLY_TOOLS, approvalAllowed, approvalReason, TurnRequest, TurnResult, accountEnv, summarizeInput } from "./types";
+import { AgentAdapter, READ_ONLY_TOOLS, approvalAllowed, approvalReason, claudeToolSet, TurnRequest, TurnResult, accountEnv, summarizeInput } from "./types";
 
 type Sdk = typeof import("@anthropic-ai/claude-agent-sdk");
 let sdk: Promise<Sdk> | undefined;
@@ -32,6 +32,7 @@ export function buildClaudeOptions(
     systemPrompt: { type: "preset", preset: "claude_code", append: req.systemAppend },
     // Load the repo's CLAUDE.md / .claude settings so workers follow project conventions.
     settingSources: ["project"],
+    tools: claudeToolSet(req.worker, req.readOnly),
     allowedTools: [...allowed, "mcp__agentroom"],
     ...(req.readOnly ? { disallowedTools: READ_ONLY_DENY } : {}),
     mcpServers: { agentroom: { type: "http", url: req.mcpUrl } },

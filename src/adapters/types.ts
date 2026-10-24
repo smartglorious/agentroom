@@ -65,4 +65,28 @@ export function summarizeInput(input: unknown): string {
   return s.length > 80 ? s.slice(0, 77) + "..." : s;
 }
 
+/** The everyday coding set: what a worker gets, besides the tools named in its allowedTools, unless it lists `tools:` itself. */
+export const CORE_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"];
+
+/**
+ * The built-in tools Claude loads for a worker. `allowedTools` only pre-approves; it does not limit what is loaded, and
+ * every loaded tool definition is sent on every request (≈33k tokens with all of them, ≈8k with the core set, measured
+ * in docs/PLAN-v0.8-tokens.md). So the set is explicit:
+ *  - read-only turns (untrusted triggers): Read, Grep, Glob;
+ *  - `tools:` in workers.yaml, when given, exactly that;
+ *  - otherwise the core set plus the tools named in allowedTools.
+ * `Skill` is added whenever the worker has skills enabled.
+ */
+export function claudeToolSet(w: { allowedTools: string[]; tools?: string[]; useSkills: string[] }, readOnly?: boolean): string[] {
+  const names = new Set<string>();
+  if (readOnly) ["Read", "Grep", "Glob"].forEach((t) => names.add(t));
+  else if (w.tools) w.tools.forEach((t) => names.add(t));
+  else {
+    CORE_TOOLS.forEach((t) => names.add(t));
+    for (const a of w.allowedTools) { const base = a.replace(/\(.*$/, "").trim(); if (base && !base.startsWith("mcp__")) names.add(base); }
+  }
+  if (w.useSkills.length) names.add("Skill");
+  return [...names];
+}
+
 export const READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "LS", "NotebookRead", "TodoWrite"];

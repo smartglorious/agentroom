@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { AgentAdapter, ApprovalResult } from "../adapters/types";
 import { TurnInspector, TurnRecord, newTurnId, sectionInfo } from "./inspector";
 import { CONSOLIDATE_PROMPT, MemoryEntry, MemoryStore, redactSecrets, ymd } from "./memory";
@@ -100,6 +100,7 @@ export class Room extends EventEmitter<RoomEvents> {
   get memory() { return this.deps.memory; }
   private messages: ChatMessage[];
   private sessions: Record<string, string>;
+  private sessionMeta: Record<string, { persona: string; mem: string }>;
   private cursors: Record<string, number>;
   private inbox = new Map<string, ChatMessage[]>();
   private scheduled = new Set<string>();
@@ -114,6 +115,7 @@ export class Room extends EventEmitter<RoomEvents> {
     this.messages = deps.store.loadMessages();
     this.tasks = new TaskBoard(deps.store.loadTasks());
     this.sessions = deps.store.loadSessions();
+    this.sessionMeta = deps.store.loadSessionMeta();
     this.cursors = deps.store.loadCursors();
     for (const a of deps.config.accounts) deps.scheduler.setLimit(a.id, a.maxConcurrent);
     for (const w of deps.config.workers) {
@@ -448,8 +450,6 @@ export class Room extends EventEmitter<RoomEvents> {
     };
 
     try {
-      const seen = this.cursors[key] ?? 0;
-      const recent = this.messages.filter((m) => m.ts > seen).slice(-this.deps.options.contextMessages);
       const memory = this.deps.memory.blocks(worker, this.deps.options.memoryBudgetChars);
       const remote = host
         ? { host, base: worker.workdir ?? this.deps.config.hosts.find((h) => h.name === host)?.repo ?? "", skills: worker.useSkills.flatMap((n) => { const s = this.deps.skills.get(n); return s ? [{ name: s.name, dir: s.dir }] : []; }) }
@@ -461,16 +461,29 @@ export class Room extends EventEmitter<RoomEvents> {
         ? codexSkillsBlock(worker, this.deps.skills, host ? (s) => `${REMOTE_SKILLS}/${s.name}/SKILL.md` : undefined)
         : "";
       const persona = buildPersona(worker, this.workers, memory, skillsBlock, host ? { host, base: remote!.base } : undefined);
-      const turn = buildTurn(worker, this.workers, recent, batch, this.tasks.list());
+      const personaHash = createHash("sha1").update(persona.stable.text).digest("hex").slice(0, 16);
+      // A session keeps the system prompt it started with. So the system prompt is the stable part of the persona, a changed
+      // stable part starts a new session, and the changing parts (teammates, SOUL, memory) ride in the turn prompt when they are new or changed.
+      const meta = this.sessionMeta[sessKey];
+      if (this.sessions[sessKey] && meta && meta.persona !== personaHash) {
+        delete this.sessions[sessKey];
+        delete this.cursors[key];
+      }
+      const fresh = !this.sessions[sessKey];
+      const sendMemory = fresh || !meta || meta.mem !== persona.memoryKey;
+      const seen = this.cursors[key] ?? 0;
+      const recent = this.messages.filter((m) => m.ts > seen).slice(-this.deps.options.contextMessages);
+      const memoSections = sendMemory ? [...persona.volatile, ...(fresh && persona.journal ? [persona.journal] : [])] : [];
+      const turn = buildTurn(worker, this.workers, recent, batch, this.tasks.list(), sendMemory ? { sections: memoSections, update: !fresh } : undefined);
       const cwd = host ? `${host}:${remote!.base}` : await this.deps.resolveCwd(worker);
       // What approvals are judged against: this machine's folder, or what the remote runner reports (unexpanded until it does).
       let approvalCwd = host ? remote!.base : cwd;
       record = {
         turnId, ts: startedAt, worker: worker.id, account: account.id, model: worker.model, sessionKey: sessKey,
-        resumed: !!this.sessions[sessKey], taskId, cwd, readOnly,
+        resumed: !fresh, taskId, cwd, readOnly,
         allowedTools: readOnly ? ["(chỉ đọc)"] : worker.allowedTools, useSkills: worker.useSkills,
-        systemSections: sectionInfo(persona.sections), promptSections: sectionInfo(turn.sections),
-        systemAppend: persona.text, prompt: turn.text,
+        systemSections: sectionInfo(persona.stable.sections), promptSections: sectionInfo(turn.sections),
+        systemAppend: persona.stable.text, prompt: turn.text,
       };
 
       const adapter = host ? this.deps.remote! : this.deps.adapters[worker.provider];
@@ -479,7 +492,7 @@ export class Room extends EventEmitter<RoomEvents> {
         account,
         cwd,
         remote,
-        systemAppend: persona.text,
+        systemAppend: persona.stable.text,
         prompt: turn.text,
         sessionId: this.sessions[sessKey],
         mcpUrl: this.deps.mcpUrl(worker.id),
@@ -502,6 +515,8 @@ export class Room extends EventEmitter<RoomEvents> {
       if (result.sessionId) {
         this.sessions[sessKey] = result.sessionId;
         this.deps.store.saveSessions(this.sessions);
+        this.sessionMeta[sessKey] = { persona: personaHash, mem: persona.memoryKey };
+        this.deps.store.saveSessionMeta(this.sessionMeta);
       }
       if (result.cwd && record) record.cwd = host ? `${host}:${result.cwd}` : result.cwd;
       this.cursors[key] = startedAt;

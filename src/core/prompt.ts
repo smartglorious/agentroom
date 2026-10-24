@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { MemoryBlocks } from "./memory";
 import { ChatMessage, HUMAN, SYSTEM, Task, Worker } from "./types";
 
@@ -16,8 +17,22 @@ const join = (sections: PromptSection[]): BuiltPrompt => {
   return { text: used.map((s) => s.text).join("\n\n"), sections: used };
 };
 
-/** Static persona prompt, appended to the provider's own coding-agent system prompt. */
-export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, skillsBlock = "", remote?: { host: string; base: string }): BuiltPrompt {
+export interface Persona {
+  /**
+   * What goes in the provider's system prompt: role, rules, own instructions, environment. It must not change from turn to turn,
+   * because a session keeps the system prompt it started with and the provider's prompt cache matches it byte for byte.
+   */
+  stable: BuiltPrompt;
+  /** Teammates, SOUL and memory: sent in a turn's prompt (not the system prompt), only when new or changed. */
+  volatile: PromptSection[];
+  /** Recent journal lines: sent with a new session only, since they change every turn and the session already lived them. */
+  journal?: PromptSection;
+  /** Changes exactly when `volatile` changes. */
+  memoryKey: string;
+}
+
+/** The persona, split by how often each part changes (see Persona). */
+export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, skillsBlock = "", remote?: { host: string; base: string }): Persona {
   const roster = team
     .filter((t) => t.id !== w.id)
     .map((t) => `- @${t.id} — ${t.name}, ${t.role}${t.skills.length ? ` (${t.skills.join(", ")})` : ""}`)
@@ -25,8 +40,7 @@ export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, s
   const base = [
     `# Vai trò của bạn trong AgentRoom`,
     `Bạn là ${w.name} (@${w.id}), ${w.role}. Kỹ năng: ${w.skills.join(", ") || "tổng quát"}.`,
-    `Bạn làm việc trong một group chat cùng người dùng (@user) và các đồng đội:`,
-    roster,
+    `Bạn làm việc trong một group chat cùng người dùng (@user) và các đồng đội (danh sách, SOUL và trí nhớ của bạn nằm trong tin nhắn bắt đầu và được cập nhật khi đổi).`,
     ``,
     `## Quy tắc làm việc nhóm`,
     `- Chỉ làm phần việc thuộc vai trò của bạn; việc của người khác thì @mention họ.`,
@@ -36,19 +50,15 @@ export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, s
     `- Nếu cần người dùng quyết định, hãy @user và dừng lại.`,
     ``,
     `## Trí nhớ`,
-    `- Bạn không nhớ gì giữa các session ngoài những gì có trong mục "Trí nhớ" bên dưới.`,
+    `- Bạn không nhớ gì giữa các session ngoài những gì có trong mục "Trí nhớ" (trong tin nhắn bắt đầu hoặc tin cập nhật gần nhất).`,
     `- Khi học được điều KHÔNG hiển nhiên từ code (cách chạy test, bẫy của hệ thống, quyết định đã chốt), hãy gọi remember (scope "me" cho riêng bạn, "team" cho cả đội). Mỗi mục một ý, ngắn gọn.`,
     `- Dùng recall để tìm lại trước khi hỏi lại người dùng; forget để xoá mục sai. Không bao giờ lưu mật khẩu, khóa, token.`,
     w.instructions ? `\n## Hướng dẫn riêng\n${w.instructions}` : "",
   ].join("\n");
 
   const m = memory;
-  return join([
+  const stable = join([
     { name: "Vai trò & quy tắc", text: base },
-    { name: "SOUL", text: m?.soul ? `## SOUL — tính cách và cách làm việc của bạn\n${m.soul}` : "" },
-    { name: "Trí nhớ đội", text: m?.team ? `## Trí nhớ chung của đội\n${m.team}` : "" },
-    { name: "Trí nhớ cá nhân", text: m?.mine ? `## Trí nhớ của bạn\n${m.mine}` : "" },
-    { name: "Nhật ký gần đây", text: m?.journal ? `## Nhật ký gần đây của bạn\n${m.journal}` : "" },
     { name: "Skills", text: skillsBlock ? `## Skills\n${skillsBlock}` : "" },
     {
       name: "Môi trường",
@@ -57,13 +67,22 @@ export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, s
         : "",
     },
   ]);
+  const volatile: PromptSection[] = [
+    { name: "Đồng đội", text: roster ? `## Đồng đội\n${roster}` : "" },
+    { name: "SOUL", text: m?.soul ? `## SOUL — tính cách và cách làm việc của bạn\n${m.soul}` : "" },
+    { name: "Trí nhớ đội", text: m?.team ? `## Trí nhớ chung của đội\n${m.team}` : "" },
+    { name: "Trí nhớ cá nhân", text: m?.mine ? `## Trí nhớ của bạn\n${m.mine}` : "" },
+  ].filter((s) => s.text.trim());
+  const journal = m?.journal ? { name: "Nhật ký gần đây", text: `## Nhật ký gần đây của bạn\n${m.journal}` } : undefined;
+  return { stable, volatile, journal, memoryKey: createHash("sha1").update(volatile.map((s) => s.text).join("\u0000")).digest("hex").slice(0, 16) };
 }
 
 const label = (from: string, team: Worker[]) =>
   from === HUMAN ? "@user" : from === SYSTEM ? "[system]" : `@${from} (${team.find((t) => t.id === from)?.name ?? from})`;
 
 /** The per-turn user prompt: what happened in the room since this worker last looked. */
-export function buildTurn(w: Worker, team: Worker[], recent: ChatMessage[], inbox: ChatMessage[], tasks: Task[]): BuiltPrompt {
+/** `memo`: the persona's changing parts, when this turn must carry them (new session, or they changed since this session last saw them). */
+export function buildTurn(w: Worker, team: Worker[], recent: ChatMessage[], inbox: ChatMessage[], tasks: Task[], memo?: { sections: PromptSection[]; update: boolean }): BuiltPrompt {
   const inboxIds = new Set(inbox.map((m) => m.id));
   const context = recent
     .filter((m) => !inboxIds.has(m.id))
@@ -71,6 +90,9 @@ export function buildTurn(w: Worker, team: Worker[], recent: ChatMessage[], inbo
     .join("\n");
   const mine = tasks.filter((t) => t.assignee === w.id && t.status !== "done");
   return join([
+    ...(memo && memo.sections.length
+      ? [{ name: memo.update ? "Cập nhật đồng đội & trí nhớ" : "Đồng đội & trí nhớ", text: `<your_context${memo.update ? ' update="replaces any earlier version"' : ""}>\n${memo.sections.map((x) => x.text).join("\n\n")}\n</your_context>` }]
+      : []),
     { name: "Ngữ cảnh room", text: context ? `<room_context>\n${context}\n</room_context>` : "" },
     { name: "Task của bạn", text: mine.length ? `<your_tasks>\n${mine.map((t) => `- [${t.id}] (${t.status}) ${t.title}`).join("\n")}\n</your_tasks>` : "" },
     {
