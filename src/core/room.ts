@@ -113,6 +113,9 @@ interface RunningTurn {
 /** The worker's agreed way of saying "nothing to do". */
 export const isNoop = (t: string) => /^\s*\[NOOP\]/i.test(t) || /^\s*NOOP\s*[.!]?\s*$/i.test(t);
 
+/** Tokens of context after which a worker's Claude session is replaced (see Room.rotateIfLarge). */
+export const DEFAULT_CONTEXT_LIMIT = 150_000;
+
 export class Room extends EventEmitter<RoomEvents> {
   readonly tasks: TaskBoard;
   get memory() { return this.deps.memory; }
@@ -690,6 +693,7 @@ export class Room extends EventEmitter<RoomEvents> {
       this.cursors[key] = startedAt;
       this.deps.store.saveCursors(this.cursors);
       finish(result.usage);
+      this.rotateIfLarge(worker, key, sessKey, result.usage);
       this.plan?.touch(account.id);
       // A reply to other workers that carries nothing new ("[NOOP]", or the same words as before in this conversation)
       // is not posted: it would only wake someone to answer it. A human's message is always answered.
@@ -714,6 +718,26 @@ export class Room extends EventEmitter<RoomEvents> {
       // A turn that ended without answering (connection lost, crash) must not leave its approval card behind.
       for (const [id, a] of [...this.approvals]) if (a.key === key) this.respondApproval(id, false);
     }
+  }
+
+  /**
+   * Every call of a session reads its whole context again (cache), so a session that has grown big makes each later
+   * turn expensive. Past the worker's limit the session is dropped: the next turn starts fresh and gets the team and
+   * personal memory, the journal and the recent chat in its prompt, exactly as after a persona change.
+   */
+  private rotateIfLarge(worker: Worker, key: string, sessKey: string, usage: TurnUsage | undefined) {
+    const limit = worker.contextLimit ?? (worker.coordinator ? 0 : DEFAULT_CONTEXT_LIMIT);
+    if (!usage || worker.provider !== "claude" || !limit || !this.sessions[sessKey]) return;
+    // The totals add up every call of the turn, so the average per call is a lower bound of the context at its end.
+    const ctx = Math.round((usage.input + usage.cacheRead + usage.cacheWrite) / Math.max(1, usage.numTurns ?? 1));
+    if (ctx <= limit) return;
+    delete this.sessions[sessKey];
+    delete this.sessionMeta[sessKey];
+    delete this.cursors[key];
+    this.deps.store.saveSessions(this.sessions);
+    this.deps.store.saveSessionMeta(this.sessionMeta);
+    this.deps.store.saveCursors(this.cursors);
+    this.post(SYSTEM, tr("♻️ Session của {name} đã lên ~{k}k token context nên lượt sau bắt đầu session mới (trí nhớ và nhật ký được nạp lại) để tiết kiệm hạn mức.", { name: worker.name, k: Math.round(ctx / 1000) }), { to: [] });
   }
 
   private writeJournal(workerId: string, taskId: string | undefined, text: string, edited: Set<string>) {

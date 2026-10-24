@@ -10,7 +10,7 @@ export const EN: Record<string, string> = {
   "Cấu hình này nằm trong {ws}/.agentroom/workers.yaml. AgentRoom sẽ chạy một chương trình nhỏ (runner) trên máy đó để chạy worker, bằng tài khoản SSH của bạn. Chỉ cho phép nếu bạn tin repo này.": "This configuration is in {ws}/.agentroom/workers.yaml. AgentRoom will run a small program (the runner) on that machine to run workers, using your SSH account. Only allow it if you trust this repo.",
   "Cho phép lần này": "Allow this time",
   "Luôn cho phép host này": "Always allow this host",
-  "Không tìm thấy CLI \"{name}\". Hãy cài {p} hoặc đặt agentroom.{name}Path.": "CLI \"{name}\" not found. Install {p} or set agentroom.{name}Path.",
+  "Không tìm thấy CLI \"{name}\". Hãy cài {p} hoặc đặt agentroom.{name}Path (chạy `{finder} {name}` trong terminal rồi dán đường dẫn vào đó).": "CLI \"{name}\" not found. Install {p} or set agentroom.{name}Path (run `{finder} {name}` in a terminal and paste the path there).",
   "AgentRoom: một cửa sổ khác đã chiếm quyền điều phối thư mục này, nên cửa sổ này đã dừng.": "AgentRoom: another window has taken over orchestration of this folder, so this window has stopped.",
   "AgentRoom: thiếu dist/runner.mjs nên không chạy được worker trên máy khác (chạy npm run build).": "AgentRoom: dist/runner.mjs is missing, so workers cannot run on other machines (run npm run build).",
   "[{h}] đã cài runner mới": "[{h}] new runner installed",
@@ -533,4 +533,5 @@ export const EN: Record<string, string> = {
   "Chắc chắn?": "Sure?",
   "Có": "Yes",
   "Không": "No",
+  "♻️ Session của {name} đã lên ~{k}k token context nên lượt sau bắt đầu session mới (trí nhớ và nhật ký được nạp lại) để tiết kiệm hạn mức.": "♻️ {name}'s session reached ~{k}k tokens of context, so the next turn starts a new session (memory and journal are reloaded) to save quota.",
 };

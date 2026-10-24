@@ -37,6 +37,7 @@ const WorkerSchema = z.object({
   useSkills: z.array(z.string()).default([]),
   account: z.string(),
   model: z.string().optional(),
+  contextLimit: z.number().int().min(0).optional(),
   instructions: z.string().default(""),
   allowedTools: z.array(z.string()).default(["Read", "Grep", "Glob"]),
   worktree: z.boolean().default(false),

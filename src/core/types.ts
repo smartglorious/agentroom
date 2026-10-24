@@ -29,6 +29,8 @@ export interface Worker {
   provider: Provider;
   account: string;
   model?: string;
+  /** Claude: start a fresh session once a turn's context grows past this many tokens (0 = never). Default 150000; the coordinator is never rotated unless set. */
+  contextLimit?: number;
   instructions: string;
   /** Claude tool names pre-approved without asking. Others go through approval. */
   allowedTools: string[];
