@@ -153,7 +153,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       remote: hosts ? new RemoteAdapter(hosts) : undefined,
       adapters: o.adapters ?? { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => settings().pricing) },
       scheduler: new Scheduler(),
-      options: { maxAgentHops: s0.maxAgentHops, contextMessages: s0.contextMessages, memoryBudgetChars: s0.memoryBudgetChars },
+      options: { maxAgentHops: s0.maxAgentHops, contextMessages: s0.contextMessages, memoryBudgetChars: s0.memoryBudgetChars, agentDebounceMs: s0.agentDebounceMs },
       memory: new MemoryStore(agentroomDir),
       skills,
       skillDrafts: new SkillDrafts(join(agentroomDir, "skills")),

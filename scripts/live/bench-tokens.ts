@@ -33,7 +33,7 @@ const holder: { mcp?: AgentRoomMcp } = {};
 const usage = new UsageStore(state);
 const room = new Room({
   config, store: new RoomStore(state), adapters: { claude: new ClaudeAdapter(), codex: new CodexAdapter() }, scheduler: new Scheduler(),
-  options: { maxAgentHops: 4, contextMessages: 30, memoryBudgetChars: 12000 }, memory: new MemoryStore(root),
+  options: { maxAgentHops: 4, contextMessages: 30, memoryBudgetChars: 12000, agentDebounceMs: 1500 }, memory: new MemoryStore(root),
   skills: new SkillRegistry(skillSources(ws, join(ws, "nohome"))), skillDrafts: new SkillDrafts(join(root, "skills")),
   pluginDir: join(root, ".plugin"), usage, inspector: new TurnInspector(state, 50), resolveCwd: async () => ws,
   mcpUrl: (id) => holder.mcp!.urlFor(id), home: join(ws, "nohome"),
@@ -75,5 +75,6 @@ for (const w of t.byWorker) out(`  ${w.key}: turns / tokens / cost`, `${w.turns}
 const msgs = room.snapshot().messages.filter((m) => m.from !== "system" && m.from !== "user");
 out("worker messages", msgs.length);
 out("approval cards refused", refused);
+out("replies suppressed noop/repeat", `${room.suppressed.noop}/${room.suppressed.repeat}`);
 out("final file exists with sub()", /sub/.test(execFileSync("cat", [join(ws, "add.js")], { encoding: "utf8" }).toString()) ? "yes" : "NO");
 process.exit(0);

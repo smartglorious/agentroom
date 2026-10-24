@@ -19,6 +19,8 @@ export interface RoomOptions {
   contextMessages: number;
   /** Characters of memory (SOUL + MEMORY + journal) put in each persona prompt. */
   memoryBudgetChars: number;
+  /** Wait this long before waking a worker for a message from another worker, so replies that arrive together become one turn. */
+  agentDebounceMs?: number;
 }
 
 export interface RoomDeps {
@@ -71,6 +73,8 @@ export interface PostOptions {
   to?: string[];
   source?: string;
   alert?: boolean;
+  /** Conversation id; a worker's messages inherit it from the turn they are written in. */
+  chain?: string;
   replyTo?: string;
   options?: ChoiceSet;
   choice?: { message: string; option: string };
@@ -87,6 +91,7 @@ export interface WorkerProfile {
 }
 
 interface RunningTurn {
+  chain: string;
   abort: AbortController;
   depth: number;
   readOnly: boolean;
@@ -98,6 +103,9 @@ interface RunningTurn {
  * ("<worker>:main" or "<worker>:<taskId>"). Messages arriving while a session is
  * busy pile up in its inbox and are answered together in the next turn.
  */
+/** The worker's agreed way of saying "nothing to do". */
+export const isNoop = (t: string) => /^\s*\[NOOP\]/i.test(t) || /^\s*NOOP\s*[.!]?\s*$/i.test(t);
+
 export class Room extends EventEmitter<RoomEvents> {
   readonly tasks: TaskBoard;
   get memory() { return this.deps.memory; }
@@ -108,6 +116,12 @@ export class Room extends EventEmitter<RoomEvents> {
   private inbox = new Map<string, ChatMessage[]>();
   private scheduled = new Set<string>();
   private running = new Map<string, RunningTurn>();
+  /** Turns started per conversation (see ChatMessage.chain), and the conversations/tasks already announced as stopped. */
+  private chainTurns = new Map<string, number>();
+  private stopNotes = new Set<string>();
+  private debounce = new Map<string, NodeJS.Timeout>();
+  /** Replies that were not posted because they carried nothing new. */
+  readonly suppressed = { noop: 0, repeat: 0 };
   private approvals = new Map<string, { req: ApprovalRequest; resolve: (ok: boolean) => void; key: string }>();
   private statuses = new Map<string, WorkerStatus>();
   private budgetPaused = new Set<string>();
@@ -227,8 +241,11 @@ export class Room extends EventEmitter<RoomEvents> {
     const replyBack = from === HUMAN && target && this.hasWorker(target.from) && !parseMentions(text, this.workers).length ? [target.from] : undefined;
     const to = opts.to ? opts.to.filter((id) => this.hasWorker(id)) : replyBack ?? (readOnly ? [] : route({ from, text, depth }, this.workers, this.deps.options));
     const taskId = opts.taskId ?? (from === HUMAN ? target?.taskId : undefined);
+    const id = randomUUID();
+    // A human or trigger message starts a conversation; a worker's messages belong to the one its running turn is part of.
+    const chain = opts.chain ?? (from === HUMAN || from === SYSTEM ? undefined : this.chainOf(from)) ?? id;
     const msg: ChatMessage = {
-      id: randomUUID(), ts: this.now(), from, text, to, depth, taskId, turnId: opts.turnId, readOnly: readOnly || undefined, source: opts.source, alert: opts.alert || undefined,
+      id, chain, ts: this.now(), from, text, to, depth, taskId, turnId: opts.turnId, readOnly: readOnly || undefined, source: opts.source, alert: opts.alert || undefined,
       ...(target ? { replyTo: target.id } : {}), ...(opts.options ? { options: opts.options } : {}), ...(opts.choice ? { choice: opts.choice } : {}),
     };
     this.messages.push(msg);
@@ -290,7 +307,7 @@ export class Room extends EventEmitter<RoomEvents> {
     if (args.assignee && !this.hasWorker(args.assignee)) throw new Error(`Không có worker "${args.assignee}"`);
     const t = this.tasks.create({ ...args, createdBy: me });
     this.saveTasks();
-    if (t.assignee && t.status === "todo" && t.assignee !== me) this.notifyAssignee(t, this.isReadOnlyRunning(me));
+    if (t.assignee && t.status === "todo" && t.assignee !== me) this.notifyAssignee(t, this.isReadOnlyRunning(me), this.chainOf(me));
     return t;
   }
 
@@ -307,9 +324,9 @@ export class Room extends EventEmitter<RoomEvents> {
     const ro = this.isReadOnlyRunning(me);
     // No "@" in front of the finisher: it must not be woken by its own report.
     if (t.createdBy !== me && this.hasWorker(t.createdBy)) {
-      this.post(SYSTEM, `@${t.createdBy} task [${t.id}] "${t.title}" đã xong bởi ${me}: ${result}`, { readOnly: ro || undefined });
+      this.post(SYSTEM, `@${t.createdBy} task [${t.id}] "${t.title}" đã xong bởi ${me}: ${result}`, { readOnly: ro || undefined, chain: this.chainOf(me) });
     }
-    for (const u of change.unblocked) if (u.assignee) this.notifyAssignee(u, ro);
+    for (const u of change.unblocked) if (u.assignee) this.notifyAssignee(u, ro, this.chainOf(me));
     return change;
   }
 
@@ -327,6 +344,7 @@ export class Room extends EventEmitter<RoomEvents> {
     this.deps.scheduler.cancelQueued(`${workerId}:`);
     for (const [key, r] of this.running) if (key.startsWith(`${workerId}:`)) r.abort.abort();
     for (const key of [...this.inbox.keys()]) if (key.startsWith(`${workerId}:`)) this.inbox.delete(key);
+    for (const [key, t] of [...this.debounce]) if (key.startsWith(`${workerId}:`)) { clearTimeout(t); this.debounce.delete(key); }
     for (const [id, a] of this.approvals) if (a.req.workerId === workerId) this.respondApproval(id, false);
   }
 
@@ -415,19 +433,60 @@ export class Room extends EventEmitter<RoomEvents> {
     return false;
   }
 
-  private notifyAssignee(t: Task, readOnly?: boolean) {
+  private notifyAssignee(t: Task, readOnly?: boolean, chain?: string) {
     if (readOnly) {
       // Created during an untrusted-trigger turn: record it, but wait for a human to start the assignee.
-      this.post(SYSTEM, `Task [${t.id}] "${t.title}" đã được giao cho ${t.assignee} nhưng CHƯA kích hoạt vì tạo từ nguồn không tin cậy. Hãy xem lại rồi nhắn "@${t.assignee} làm task ${t.id}" để bắt đầu.`, { taskId: t.id, readOnly: true, alert: true });
+      this.post(SYSTEM, `Task [${t.id}] "${t.title}" đã được giao cho ${t.assignee} nhưng CHƯA kích hoạt vì tạo từ nguồn không tin cậy. Hãy xem lại rồi nhắn "@${t.assignee} làm task ${t.id}" để bắt đầu.`, { taskId: t.id, readOnly: true, alert: true, chain });
       return;
     }
-    this.post(SYSTEM, `@${t.assignee} bạn được giao task [${t.id}] "${t.title}". ${t.description}\nHãy claim_task rồi bắt đầu.`, { taskId: t.id });
+    this.post(SYSTEM, `@${t.assignee} bạn được giao task [${t.id}] "${t.title}". ${t.description}\nHãy claim_task rồi bắt đầu.`, { taskId: t.id, chain });
   }
 
   private saveTasks() {
     const list = this.tasks.list();
     this.deps.store.saveTasks(list);
     this.emit("tasks", list);
+  }
+
+  private isRepeat(workerId: string, text: string, chain: string): boolean {
+    const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().slice(0, 300);
+    const mine = norm(text);
+    if (mine.length < 12) return false;
+    let seen = 0;
+    for (let i = this.messages.length - 1; i >= 0 && seen < 12; i--) {
+      const m = this.messages[i];
+      if (m.from !== workerId || m.chain !== chain) continue;
+      seen++;
+      if (norm(m.text) === mine) return true;
+    }
+    return false;
+  }
+
+  private chainOf(workerId: string): string | undefined {
+    for (const [key, r] of this.running) if (key.startsWith(`${workerId}:`)) return r.chain;
+    return undefined;
+  }
+
+  /** Says once (per conversation or task) why work between workers stopped. */
+  private announceStop(key: string, text: string, chain?: string) {
+    if (this.stopNotes.has(key)) return;
+    this.stopNotes.add(key);
+    if (this.stopNotes.size > 500) this.stopNotes.delete(this.stopNotes.values().next().value!);
+    this.post(SYSTEM, text, { alert: true, to: [], chain });
+  }
+
+  /** True when a message from one worker to another must not start more work (conversation too long, or task too expensive). */
+  private overLimit(msg: ChatMessage): boolean {
+    const lim = this.deps.config.limits;
+    if (msg.chain && (this.chainTurns.get(msg.chain) ?? 0) >= lim.chainTurns) {
+      this.announceStop(`chain:${msg.chain}`, `🧯 Các worker đã trao đổi ${lim.chainTurns} lượt cho tin nhắn này của bạn nên tôi tạm dừng để tránh tốn token vô ích. Nhắn lại (hoặc @tên-worker …) để tiếp tục. Đổi giới hạn bằng limits.chainTurns trong workers.yaml.`, msg.chain);
+      return true;
+    }
+    if (lim.usdPerTask && msg.taskId && this.deps.usage.costOfTask(msg.taskId) >= lim.usdPerTask) {
+      this.announceStop(`task:${msg.taskId}`, `🧯 Task ${msg.taskId} đã tốn $${this.deps.usage.costOfTask(msg.taskId).toFixed(2)} (giới hạn limits.usdPerTask = $${lim.usdPerTask}), nên các worker tạm dừng làm tiếp việc này với nhau. Bạn nhắn vào task để tiếp tục.`, msg.chain);
+      return true;
+    }
+    return false;
   }
 
   private runningDepth(workerId: string): number {
@@ -437,10 +496,23 @@ export class Room extends EventEmitter<RoomEvents> {
   }
 
   private deliver(workerId: string, msg: ChatMessage) {
+    // Written by a worker, or by the room on behalf of a worker's turn (task notices): not something a person typed.
+    const fromWorker = msg.from !== HUMAN && (this.hasWorker(msg.from) || msg.chain !== msg.id);
+    if (fromWorker && this.overLimit(msg)) return;
     const key = `${workerId}:${msg.taskId ?? "main"}`;
     const box = this.inbox.get(key) ?? [];
     box.push(msg);
     this.inbox.set(key, box);
+    const wait = this.deps.options.agentDebounceMs ?? 0;
+    if (fromWorker && wait > 0) {
+      // Let replies that arrive together be answered in one turn.
+      if (!this.scheduled.has(key) && !this.debounce.has(key)) {
+        const t = setTimeout(() => { this.debounce.delete(key); this.schedule(key); }, wait);
+        t.unref?.();
+        this.debounce.set(key, t);
+      }
+      return;
+    }
     this.schedule(key);
   }
 
@@ -478,7 +550,10 @@ export class Room extends EventEmitter<RoomEvents> {
     const abort = new AbortController();
     const depth = Math.max(...batch.map((m) => m.depth));
     const readOnly = batch.some((m) => m.readOnly);
-    this.running.set(key, { abort, depth, readOnly });
+    const chain = batch[0].chain ?? batch[0].id;
+    this.running.set(key, { abort, depth, readOnly, chain });
+    this.chainTurns.set(chain, (this.chainTurns.get(chain) ?? 0) + 1);
+    if (this.chainTurns.size > 2000) this.chainTurns.delete(this.chainTurns.keys().next().value!);
     this.budgetPaused.delete(worker.account);
     this.setStatus(worker.id, "working");
     const taskId = batch.find((m) => m.taskId)?.taskId;
@@ -578,10 +653,18 @@ export class Room extends EventEmitter<RoomEvents> {
       this.deps.store.saveCursors(this.cursors);
       finish(result.usage);
       this.plan?.touch(account.id);
-      this.writeJournal(worker.id, taskId, result.text, edited);
+      // A reply to other workers that carries nothing new ("[NOOP]", or the same words as before in this conversation)
+      // is not posted: it would only wake someone to answer it. A human's message is always answered.
+      const text = result.text.trim();
+      const agentOnly = batch.every((m) => m.from !== HUMAN);
+      const noop = agentOnly && isNoop(text);
+      const repeat = agentOnly && !noop && !!text && this.isRepeat(worker.id, text, chain);
+      if (noop) this.suppressed.noop++;
+      if (repeat) this.suppressed.repeat++;
+      if (!noop) this.writeJournal(worker.id, taskId, result.text, edited);
       this.checkBudget(account.id);
       this.emit("usage");
-      if (result.text.trim()) this.post(worker.id, result.text.trim(), { taskId, depth: depth + 1, turnId, readOnly });
+      if (text && !noop && !repeat) this.post(worker.id, text, { taskId, depth: depth + 1, turnId, readOnly });
     } catch (err) {
       // The scheduler retries rate-limited jobs, so keep their messages for the retry.
       if (isRateLimit(err)) this.inbox.set(key, [...batch, ...(this.inbox.get(key) ?? [])]);

@@ -175,6 +175,13 @@
           "minimum": 0,
           "maximum": 1440,
           "description": "Cứ bao nhiêu phút đọc lại hạn mức gói đăng ký (Claude/Codex) của từng account. 0 = chỉ đọc khi bấm Làm mới hoặc sau mỗi lượt chạy. Mỗi lần đọc không tốn token."
+        },
+        "agentroom.agentDebounceMs": {
+          "type": "number",
+          "default": 1500,
+          "minimum": 0,
+          "maximum": 60000,
+          "description": "Chờ bấy nhiêu mili-giây trước khi đánh thức một worker vì tin của worker khác, để các tin đến cùng lúc được trả lời trong MỘT lượt (tiết kiệm token). 0 = đánh thức ngay."
         }
       }
     }

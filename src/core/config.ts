@@ -73,7 +73,13 @@ const WebhookSchema = z.object({
   readOnly: z.boolean().default(false),
 });
 
+const LimitsSchema = z.object({
+  chainTurns: z.number().int().min(2).max(100).default(10),
+  usdPerTask: z.number().positive().optional(),
+});
+
 const FileSchema = z.object({
+  limits: LimitsSchema.default(() => ({ chainTurns: 10 })),
   hosts: z.record(ID, HostSchema).default({}),
   accounts: z.record(z.string(), AccountSchema),
   workers: z.array(WorkerSchema).min(1),
@@ -143,7 +149,7 @@ export function parseConfig(text: string): RoomConfig {
     if (!known.has(h.worker)) throw new Error(`Webhook ${h.id}: không có worker "${h.worker}"`);
     if (!h.secretEnv && !h.allowUnsigned) throw new Error(`Webhook ${h.id}: cần secretEnv (hoặc allowUnsigned: true chỉ để thử trên máy mình)`);
   }
-  return { hosts, accounts, workers, schedules: raw.schedules, webhooks: raw.webhooks };
+  return { hosts, accounts, workers, schedules: raw.schedules, webhooks: raw.webhooks, limits: raw.limits };
 }
 
 export const SAMPLE_CONFIG = `# AgentRoom — định nghĩa account dùng chung và các worker (persona).

@@ -48,6 +48,7 @@ export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, s
     `- Dùng các tool agentroom (post_message, read_channel, list_tasks, create_task, claim_task, complete_task) để phối hợp.`,
     `- Câu trả lời cuối lượt của bạn sẽ được đăng vào group chat: ngắn gọn, nêu rõ đã làm gì, file nào, còn gì dang dở.`,
     `- Nếu cần người dùng quyết định, hãy @user và dừng lại.`,
+    `- Nếu tin nhắn chỉ báo cáo lại, cảm ơn hoặc xác nhận mà bạn không cần làm gì thêm: trả lời đúng \`[NOOP]\` (không ai bị làm phiền, không tốn token của đội). Đừng @mention ai chỉ để cảm ơn, xác nhận hay nhắc lại điều đã báo.`,
     `- Khi cần người dùng CHỌN giữa vài phương án, gọi ask_user(question, options) rồi kết thúc lượt: người dùng bấm nút và câu trả lời quay về đúng phiên này của bạn.`,
     `- Tin của người dùng có thể kèm "[trả lời tin …]": đó là câu trả lời cho đúng tin được trích; hãy trả lời theo ngữ cảnh đó.`,
     ``,

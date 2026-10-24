@@ -9,6 +9,7 @@ export interface DaemonSettings extends TelegramSettings {
   contextMessages: number;
   memoryBudgetChars: number;
   inspectorKeepTurns: number;
+  agentDebounceMs: number;
   planPollMinutes: number;
   claudePath: string;
   codexPath: string;
@@ -26,7 +27,7 @@ export interface DaemonFile {
 
 export const DEFAULT_SETTINGS: DaemonSettings = {
   detail: "summary", approveFromPhone: "safe", summaryChars: 600, quietHours: "",
-  hookPort: 47321, maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12000, inspectorKeepTurns: 300, planPollMinutes: 10,
+  hookPort: 47321, maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12000, inspectorKeepTurns: 300, agentDebounceMs: 1500, planPollMinutes: 10,
   claudePath: "", codexPath: "", pricing: {},
 };
 
@@ -49,6 +50,7 @@ export const SETTING_PARSERS: Record<keyof DaemonSettings, Parse> = {
   contextMessages: int(1, 200),
   memoryBudgetChars: int(1000, 100000),
   inspectorKeepTurns: int(0, 5000),
+  agentDebounceMs: int(0, 60000),
   planPollMinutes: int(0, 1440),
   claudePath: (v) => v,
   codexPath: (v) => v,

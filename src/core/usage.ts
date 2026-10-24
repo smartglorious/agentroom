@@ -116,6 +116,11 @@ export class UsageStore {
     return this.records.reduce((sum, r) => (r.account === account && r.ts >= from ? sum + (r.costUsd ?? 0) : sum), 0);
   }
 
+  /** Everything spent so far on one task, across workers. */
+  costOfTask(taskId: string): number {
+    return this.records.reduce((sum, r) => (r.taskId === taskId ? sum + (r.costUsd ?? 0) : sum), 0);
+  }
+
   summarize(range: UsageRange): UsageSummary {
     const from = rangeStart(range, this.now());
     const rs = this.records.filter((r) => r.ts >= from);

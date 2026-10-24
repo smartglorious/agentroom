@@ -102,6 +102,15 @@ export interface RoomConfig {
   workers: Worker[];
   schedules: ScheduleDef[];
   webhooks: WebhookDef[];
+  limits: Limits;
+}
+
+/** Guards against workers talking each other into expensive loops. */
+export interface Limits {
+  /** Most worker turns that one human (or trigger) message may set off in total. */
+  chainTurns: number;
+  /** Stop agent-to-agent work on a task that has already cost this much (USD). The user can still continue it. */
+  usdPerTask?: number;
 }
 
 export const HUMAN = "user";
@@ -133,6 +142,11 @@ export interface ChatMessage {
   options?: ChoiceSet;
   /** On the user's message that picked an option of `message`. */
   choice?: { message: string; option: string };
+  /**
+   * The conversation this message belongs to: the id of the human (or trigger) message that started it. Every message
+   * the workers post while working on it carries the same id, so a runaway exchange can be counted and stopped.
+   */
+  chain?: string;
 }
 
 export interface ChoiceOption { id: string; label: string; description?: string }
