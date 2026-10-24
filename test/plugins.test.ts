@@ -7,7 +7,7 @@ import { AgentAdapter, ApprovalResult, TurnRequest, TurnResult } from "../src/ad
 import type { Autonomy } from "../src/core/autonomy";
 import { parseConfig } from "../src/core/config";
 import { AgentRoomPlugin, Guard, PluginManager } from "../src/core/plugins";
-import { idle, makeRoom } from "./helpers";
+import { Fake, idle, makeRoom } from "./helpers";
 
 const CFG = `accounts: { c: { provider: claude, maxConcurrent: 3 } }
 workers:
@@ -128,4 +128,82 @@ test("config: `ext:` is passed through untouched, empty by default", () => {
 test("build: the bundled plugin list is available (empty in the public tree)", () => {
   assert.ok(Array.isArray(bundled));
   for (const p of bundled) assert.match(p.id, /^[a-z0-9-]{1,32}$/);
+});
+
+// ---- extension points II: chat commands, approved calls, branch names ----
+import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+import { ensureWorktree } from "../src/core/worktree";
+
+const waitFor = async (f: () => boolean, ms = 1500) => { const t = Date.now(); while (!f() && Date.now() - t < ms) await new Promise((r) => setTimeout(r, 10)); };
+
+test("chat command: a person's `/name args` goes to the plugin, never to a worker; the reply is a system notice without @", async () => {
+  const fake = new Fake(() => "ok");
+  const calls: string[] = [];
+  const manager = new PluginManager([{ id: "demo", activate: (h) => { h.registerChatCommand({ name: "demo", help: "x", run: (a) => { calls.push(a); return `done for @lead: ${a}`; } }); } }]);
+  const { room } = makeRoom(fake, { config: parseConfig(CFG), plugins: manager });
+  manager.activate({ room, config: room.snapshot().workers as never, root: "/x", log: () => {} });
+  const m = room.post("user", "/demo hello world");
+  await waitFor(() => room.snapshot().messages.some((x) => x.from === "system"));
+  await idle(room);
+  assert.deepEqual(calls, ["hello world"]);
+  assert.equal(fake.calls.length, 0, "no worker was woken");
+  assert.deepEqual(m.to, []);
+  const reply = room.snapshot().messages.find((x) => x.from === "system")!;
+  assert.equal(reply.text, "done for (at)lead: hello world");
+  assert.equal(reply.to.length, 0);
+  // not registered → an ordinary message, routed as before
+  room.post("user", "/nope something");
+  await idle(room);
+  assert.equal(fake.calls.length, 1);
+});
+
+test("chat command: errors become a notice, duplicates and bad names are refused, help lists them", async () => {
+  const manager = new PluginManager([{
+    id: "demo",
+    activate: (h) => {
+      h.registerChatCommand({ name: "boom", help: "explodes", run: () => { throw new Error("kaput"); } });
+      assert.throws(() => h.registerChatCommand({ name: "boom", help: "", run: () => {} }));
+      assert.throws(() => h.registerChatCommand({ name: "Bad Name", help: "", run: () => {} }));
+    },
+  }]);
+  const { room } = makeRoom(new Fake(), { config: parseConfig(CFG), plugins: manager });
+  manager.activate({ room, config: undefined as never, root: "/x", log: () => {} });
+  room.post("user", "/boom");
+  await waitFor(() => room.snapshot().messages.some((x) => x.from === "system"));
+  assert.match(room.snapshot().messages.find((x) => x.from === "system")!.text, /\/boom lỗi: kaput/);
+  assert.deepEqual(manager.commandHelp(), ["/boom — explodes"]);
+});
+
+test("onApproved: called once for a policy approval and for a human approval, with absolute paths; a throwing listener is harmless", async () => {
+  const seen: string[] = [];
+  const manager = new PluginManager([{ id: "demo", activate: (h) => { h.onApproved(() => { throw new Error("x"); }); h.onApproved((c) => { seen.push(`${c.by}:${c.tool}:${c.paths.join(",")}`); }); } }]);
+  const adapter: AgentAdapter = { async runTurn(req: TurnRequest): Promise<TurnResult> { await req.approve("Write", { file_path: "src/a.ts", content: "x" }); await req.approve("Bash", { command: "curl -sS https://example.com -o /dev/null" }); return { text: "ok" }; } };
+  const r = makeRoom(adapter, { config: parseConfig(CFG), home: "/home/dev", plugins: manager, autonomyStore: { get: () => "auto", set: () => {} } });
+  manager.activate({ room: r.room, config: r.deps.config, root: r.dir, log: () => {} });
+  r.room.post("user", "@be go");
+  await new Promise((x) => setTimeout(x, 80));
+  for (const a of r.room.snapshot().approvals) r.room.respondApproval(a.id, true);
+  await idle(r.room);
+  await new Promise((x) => setTimeout(x, 40));
+  assert.equal(seen[0], `policy:Write:${join(r.dir, "src/a.ts")}`);
+  assert.equal(seen.length, 2);
+  assert.match(seen[1], /^user:Bash:/);
+});
+
+test("branch namer: used for a new worktree, validated, and ignored when it returns junk", async () => {
+  const manager = new PluginManager([{ id: "demo", activate: (h) => { h.setBranchNamer((id) => (id === "be" ? "team/alpha/be" : id === "evil" ? "../x" : undefined)); } }]);
+  manager.activate({ room: undefined as never, config: undefined as never, root: "/x", log: () => {} });
+  assert.equal(manager.branchName("be"), "team/alpha/be");
+  assert.equal(manager.branchName("evil"), undefined);
+  assert.equal(manager.branchName("other"), undefined);
+  const repo = mkdtempSync(join(tmpdir(), "ar-wt-"));
+  const g = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" });
+  g("init", "-q", "-b", "main"); g("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "init");
+  const dir = await ensureWorktree(repo, { id: "be", worktree: true }, manager.branchName("be"));
+  assert.equal(execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir, encoding: "utf8" }).trim(), "team/alpha/be");
+  const dir2 = await ensureWorktree(repo, { id: "qa", worktree: true });
+  assert.equal(execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir2, encoding: "utf8" }).trim(), "agentroom/qa");
 });

@@ -167,7 +167,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       pluginDir: join(agentroomDir, ".plugin"),
       usage,
       inspector: new TurnInspector(stateDir, s0.inspectorKeepTurns),
-      resolveCwd: (w) => ensureWorktree(localBase(o.root, w), w),
+      resolveCwd: (w) => ensureWorktree(localBase(o.root, w), w, plugins.branchName(w.id)),
       mcpUrl: (id) => server.current!.urlFor(id),
       home,
       issues,

@@ -36,7 +36,7 @@ function ensureIgnored(base: string) {
  * Without `worktree` the worker works in `base` directly. Falls back to `base` when it is
  * not a git repository.
  */
-export async function ensureWorktree(base: string, w: Pick<Worker, "id" | "worktree">): Promise<string> {
+export async function ensureWorktree(base: string, w: Pick<Worker, "id" | "worktree">, branchName?: string): Promise<string> {
   if (!existsSync(base)) throw new Error(`Thư mục làm việc không tồn tại: ${base}`);
   if (!w.worktree) return base;
   const dir = join(base, ".agentroom", "worktrees", w.id);
@@ -47,7 +47,7 @@ export async function ensureWorktree(base: string, w: Pick<Worker, "id" | "workt
     return base;
   }
   ensureIgnored(base);
-  const branch = `agentroom/${w.id}`;
+  const branch = branchName ?? `agentroom/${w.id}`;
   const { stdout } = await git("git", ["branch", "--list", branch], { cwd: base });
   const args = stdout.trim() ? ["worktree", "add", dir, branch] : ["worktree", "add", "-b", branch, dir];
   await git("git", args, { cwd: base });

@@ -228,7 +228,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
         pluginDir: join(agentroomDir, ".plugin"),
         usage,
         inspector,
-        resolveCwd: (w) => ensureWorktree(localBase(ws, w), w),
+        resolveCwd: (w) => ensureWorktree(localBase(ws, w), w, plugins.branchName(w.id)),
         mcpUrl: (id) => server.current!.urlFor(id),
         autonomyStore: {
           // Manual/Auto are remembered per project on this machine; Full lasts for this VS Code session only.

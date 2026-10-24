@@ -60,13 +60,14 @@ const PAIR_TTL = 10 * 60_000;
 const PIN_TTL = 90_000;
 const FULL_CACHE = 50;
 const MAX_INBOUND = 4000;
-const help = () => [
+const help = (extra: string[] = []) => [
   tr("AgentRoom trên điện thoại"),
   tr("• Nhắn thường → gửi cho worker điều phối; @id → gọi đúng worker"),
   tr("/status — worker đang làm gì · /tasks — việc đang mở · /cost — chi phí hôm nay"),
   tr("/mode — mức tự chủ của worker (chỉ hạ được từ đây) · /plan — hạn mức gói Claude/Codex còn lại (/plan refresh để đọc lại) · /stop <id|all> — dừng worker · /mute [30m|2h] · /unmute"),
   tr("/detail summary|full|alerts — mức chi tiết tin gửi về · /issue <mô tả> — ghi một vấn đề · /issues — vấn đề đang mở"),
   tr("/budget — cho account hết ngân sách chạy tiếp · /unpair — ngắt ghép cặp"),
+  ...extra,
 ].join("\n");
 
 const mentionsUser = (t: string) => /(^|[^\w@])@user\b/i.test(t);
@@ -349,7 +350,7 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     const room = this.d.room;
     const say = (t: string, buttons?: InlineButton[][]) => this.tell(p.chat, t, { quiet: true, buttons });
     switch (cmd) {
-      case "start": case "help": return void (await say(help()));
+      case "start": case "help": return void (await say(help(room.plugins?.commandHelp())));
       case "status": {
         const s = room.snapshot();
         const icon = (st: string) => ({ idle: "⚪", queued: "🔵", working: "🟢", waiting_approval: "🟡", rate_limited: "🟠", over_budget: "🟠", error: "🔴" }[st] ?? "⚪");
@@ -425,7 +426,11 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
         return void (await say(tr("Account đang bị dừng vì ngân sách:"), paused.map((a) => [{ text: tr("▶️ Cho {id} chạy tiếp hôm nay ({p} / {p1})", { id: a.id, p: usd(a.spentToday), p1: usd(a.budgetUsdPerDay ?? 0) }), callback_data: `bg:${a.id}` }])));
       }
       case "unpair": await this.unpair(); return void (await this.tell(p.chat, tr("Đã ngắt ghép cặp. AgentRoom sẽ không gửi gì nữa cho chat này."), { quiet: true }));
-      default: return void (await say(tr("Không hiểu lệnh. /help")));
+      default: {
+        const pc = room.plugins?.matchCommand(`/${cmd}${arg ? " " + arg : ""}`);
+        if (pc) { const out = await room.runChatCommand(pc); return void (out && await say(out)); }
+        return void (await say(tr("Không hiểu lệnh. /help")));
+      }
     }
   }
 

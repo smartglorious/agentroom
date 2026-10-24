@@ -16,7 +16,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 | **Trả lời đúng tin, lựa chọn bằng nút** | Nút ↩ trên tin của worker: câu trả lời tới đúng tác giả, đúng phiên, kèm trích dẫn. Worker cần bạn chọn thì gọi `ask_user` và hiện nút; bấm là trả lời về đúng phiên đó. Cả trên Telegram. Xem `docs/REPLY-OPTIONS.md`. |
 | **Ít lượt vô ích** | Các worker không còn nhắn qua lại vô tận: giới hạn lượt cho mỗi tin của bạn (`limits.chainTurns`), ngân sách theo task (`limits.usdPerTask`), `[NOOP]` thay cho "không có việc mới", chống lặp, gom tin đến cùng lúc vào một lượt. Xem `docs/FEWER-TURNS.md`. |
 | **Tiếng Việt / English** | `agentroom.language` = `vi` (mặc định) · `en` · `auto`: giao diện chat, hộp thoại, tin hệ thống, Telegram và CLI daemon. Prompt gửi cho AI vẫn tiếng Việt. Xem `docs/I18N.md`. |
-| **Điểm mở rộng** | Plugin gộp vào bản build có thể thêm guard (chỉ làm chặt hơn: hỏi hoặc chặn, không bao giờ nới quyền), tab chỉ-xem và phần `ext:` trong cấu hình. Xem `docs/EXTENSIONS.md`. |
+| **Điểm mở rộng** | Plugin gộp vào bản build có thể thêm guard (chỉ làm chặt hơn: hỏi hoặc chặn, không bao giờ nới quyền), tab chỉ-xem, lệnh chat `/tên`, sự kiện sau khi duyệt, tên nhánh worktree và phần `ext:` trong cấu hình. Xem `docs/EXTENSIONS.md`. |
 | **Gom lỗi để cải tiến** | Lỗi lượt, lỗi Telegram, rate limit, chạm ngân sách/giới hạn được ghi cục bộ, gộp trùng, ẩn bí mật; xuất báo cáo Markdown (`AgentRoom: Xuất báo cáo lỗi`, Telegram `/issues`, `agentroom-daemon issues`). Không tự tải lên đâu cả. Xem `docs/ISSUES.md`. |
 | **Dọn dẹp, không xóa** | Lệnh *Dọn dẹp file rác/tạm/cache*: tìm `.DS_Store`, `*.tmp`, `__pycache__`… (bỏ qua file git theo dõi), và khi bạn chọn thì *di chuyển* vào `.agentroom/cleanup/` để bạn tự xóa; có khôi phục. Không bao giờ tự xóa. Xem `docs/CLEANUP.md`. |
 | **Hạn mức gói** | Tab *Chi phí* hiện phần trăm còn lại của gói Claude/Codex theo từng cửa sổ (5 giờ, 7 ngày…) và giờ reset; cảnh báo, tự tạm dừng khi hết; Telegram `/plan`. Xem `docs/PLAN-USAGE.md`. |
@@ -39,7 +39,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 ## Cài từ file .vsix
 
 ```bash
-code --install-extension agentroom-0.12.0.vsix
+code --install-extension agentroom-0.13.0.vsix
 ```
 
 Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → chọn file.
@@ -124,4 +124,4 @@ Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1). Mỗi worker còn có 
 
 ## English summary
 
-AgentRoom is a VS Code extension (plus a headless daemon) for a team of AI workers — each a persona running on Claude Code or Codex, several sharing one account — in one group chat. It adds SSH multi-machine workers, Telegram phone control, plan-usage tracking, Manual/Auto/Full autonomy, reply-to-message with option buttons, and token-saving defaults. New in 0.11: a bilingual UI (`agentroom.language`: `vi` default, `en`, `auto`), a local issue collector (`AgentRoom: Report an issue`, `Export issue report`, Telegram `/issues`), and a cleanup tool that **gathers** junk/temp/cache files into `.agentroom/cleanup/` for you to delete yourself — it never deletes anything on its own. Install: `code --install-extension agentroom-0.12.0.vsix`. The docs in `docs/` are in Vietnamese. See `docs/I18N.md` for what is and is not translated.
+AgentRoom is a VS Code extension (plus a headless daemon) for a team of AI workers — each a persona running on Claude Code or Codex, several sharing one account — in one group chat. It adds SSH multi-machine workers, Telegram phone control, plan-usage tracking, Manual/Auto/Full autonomy, reply-to-message with option buttons, and token-saving defaults. New in 0.11: a bilingual UI (`agentroom.language`: `vi` default, `en`, `auto`), a local issue collector (`AgentRoom: Report an issue`, `Export issue report`, Telegram `/issues`), and a cleanup tool that **gathers** junk/temp/cache files into `.agentroom/cleanup/` for you to delete yourself — it never deletes anything on its own. Install: `code --install-extension agentroom-0.13.0.vsix`. The docs in `docs/` are in Vietnamese. See `docs/I18N.md` for what is and is not translated.
