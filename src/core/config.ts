@@ -39,6 +39,8 @@ const WorkerSchema = z.object({
   useSkills: z.array(z.string()).default([]),
   account: z.string(),
   model: z.string().optional(),
+  /** Accounts to run on, in order, while the worker's own account is limited (rate limit, plan used up, daily budget). */
+  fallback: z.array(ID).default([]),
   contextLimit: z.number().int().min(0).optional(),
   instructions: z.string().default(""),
   allowedTools: z.array(z.string()).default(["Read", "Grep", "Glob"]),
@@ -140,6 +142,13 @@ export function parseConfig(text: string): RoomConfig {
       const base = w.workdir ?? hosts.find((h) => h.name === acc.host)!.repo;
       if (!base) throw new Error(`Worker ${w.id}: chạy trên host "${acc.host}" nên cần workdir (hoặc hosts.${acc.host}.repo)`);
       if (!isRemotePath(base)) throw new Error(`Worker ${w.id}: đường dẫn trên host phải tuyệt đối hoặc bắt đầu bằng ~ (nhận "${base}")`);
+    }
+    for (const f of w.fallback) {
+      const fa = accounts.find((a) => a.id === f);
+      if (!fa) throw new Error(`Worker ${w.id}: fallback "${f}" không phải account`);
+      if (f === w.account) throw new Error(`Worker ${w.id}: fallback không được là chính account của worker`);
+      if (fa.provider !== acc.provider) throw new Error(`Worker ${w.id}: fallback "${f}" phải cùng provider (${acc.provider}) với account "${w.account}"`);
+      if ((fa.host ?? "") !== (acc.host ?? "")) throw new Error(`Worker ${w.id}: fallback "${f}" phải chạy trên cùng máy (host) với account "${w.account}"`);
     }
     return { ...w, provider: acc.provider, color: w.color ?? pool[nextColor++ % pool.length] };
   });

@@ -6,7 +6,7 @@ import { ContextProbe, TurnInspector, TurnRecord, estimateTokens, newTurnId, sec
 import { CONSOLIDATE_PROMPT, MemoryEntry, MemoryStore, redactSecrets, ymd } from "./memory";
 import { buildPersona, buildTurn } from "./prompt";
 import { parseMentions, route } from "./router";
-import { isRateLimit, Scheduler } from "./scheduler";
+import { RateLimitError, isRateLimit, Scheduler } from "./scheduler";
 import { REMOTE_SKILLS, SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, claudeSkillOptions, codexSkillDirs, codexSkillsBlock } from "./skills";
 import { Autonomy, PolicyContext, absolutePath, decide, describeCall, toolPaths } from "./autonomy";
 import { PlanMonitor, PlanProbe } from "./plan";
@@ -137,6 +137,8 @@ export class Room extends EventEmitter<RoomEvents> {
   private approvals = new Map<string, { req: ApprovalRequest; resolve: (ok: boolean) => void; key: string }>();
   private statuses = new Map<string, WorkerStatus>();
   private budgetPaused = new Set<string>();
+  /** Workers currently running on a fallback account (worker id → account id), to announce the switch and the return once. */
+  private onFallback = new Map<string, string>();
   private budgetNotes = new Set<string>();
 
   constructor(private deps: RoomDeps) {
@@ -166,7 +168,7 @@ export class Room extends EventEmitter<RoomEvents> {
         now: deps.now,
         pollMs: deps.planPollMs ?? (() => 0),
         alert: (text) => this.post(SYSTEM, text, { alert: true }),
-        pause: (id, until) => this.deps.scheduler.pauseUntil(id, until),
+        pause: (id, until) => { this.deps.scheduler.pauseUntil(id, until); this.rebalance(id); },
       });
       this.plan.on("change", () => this.emit("plan"));
     }
@@ -443,6 +445,7 @@ export class Room extends EventEmitter<RoomEvents> {
       this.budgetPaused.add(accountId);
       if (announce) this.noteIssue({ kind: "friction", source: "budget", title: trVi("Account {accountId} chạm ngân sách ngày nên tạm dừng", { accountId }) });
       this.deps.scheduler.pauseUntil(accountId, nextMidnight(this.now()));
+      this.rebalance(accountId);
       say("stop", tr("⛔ Account {accountId} đã chạm ngân sách ngày (${p} / ${budgetUsdPerDay}). Tạm dừng đến 0h; bấm \"Cho chạy tiếp hôm nay\" để tiếp tục.", { accountId, p: spent.toFixed(2), budgetUsdPerDay: acc.budgetUsdPerDay }));
       for (const w of this.workers.filter((x) => x.account === accountId)) {
         if (this.statuses.get(w.id)?.state === "queued") this.setStatus(w.id, "over_budget");
@@ -584,15 +587,55 @@ export class Room extends EventEmitter<RoomEvents> {
     this.schedule(key);
   }
 
+  /** True while an account cannot take new turns: held by the scheduler (rate limit, plan used up) or over its daily budget. */
+  private accountBlocked(id: string): boolean {
+    return this.budgetPaused.has(id) || this.deps.scheduler.isPaused(id);
+  }
+
+  /** The account a worker's next turn runs on: its own, unless that one is blocked and a fallback is free. */
+  private pickAccount(worker: Worker): string {
+    for (const id of [worker.account, ...worker.fallback]) if (!this.accountBlocked(id)) return id;
+    return worker.account;
+  }
+
+  /**
+   * Turns already waiting in a blocked account's queue for a worker that has a free fallback go back through
+   * `schedule`, which now picks the fallback. Their messages are still in the inbox (a turn takes them when it starts).
+   */
+  private rebalance(blockedAccount: string) {
+    for (const w of this.workers) {
+      if (w.account !== blockedAccount || !w.fallback.length || this.pickAccount(w) === blockedAccount) continue;
+      this.deps.scheduler.cancelQueued(`${w.id}:`);
+    }
+  }
+
+  /** Does the worker have another account (its own or a fallback) that can take a turn right now? If not it waits, as before. */
+  private hasFreeAccountBesides(accountId: string, worker: Worker): boolean {
+    return [worker.account, ...worker.fallback].some((id) => id !== accountId && !this.accountBlocked(id));
+  }
+
+  /** Says once when a worker moves to a fallback account and once when it is back on its own. */
+  private announceAccount(worker: Worker, accountId: string) {
+    const was = this.onFallback.get(worker.id);
+    if (accountId !== worker.account && was !== accountId) {
+      this.onFallback.set(worker.id, accountId);
+      this.post(SYSTEM, tr("🔀 {name} tạm chạy trên account {to} vì account {from} đang bị giới hạn. Sẽ quay về {from} khi có thể.", { name: worker.name, to: accountId, from: worker.account }), { to: [] });
+    } else if (accountId === worker.account && was) {
+      this.onFallback.delete(worker.id);
+      this.post(SYSTEM, tr("↩️ {name} quay về account {from}.", { name: worker.name, from: worker.account }), { to: [] });
+    }
+  }
+
   private schedule(key: string) {
     if (this.scheduled.has(key)) return;
     const worker = this.workers.find((w) => key.startsWith(`${w.id}:`))!;
     this.scheduled.add(key);
+    const acct = this.pickAccount(worker);
     if (![...this.running.keys()].some((k) => k.startsWith(`${worker.id}:`))) {
-      this.setStatus(worker.id, this.budgetPaused.has(worker.account) ? "over_budget" : "queued");
+      this.setStatus(worker.id, this.budgetPaused.has(acct) ? "over_budget" : "queued");
     }
     this.deps.scheduler
-      .submit(worker.account, key, () => this.runTurn(worker, key), (until) =>
+      .submit(acct, key, () => this.runTurn(worker, key, acct), (until) =>
         { this.noteIssue({ kind: "friction", source: "rate-limit", title: trVi("Account {account} bị rate limit", { account: worker.account }), worker: worker.id }); this.setStatus(worker.id, "rate_limited", tr("chờ đến {p}", { p: new Date(until).toLocaleTimeString() })); })
       .catch((err) => {
         if (err instanceof Error && err.message === "cancelled") return;
@@ -611,7 +654,7 @@ export class Room extends EventEmitter<RoomEvents> {
       });
   }
 
-  private async runTurn(worker: Worker, key: string): Promise<void> {
+  private async runTurn(worker: Worker, key: string, accountId: string = worker.account): Promise<void> {
     const batch = this.inbox.get(key) ?? [];
     this.inbox.delete(key);
     if (!batch.length) return;
@@ -623,13 +666,19 @@ export class Room extends EventEmitter<RoomEvents> {
     this.running.set(key, { abort, depth, readOnly, chain });
     this.chainTurns.set(chain, (this.chainTurns.get(chain) ?? 0) + 1);
     if (this.chainTurns.size > 2000) this.chainTurns.delete(this.chainTurns.keys().next().value!);
-    this.budgetPaused.delete(worker.account);
+    this.budgetPaused.delete(accountId);
     this.setStatus(worker.id, "working");
     const taskId = batch.find((m) => m.taskId)?.taskId;
-    const account = this.deps.config.accounts.find((a) => a.id === worker.account)!;
+    const account = this.deps.config.accounts.find((a) => a.id === accountId)!;
+    const onFallback = accountId !== worker.account;
+    this.announceAccount(worker, accountId);
     // Session ids only mean something on the machine that created them, so remote ones are kept apart.
     const host = account.host;
-    const sessKey = host ? `${key}@${host}` : key;
+    // A session only exists on the account that made it, so each fallback account keeps its own.
+    const base = onFallback ? `${key}~${accountId}` : key;
+    const sessKey = host ? `${base}@${host}` : base;
+    // The worker's `model:` names a model of its own provider; another endpoint has its own names.
+    const runWorker: Worker = onFallback && account.baseUrl ? { ...worker, model: undefined } : worker;
 
     const turnId = newTurnId();
     const startedAt = this.now();
@@ -652,7 +701,7 @@ export class Room extends EventEmitter<RoomEvents> {
       if (record) this.deps.inspector.save({ ...record, usage, error, context });
       this.deps.usage.append({
         ts: this.now(), turnId, worker: worker.id, account: account.id, provider: worker.provider,
-        model: usage?.model ?? worker.model, sessionKey: key, sessionId: this.sessions[sessKey], taskId,
+        model: usage?.model ?? runWorker.model, sessionKey: key, sessionId: this.sessions[sessKey], taskId,
         input: usage?.input ?? 0, output: usage?.output ?? 0, cacheRead: usage?.cacheRead ?? 0, cacheWrite: usage?.cacheWrite ?? 0,
         costUsd: usage?.costUsd, estimated: usage?.estimated ?? false, numTurns: usage?.numTurns,
         durationMs: this.now() - startedAt, tools, error: error ?? null,
@@ -681,7 +730,8 @@ export class Room extends EventEmitter<RoomEvents> {
       }
       const fresh = !this.sessions[sessKey];
       const sendMemory = fresh || !meta || meta.mem !== persona.memoryKey;
-      const seen = this.cursors[key] ?? 0;
+      // A new session (also on a fallback account) starts from the recent chat, not only from what came after the last turn.
+      const seen = fresh ? 0 : this.cursors[key] ?? 0;
       // Notices the room posts for the person (plan usage, session rotation, stopped conversations…) address nobody: workers have no use for them.
       const recent = this.messages.filter((m) => m.ts > seen && !(m.from === SYSTEM && !m.to.length)).slice(-this.deps.options.contextMessages);
       const memoSections = sendMemory ? [...persona.volatile, ...(fresh && persona.journal ? [persona.journal] : [])] : [];
@@ -699,7 +749,7 @@ export class Room extends EventEmitter<RoomEvents> {
 
       const adapter = host ? this.deps.remote! : this.deps.adapters[worker.provider];
       const result = await adapter.runTurn({
-        worker,
+        worker: runWorker,
         account,
         cwd,
         remote,
@@ -763,7 +813,17 @@ export class Room extends EventEmitter<RoomEvents> {
         return;
       }
       // The scheduler retries rate-limited jobs, so keep their messages for the retry.
-      if (isRateLimit(err)) this.inbox.set(key, [...batch, ...(this.inbox.get(key) ?? [])]);
+      if (isRateLimit(err)) {
+        this.inbox.set(key, [...batch, ...(this.inbox.get(key) ?? [])]);
+        // With a fallback account free, hold this account and let the same messages run there at once.
+        const wait = err instanceof RateLimitError && err.retryAfterMs ? err.retryAfterMs : 5 * 60_000;
+        if (this.hasFreeAccountBesides(accountId, worker)) {
+          this.deps.scheduler.pauseUntil(accountId, this.now() + wait);
+          this.rebalance(worker.account);
+          this.noteIssue({ kind: "friction", source: "rate-limit", title: trVi("Account {account} bị rate limit, chạy tiếp trên account dự phòng", { account: accountId }), worker: worker.id });
+          return;
+        }
+      }
       else if (!abort.signal.aborted) { finish(undefined, err instanceof Error ? err.message : String(err)); this.emit("usage"); }
       if (abort.signal.aborted) return;
       throw err;

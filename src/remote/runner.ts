@@ -139,7 +139,7 @@ export class Runner {
 
       const worker: Worker = {
         id: m.worker.id, name: m.worker.name, role: m.worker.role, skills: [], useSkills: m.worker.useSkills,
-        provider: m.account.provider, account: m.account.id, model: m.worker.model, instructions: "",
+        provider: m.account.provider, account: m.account.id, fallback: [], model: m.worker.model, instructions: "",
         allowedTools: m.worker.allowedTools, tools: m.worker.tools, worktree: m.worker.worktree, coordinator: false, sandbox: m.worker.sandbox, color: "#000000", autonomy: "manual",
       };
       const account: Account = { id: m.account.id, provider: m.account.provider, home: m.account.home, apiKeyEnv: m.account.apiKeyEnv, baseUrl: m.account.baseUrl, authTokenEnv: m.account.authTokenEnv, maxConcurrent: 1, warnAtPercent: 80 };

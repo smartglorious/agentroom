@@ -88,7 +88,7 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "contextLimit", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "fallback", "contextLimit", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
 const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
@@ -98,6 +98,16 @@ for (const [i, w] of workers.entries()) {
   if (["all", "user", "system"].includes(w?.id)) errors.push(`${at}.id "${w.id}" là tên dành riêng`);
   for (const k of ["name", "role", "account"]) if (!isStr(w?.[k])) errors.push(`${at}.${k} bắt buộc (chuỗi)`);
   if (w?.account && !accounts[w.account]) errors.push(`${at}.account "${w.account}" không có trong accounts`);
+  if (w?.fallback !== undefined) {
+    if (!Array.isArray(w.fallback)) errors.push(`${at}.fallback phải là danh sách tên account`);
+    else for (const f of w.fallback) {
+      const fa = accounts[f], pa = accounts[w.account];
+      if (!fa) errors.push(`${at}.fallback "${f}" không có trong accounts`);
+      else if (f === w.account) errors.push(`${at}.fallback không được là chính account của worker`);
+      else if (pa && fa.provider !== pa.provider) errors.push(`${at}.fallback "${f}" phải cùng provider với account "${w.account}"`);
+      else if (pa && (fa.host ?? "") !== (pa.host ?? "")) errors.push(`${at}.fallback "${f}" phải chạy trên cùng máy (host) với account "${w.account}"`);
+    }
+  }
   for (const k of ["skills", "useSkills", "allowedTools"]) if (w?.[k] !== undefined && !strList(w[k])) errors.push(`${at}.${k} phải là danh sách chuỗi`);
   for (const k of ["worktree", "coordinator"]) if (w?.[k] !== undefined && !isBool(w[k])) errors.push(`${at}.${k} phải là true/false`);
   if (w?.tools !== undefined) {
