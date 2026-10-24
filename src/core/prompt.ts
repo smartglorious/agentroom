@@ -91,7 +91,7 @@ export function buildTurn(w: Worker, team: Worker[], recent: ChatMessage[], inbo
   const mine = tasks.filter((t) => t.assignee === w.id && t.status !== "done");
   return join([
     ...(memo && memo.sections.length
-      ? [{ name: memo.update ? "Cập nhật đồng đội & trí nhớ" : "Đồng đội & trí nhớ", text: `<your_context${memo.update ? ' update="replaces any earlier version"' : ""}>\n${memo.sections.map((x) => x.text).join("\n\n")}\n</your_context>` }]
+      ? [{ name: `${memo.update ? "Cập nhật" : "Gửi kèm"}: ${memo.sections.map((x) => x.name).join(", ")}`, text: `<your_context${memo.update ? ' update="replaces any earlier version"' : ""}>\n${memo.sections.map((x) => x.text).join("\n\n")}\n</your_context>` }]
       : []),
     { name: "Ngữ cảnh room", text: context ? `<room_context>\n${context}\n</room_context>` : "" },
     { name: "Task của bạn", text: mine.length ? `<your_tasks>\n${mine.map((t) => `- [${t.id}] (${t.status}) ${t.title}`).join("\n")}\n</your_tasks>` : "" },
