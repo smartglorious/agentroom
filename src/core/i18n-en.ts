@@ -518,4 +518,6 @@ export const EN: Record<string, string> = {
   "Theo model": "By model",
   "Theo task": "By task",
   "Ghi một vấn đề / lỗi": "Report an issue / bug",
+  "{msg}. Trên Windows hãy đặt agentroom.{name}Path = đường dẫn tới {name}.exe thật (thường trong node_modules\\@openai\\codex\\…\\vendor\\…\\codex\\codex.exe), không dùng file {name} hoặc {name}.cmd của npm.": "{msg}. On Windows set agentroom.{name}Path to the real {name}.exe (usually under node_modules\\@openai\\codex\\…\\vendor\\…\\codex\\codex.exe), not npm's {name} or {name}.cmd files.",
+  "{msg}. Kiểm tra agentroom.{name}Path hoặc PATH.": "{msg}. Check agentroom.{name}Path or PATH.",
 };

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { explainSpawnError, needsShell } from "../core/cli";
 import { tmpdir } from "node:os";
 import { PlanUsage, fromClaudeUsage, fromCodexLimits } from "../core/plan";
 import type { Account } from "../core/types";
@@ -42,7 +43,7 @@ export async function probeClaudePlan(account: Account, executable: string | und
  */
 export function probeCodexPlan(account: Account, executable: string, now = Date.now, timeoutMs = TIMEOUT_MS): Promise<PlanUsage> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, ["app-server"], { env: accountEnv(account, "CODEX_HOME", "OPENAI_API_KEY"), stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(executable, ["app-server"], { shell: needsShell(executable), env: accountEnv(account, "CODEX_HOME", "OPENAI_API_KEY"), stdio: ["pipe", "pipe", "ignore"] });
     let buf = "", done = false;
     const finish = (fn: () => void) => {
       if (done) return;
@@ -53,7 +54,7 @@ export function probeCodexPlan(account: Account, executable: string, now = Date.
     };
     const timer = setTimeout(() => finish(() => reject(new Error(`quá ${Math.round(timeoutMs / 1000)}s không có phản hồi`))), timeoutMs);
     const send = (o: object) => child.stdin.write(JSON.stringify(o) + "\n");
-    child.on("error", (e) => finish(() => reject(new Error(scrub(e.message)))));
+    child.on("error", (e) => finish(() => reject(new Error(scrub(explainSpawnError(e, "codex"))))));
     child.on("exit", () => finish(() => reject(new Error("codex app-server thoát đột ngột"))));
     child.stdout.on("data", (d: Buffer) => {
       buf += d.toString();

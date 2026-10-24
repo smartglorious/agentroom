@@ -1,3 +1,4 @@
+import { explainSpawnError } from "../core/cli";
 import type { ThreadEvent, ThreadOptions } from "@openai/codex-sdk";
 import { codexSandbox } from "../core/autonomy";
 import { TurnUsage } from "../core/types";
@@ -40,6 +41,13 @@ export class CodexAdapter implements AgentAdapter {
   ) {}
 
   async runTurn(req: TurnRequest): Promise<TurnResult> {
+    try { return await this.run(req); } catch (e) {
+      const hint = explainSpawnError(e, "codex");
+      throw hint === (e instanceof Error ? e.message : String(e)) ? e : new Error(hint);
+    }
+  }
+
+  private async run(req: TurnRequest): Promise<TurnResult> {
     const { Codex } = await load();
     const codex = new Codex({
       codexPathOverride: this.executable(),
