@@ -23,3 +23,4 @@ scripts/**
 *.zip
 *.vsix
 agentroom-*
+release/**
