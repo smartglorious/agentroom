@@ -31,6 +31,7 @@ type FromWebview =
   | { type: "allowBudget"; account: string }
   | { type: "copyHook"; id: string }
   | { type: "newSkill" }
+  | { type: "panelAction"; panel: string; action: string; values?: unknown }
   | { type: "hostCheck"; name?: string }
   | { type: "refreshPlans" }
   | { type: "setAutonomy"; workerId: string; mode: string }
@@ -171,6 +172,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!c) return;
     const room = c.room;
     switch (m.type) {
+      case "panelAction": {
+        const panel = String(m.panel), action = String(m.action);
+        if (!c.plugins) break;
+        void c.plugins.invokePanelAction(panel, action, m.values).then((r) => this.post({ type: "panelResult", panel, action, ...r }));
+        break;
+      }
       case "send": if (typeof m.text === "string" && m.text.trim()) room.post("user", m.text.trim(), typeof m.replyTo === "string" ? { replyTo: m.replyTo } : {}); break;
       case "answerOption":
         try { room.answerOption(String(m.messageId), String(m.optionId)); }
