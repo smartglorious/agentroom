@@ -78,9 +78,9 @@ export function claudeUsage(m: {
 }
 
 /** Asks the CLI what fills the context window (no model call). Only for a new session: that is where the fixed part shows. Never fails the turn. */
-async function contextOf(q: { getContextUsage?: (o?: { detail?: "summary" | "full" }) => Promise<{ categories: { name: string; tokens: number; kind?: string }[]; totalTokens: number }> }): Promise<ContextBreakdown | undefined> {
+async function contextOf(q: { getContextUsage?: (o?: { detail?: "summary" | "full" }) => Promise<{ categories: { name: string; tokens: number; kind?: string }[]; totalTokens: number }> }, detail: "summary" | "full" = "summary"): Promise<ContextBreakdown | undefined> {
   try {
-    const r = await q.getContextUsage?.({ detail: "summary" });
+    const r = await q.getContextUsage?.({ detail });
     if (!r) return undefined;
     return { categories: r.categories.filter((c) => c.kind === undefined || c.kind === "used").map((c) => ({ name: c.name, tokens: c.tokens })).filter((c) => c.tokens > 0), total: r.totalTokens };
   } catch { return undefined; }
@@ -127,6 +127,7 @@ export class ClaudeAdapter implements AgentAdapter {
     let sessionId = req.sessionId;
     let lastText = "";
     let context: ContextBreakdown | undefined;
+    let measuredAfterReply = false;
     const q = query({ prompt: req.prompt, options });
     for await (const m of q as AsyncIterable<SDKMessage>) {
       if (m.type === "system" && m.subtype === "init") {
@@ -135,6 +136,8 @@ export class ClaudeAdapter implements AgentAdapter {
         if (!req.sessionId) context = await contextOf(q);
       }
       else if (m.type === "assistant") {
+        // After the first reply of a NEW session the CLI knows what it really sent (the startup reading is much smaller on some setups).
+        if (!req.sessionId && !measuredAfterReply) { measuredAfterReply = true; context = (await contextOf(q, "full")) ?? context; }
         for (const block of m.message.content) {
           if (block.type === "tool_use") req.onActivity(`${block.name} ${summarizeInput(block.input)}`.trim());
           else if (block.type === "text" && block.text.trim()) lastText = block.text;
