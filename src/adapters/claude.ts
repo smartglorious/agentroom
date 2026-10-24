@@ -88,6 +88,32 @@ export class ClaudeAdapter implements AgentAdapter {
   /** `executable` returns the user's `claude` CLI path, or undefined to use the SDK's bundled one. */
   constructor(private executable: () => string | undefined = () => undefined) {}
 
+  /**
+   * Starts the CLI with the same options as a real turn, but its input stream never delivers a message, so the model is never
+   * called: the CLI only reports what would fill the window (system prompt, tools, CLAUDE.md, skills, MCP). Verified with the real CLI.
+   */
+  async measureContext(req: TurnRequest): Promise<ContextBreakdown | undefined> {
+    const { query } = await load();
+    const abortController = new AbortController();
+    req.signal.addEventListener("abort", () => abortController.abort(), { once: true });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    async function* input(): AsyncGenerator<never> { await gate; }
+    const q = query({ prompt: input() as never, options: buildClaudeOptions(req, this.executable(), abortController) });
+    const drain = (async () => { try { for await (const _ of q as AsyncIterable<unknown>) { /* only status messages arrive */ } } catch { /* closed below */ } })();
+    try {
+      const r = await Promise.race([
+        q.getContextUsage({ detail: "full" }),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 60_000)),
+      ]);
+      return { categories: r.categories.filter((c) => c.kind === undefined || c.kind === "used").map((c) => ({ name: c.name, tokens: c.tokens })).filter((c) => c.tokens > 0), total: r.totalTokens };
+    } finally {
+      abortController.abort();
+      release();
+      await Promise.race([drain, new Promise((r) => setTimeout(r, 2000))]);
+    }
+  }
+
   async runTurn(req: TurnRequest): Promise<TurnResult> {
     const { query } = await load();
     const abortController = new AbortController();

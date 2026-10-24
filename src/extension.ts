@@ -21,7 +21,7 @@ const TELEGRAM_FAULT = /lỗi|không (gửi|khởi động)|failed|error/i;
 import { gatherCleanup, humanBytes, listBatches, restoreCleanup, scanCleanup } from "./core/cleanup";
 import { parseConfig, SAMPLE_CONFIG } from "./core/config";
 import { CronEngine } from "./core/cron";
-import { TurnInspector, renderTurn } from "./core/inspector";
+import { TurnInspector, renderContextReport, renderTurn } from "./core/inspector";
 import { RoomLock } from "./core/lock";
 import { MemoryStore } from "./core/memory";
 import { Room } from "./core/room";
@@ -414,6 +414,14 @@ export async function activate(ctx: vscode.ExtensionContext) {
       if (!text) return;
       const it = live.room.reportIssue(text);
       vscode.window.showInformationMessage(it ? tr("Đã ghi vấn đề {id}.", { id: it.id }) : tr("Chưa bật bộ gom lỗi."));
+    }),
+    vscode.commands.registerCommand("agentroom.measureContext", async () => {
+      const ws = root();
+      if (!ws || !live) return vscode.window.showWarningMessage(tr("AgentRoom chưa được cấu hình."));
+      const rows = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: tr("Đang đo context cố định (không gửi tin nào cho model)…") }, () => live!.room.measureContext());
+      const f = join(ws, ".agentroom", "state", "context-report.md");
+      writeFileSync(f, renderContextReport(rows));
+      await vscode.window.showTextDocument(vscode.Uri.file(f));
     }),
     vscode.commands.registerCommand("agentroom.exportIssues", async () => {
       const ws = root();

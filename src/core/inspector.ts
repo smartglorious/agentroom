@@ -1,3 +1,4 @@
+import { tr } from "./i18n";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PromptSection } from "./prompt";
@@ -102,5 +103,27 @@ export function renderTurn(r: TurnRecord): string {
     lines.push(`| **Tổng** | **${num(r.context.total)}** |`, "", "Phần này được đọc lại ở MỌI lần gọi của session, nên nó là mức sàn của mỗi lượt.");
   }
   lines.push("", "## System prompt (phần AgentRoom thêm vào)", "", fence(r.systemAppend), "", "## Prompt của lượt", "", fence(r.prompt), "");
+  return lines.join("\n");
+}
+
+export interface ContextProbe {
+  worker: string;
+  name: string;
+  breakdown?: { categories: { name: string; tokens: number }[]; total: number };
+  /** What AgentRoom itself would put in the first message of a new session (estimated). */
+  promptTokens: number;
+  note?: string;
+}
+
+/** The report of "AgentRoom: Measure fixed context": one table per Claude worker. */
+export function renderContextReport(rows: ContextProbe[]): string {
+  const lines = [`# ${tr("Context cố định của session Claude mới")}`, "", tr("Đo bằng cách khởi động CLI như một lượt thật nhưng không gửi tin nào cho model, nên không tốn hạn mức. Mức này được đọc lại ở MỌI lần gọi của session."), ""];
+  for (const r of rows) {
+    lines.push(`## @${r.worker} (${r.name})`, "");
+    if (!r.breakdown) { lines.push(r.note ?? tr("Không đo được."), ""); continue; }
+    lines.push(`| ${tr("Mục")} | ${tr("Token")} |`, "|---|---:|");
+    for (const c of [...r.breakdown.categories].sort((a, b) => b.tokens - a.tokens)) lines.push(`| ${c.name} | ${num(c.tokens)} |`);
+    lines.push(`| **${tr("Tổng do CLI nạp")}** | **${num(r.breakdown.total)}** |`, `| ${tr("Tin đầu tiên AgentRoom gửi (ước tính)")} | ${num(r.promptTokens)} |`, "");
+  }
   return lines.join("\n");
 }

@@ -246,3 +246,22 @@ test("inspector: a new session's fixed context (as the CLI reports it) is saved 
   assert.match(text, /\*\*Tổng\*\* \| \*\*69,?000|Tổng/);
   void dir;
 });
+
+import { renderContextReport } from "../src/core/inspector";
+
+test("measureContext: Claude workers are measured without a turn, others and remote ones say why; the report lists the biggest first", async () => {
+  const calls: string[] = [];
+  const fake = Object.assign(new Fake(() => "ok"), {
+    async measureContext(req: { worker: { id: string }; prompt: string; systemAppend: string }) { calls.push(req.worker.id); return { categories: [{ name: "System tools", tokens: 9000 }, { name: "Memory files", tokens: 3000 }], total: 12000 }; },
+  });
+  const r = makeRoom(fake, { config: parseConfig(`accounts: { c: { provider: claude, maxConcurrent: 2 }, x: { provider: codex, maxConcurrent: 1 } }\nworkers:\n  - { id: be, name: Minh, role: Dev, account: c, coordinator: true }\n  - { id: dx, name: Hà, role: Docs, account: x }\n`) });
+  const rows = await r.room.measureContext();
+  assert.deepEqual(calls, ["be"], "no worker was run; only the Claude one was probed");
+  assert.equal(fake.calls.length, 0, "no turn ran");
+  assert.equal(rows[0].breakdown?.total, 12000);
+  assert.ok(rows[0].promptTokens > 0);
+  assert.match(rows[1].note ?? "", /Claude/);
+  const text = renderContextReport(rows);
+  assert.ok(text.indexOf("System tools") < text.indexOf("Memory files"));
+  assert.match(text, /@dx/);
+});

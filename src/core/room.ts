@@ -2,7 +2,7 @@ import { tr, trVi } from "./i18n";
 import { EventEmitter } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
 import { AgentAdapter, ApprovalResult } from "../adapters/types";
-import { TurnInspector, TurnRecord, newTurnId, sectionInfo } from "./inspector";
+import { ContextProbe, TurnInspector, TurnRecord, estimateTokens, newTurnId, sectionInfo } from "./inspector";
 import { CONSOLIDATE_PROMPT, MemoryEntry, MemoryStore, redactSecrets, ymd } from "./memory";
 import { buildPersona, buildTurn } from "./prompt";
 import { parseMentions, route } from "./router";
@@ -492,6 +492,32 @@ export class Room extends EventEmitter<RoomEvents> {
   }
 
   /** Says once (per conversation or task) why work between workers stopped. */
+  /** What each Claude worker's new session would hold before it does anything. No model call, so it costs no quota. */
+  async measureContext(workerIds?: string[]): Promise<ContextProbe[]> {
+    const out: ContextProbe[] = [];
+    for (const worker of this.workers.filter((w) => !workerIds || workerIds.includes(w.id))) {
+      const base = { worker: worker.id, name: worker.name, promptTokens: 0 };
+      const account = this.deps.config.accounts.find((a) => a.id === worker.account)!;
+      const adapter = this.deps.adapters[worker.provider];
+      if (worker.provider !== "claude" || !adapter.measureContext) { out.push({ ...base, note: tr("Chỉ đo được worker chạy Claude.") }); continue; }
+      if (account.host) { out.push({ ...base, note: tr("Worker chạy trên máy từ xa ({host}): chạy lệnh này ngay trên máy đó.", { host: account.host }) }); continue; }
+      try {
+        const memory = this.deps.memory.blocks(worker, this.deps.options.memoryBudgetChars);
+        const persona = buildPersona(worker, this.workers, memory, "", undefined);
+        const turn = buildTurn(worker, this.workers, [], [], this.tasks.list(), { sections: [...persona.volatile, ...(persona.journal ? [persona.journal] : [])], update: false }, () => undefined);
+        const breakdown = await adapter.measureContext({
+          worker, account, cwd: await this.deps.resolveCwd(worker), systemAppend: persona.stable.text, prompt: turn.text,
+          mcpUrl: this.deps.mcpUrl(worker.id), claudeSkills: claudeSkillOptions(worker, this.deps.pluginDir, this.deps.skills),
+          signal: new AbortController().signal, onActivity: () => {}, approve: async () => false,
+        });
+        out.push({ ...base, breakdown, promptTokens: estimateTokens(persona.stable.text) + estimateTokens(turn.text), note: breakdown ? undefined : tr("Không đo được.") });
+      } catch (e) {
+        out.push({ ...base, note: tr("Không đo được: {msg}", { msg: e instanceof Error ? e.message : String(e) }) });
+      }
+    }
+    return out;
+  }
+
   get issues() { return this.deps.issues; }
   get plugins() { return this.deps.plugins; }
 

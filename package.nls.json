@@ -4,6 +4,7 @@
   "cmd.init": "AgentRoom: Create sample workers config",
   "cmd.reload": "AgentRoom: Reload workers.yaml",
   "cmd.stopAll": "AgentRoom: Stop all workers",
+  "cmd.measureContext": "AgentRoom: Measure fixed context of new sessions (no quota used)",
   "cmd.reportIssue": "AgentRoom: Report an issue / bug",
   "cmd.exportIssues": "AgentRoom: Export issue report (Markdown)",
   "cmd.cleanup": "AgentRoom: Clean up junk/temp/cache files (gather, never delete)",
