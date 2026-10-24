@@ -3,7 +3,7 @@
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
   const state = {
-    workers: [], statuses: {}, tasks: [], drafts: [], accounts: [], todayByWorker: {},
+    workers: [], plans: [], statuses: {}, tasks: [], drafts: [], accounts: [], todayByWorker: {},
     usage: null, range: "today", schedules: [], hooks: { port: null, hooks: [], calls: [] },
     profile: null, profileWorker: null, hostList: [], telegram: null,
   };
@@ -120,9 +120,49 @@
     return sec;
   }
 
+  // ---------- plan usage (subscription windows) ----------
+  const ago = (ms) => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "vừa xong" : m < 60 ? `${m} phút trước` : `${Math.round(m / 60)} giờ trước`; };
+  const until = (ms) => {
+    const m = Math.round((ms - Date.now()) / 60000);
+    if (m <= 0) return "đang reset";
+    if (m < 60) return `${m} phút`;
+    const h = Math.floor(m / 60);
+    return h < 48 ? `${h} giờ${m % 60 ? " " + (m % 60) + " phút" : ""}` : `${Math.round(h / 24)} ngày`;
+  };
+  function renderPlans(box) {
+    const head = el("div", "ranges");
+    head.append(el("b", null, "Gói đăng ký còn lại"), btn("Làm mới", () => send({ type: "refreshPlans" }), "small"));
+    box.append(head);
+    if (!state.plans.length) { box.append(el("p", "meta", "Chưa có số liệu hạn mức.")); return; }
+    for (const p of state.plans) {
+      const warnAt = state.accounts.find((a) => a.id === p.account)?.warnAtPercent ?? 80;
+      const card = el("div", "plan-card " + (p.state === "limited" ? "over" : p.state === "warning" ? "warn" : ""));
+      const title = el("div", "meta");
+      title.append(el("b", null, p.account), el("span", null, `${p.provider}${p.plan ? " · gói " + p.plan : ""}`));
+      if (p.fetchedAt) title.append(el("span", "tag", (Date.now() - p.fetchedAt > 30 * 60000 ? "⚠ cũ: " : "") + ago(p.fetchedAt)));
+      card.append(title);
+      for (const w of p.windows) {
+        const left = Math.max(0, 100 - w.usedPercent);
+        const row = el("div", "plan-row");
+        row.append(el("span", "plan-label", w.label));
+        const track = el("span", "bar-track wide");
+        const fill = el("span", "bar-fill" + (w.usedPercent >= 100 ? " over" : w.usedPercent >= warnAt ? " warn" : ""));
+        fill.style.width = Math.min(100, w.usedPercent) + "%";
+        track.append(fill);
+        row.append(track, el("span", "plan-left", `còn ${left.toFixed(0)}%`));
+        if (w.resetsAt) row.append(el("span", "tag", "reset sau " + until(w.resetsAt)));
+        card.append(row);
+      }
+      if (p.note) card.append(el("div", "meta" + (p.state === "error" ? " err" : ""), p.note));
+      box.append(card);
+    }
+    box.append(el("p", "note", "Các nhà cung cấp chỉ báo phần trăm đã dùng của mỗi cửa sổ, không báo số token tuyệt đối. Số liệu cập nhật định kỳ và sau mỗi lượt chạy."));
+  }
+
   function renderCost() {
     const box = $("cost");
     box.replaceChildren();
+    renderPlans(box);
     const bar = el("div", "ranges");
     for (const [k, label] of [["today", "Hôm nay"], ["7d", "7 ngày"], ["30d", "30 ngày"]]) {
       const b = btn(label, () => send({ type: "setRange", range: k }), state.range === k ? "small on" : "small");
@@ -405,6 +445,7 @@
         state.drafts = s.drafts;
         state.accounts = s.accounts;
         state.todayByWorker = s.todayByWorker;
+        state.plans = s.plans || [];
         if (data.usage) { state.usage = data.usage; state.range = data.usage.range; }
         state.schedules = data.schedules || [];
         state.hooks = data.hooks || state.hooks;
@@ -418,6 +459,7 @@
       case "message": renderMessage(data.msg); break;
       case "status": state.statuses[data.status.id] = data.status; renderTeam(); break;
       case "tasks": state.tasks = data.tasks; renderTasks(); break;
+      case "plans": state.plans = data.plans; renderCost(); break;
       case "approval": renderApproval(data.req); break;
       case "approvalResolved": $("ap-" + data.id)?.remove(); break;
       case "usage": state.usage = data; state.range = data.range; state.accounts = data.accounts; state.todayByWorker = data.todayByWorker; renderTeam(); renderCost(); renderTasks(); break;

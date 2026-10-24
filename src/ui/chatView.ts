@@ -27,6 +27,7 @@ type FromWebview =
   | { type: "copyHook"; id: string }
   | { type: "newSkill" }
   | { type: "hostCheck"; name?: string }
+  | { type: "refreshPlans" }
   | { type: "takeOver" }
   | { type: "telegramAction"; action: string };
 
@@ -89,6 +90,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     sub(room, "tasks", (tasks) => ({ type: "tasks", tasks }));
     sub(room, "drafts", (drafts) => ({ type: "drafts", drafts }));
     sub(room, "usage", () => this.usagePayload());
+    sub(room, "plan", () => ({ type: "plans", plans: room.plan?.list() ?? [], now: Date.now() }));
     sub(cron, "change", () => ({ type: "schedules", schedules: cron.statuses() }));
     if (hooks) sub(hooks, "call", () => this.hooksPayload());
     if (hosts) sub(hosts, "change", () => this.hostsPayload());
@@ -173,6 +175,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (cmd) void vscode.commands.executeCommand(cmd);
         break;
       }
+      case "refreshPlans": void room.plan?.refresh(undefined, true); break;
       case "hostCheck": void c.hosts?.check(typeof m.name === "string" ? m.name : undefined); break;
       case "copyHook": { const h = this.hooksPayload().hooks.find((x) => x.id === m.id); if (h?.url) this.handlers?.copy(h.url); break; }
     }

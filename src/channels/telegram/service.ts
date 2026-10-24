@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomInt, timingSafeEqual } from "node:crypto";
 import { redactSecrets } from "../../core/memory";
+import { PlanUsage, untilText } from "../../core/plan";
 import type { Room } from "../../core/room";
 import type { ApprovalRequest, ChatMessage, RoomConfig } from "../../core/types";
 import type { UsageStore } from "../../core/usage";
@@ -61,7 +62,7 @@ const HELP = [
   "AgentRoom trên điện thoại",
   "• Nhắn thường → gửi cho worker điều phối; @id → gọi đúng worker",
   "/status — worker đang làm gì · /tasks — việc đang mở · /cost — chi phí hôm nay",
-  "/stop <id|all> — dừng worker · /mute [30m|2h] · /unmute",
+  "/plan — hạn mức gói Claude/Codex còn lại (/plan refresh để đọc lại) · /stop <id|all> — dừng worker · /mute [30m|2h] · /unmute",
   "/detail summary|full|alerts — mức chi tiết tin gửi về",
   "/budget — cho account hết ngân sách chạy tiếp · /unpair — ngắt ghép cặp",
 ].join("\n");
@@ -321,6 +322,11 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
         const accs = room.snapshot().accounts.filter((a) => a.budgetUsdPerDay).map((a) => `${a.id}: ${usd(a.spentToday)} / ${usd(a.budgetUsdPerDay!)}${a.paused ? " ⛔" : ""}`);
         return void (await say(`💰 Hôm nay: ${t.estimated ? "≈ " : ""}${usd(t.costUsd)} · ${t.turns} lượt · ${t.errors} lỗi${accs.length ? "\n" + accs.join("\n") : ""}`));
       }
+      case "plan": {
+        if (!room.plan) return void (await say("Chưa bật theo dõi hạn mức gói."));
+        if (arg === "refresh") await room.plan.refresh(undefined, true);
+        return void (await say(planText(room.plan.list(), this.now())));
+      }
       case "stop": {
         const ids = room.snapshot().workers.map((w) => w.id);
         if (arg === "all") { room.stopAll(); return void (await say("⏹ Đã dừng tất cả worker.")); }
@@ -435,4 +441,16 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     room.respondApproval(action.id, true);
     if (shown) await bot.edit(shown.chat, shown.id, `${describeApproval(req, this.workerName(req.workerId))}\n✅ Đã cho phép (từ điện thoại)`);
   }
+}
+
+/** Plain text for /plan: one block per account, remaining share and reset time per window. */
+export function planText(plans: PlanUsage[], now: number): string {
+  if (!plans.length) return "Chưa có account nào.";
+  const icon = { ok: "🟢", warning: "🟡", limited: "🔴", unavailable: "⚪", error: "⚠️" } as const;
+  return plans.map((p) => {
+    const head = `${icon[p.state]} ${p.account} (${p.provider}${p.plan ? ", gói " + p.plan : ""})`;
+    const rows = p.windows.map((w) => `  ${w.label}: còn ${Math.max(0, 100 - w.usedPercent).toFixed(0)}%${w.resetsAt ? ` · reset sau ${untilText(w.resetsAt, now)}` : ""}`);
+    const age = p.fetchedAt && now - p.fetchedAt > 30 * 60_000 ? `\n  (số liệu cũ: ${Math.round((now - p.fetchedAt) / 60_000)} phút trước)` : "";
+    return [head, ...rows, p.note ? `  ${p.note}` : ""].filter(Boolean).join("\n") + age;
+  }).join("\n\n");
 }

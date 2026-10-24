@@ -2,7 +2,7 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, tính cách, trí nhớ riêng) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
+Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
 
 ## Tính năng
 
@@ -12,6 +12,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 | **Account dùng chung** | Giới hạn chạy song song, tự chờ và chạy lại khi bị rate limit, ngân sách USD theo ngày. |
 | **Trí nhớ bền vững** | `SOUL.md`, `MEMORY.md`, nhật ký ngày cho từng worker + trí nhớ chung của đội. Agent ghi qua tool `remember` / `recall` / `forget` / `journal`. |
 | **Skills thật** | `useSkills` bật các `SKILL.md` cho đúng worker; agent có thể đề xuất skill mới, chỉ có hiệu lực sau khi bạn duyệt. |
+| **Hạn mức gói** | Tab *Chi phí* hiện phần trăm còn lại của gói Claude/Codex theo từng cửa sổ (5 giờ, 7 ngày…) và giờ reset; cảnh báo, tự tạm dừng khi hết; Telegram `/plan`. Xem `docs/PLAN-USAGE.md`. |
 | **Chi phí** | Tab *Chi phí*: token, chi phí, cache hit theo worker / account / model / task / tool. |
 | **Context Inspector** | Nút 🔍 trên tin nhắn: xem chính xác những gì đã gửi cho model, chia theo phần, kèm số token. |
 | **Lịch chạy** | Cron có timezone, chạy bù khi VS Code vừa mở lại, nút *Chạy ngay*. |
@@ -31,7 +32,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 ## Cài từ file .vsix
 
 ```bash
-code --install-extension agentroom-0.7.1.vsix
+code --install-extension agentroom-0.8.0.vsix
 ```
 
 Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → chọn file.
@@ -41,7 +42,7 @@ Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → ch�
 ```bash
 npm install
 npm run build        # dist/extension.js + dist/runner.mjs (file được cài lên máy từ xa)
-npm test             # 133 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH, Telegram
+npm test             # 145 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH, Telegram
 npm run test:live    # kịch bản thật với Claude (tốn vài cent, cần đã đăng nhập claude)
 npm run test:ssh     # nhiều máy qua sshd THẬT + Claude thật (cần openssh-server, root: scripts/live/ssh-sandbox.sh up)
 npm run package      # agentroom-<version>.vsix
@@ -95,7 +96,7 @@ Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1). Mỗi worker còn có 
 
 ### Settings
 
-`agentroom.maxAgentHops`, `agentroom.contextMessages`, `agentroom.memoryBudgetChars`, `agentroom.inspector.keepTurns` (0 = tắt), `agentroom.pricing` (giá Codex, USD/1M token; bỏ trống thì Codex chỉ có token), `agentroom.hookPort`, `agentroom.claudePath`, `agentroom.codexPath`, và nhóm `agentroom.telegram.*` (chỉ đặt được trong cài đặt người dùng).
+`agentroom.maxAgentHops`, `agentroom.contextMessages`, `agentroom.memoryBudgetChars`, `agentroom.inspector.keepTurns` (0 = tắt), `agentroom.pricing` (giá Codex, USD/1M token; bỏ trống thì Codex chỉ có token), `agentroom.planUsage.pollMinutes`, `agentroom.hookPort`, `agentroom.claudePath`, `agentroom.codexPath`, và nhóm `agentroom.telegram.*` (chỉ đặt được trong cài đặt người dùng).
 
 ### Lệnh
 

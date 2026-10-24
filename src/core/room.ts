@@ -7,6 +7,7 @@ import { buildPersona, buildTurn } from "./prompt";
 import { route } from "./router";
 import { isRateLimit, Scheduler } from "./scheduler";
 import { REMOTE_SKILLS, SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, claudeSkillOptions, codexSkillDirs, codexSkillsBlock } from "./skills";
+import { PlanMonitor, PlanProbe } from "./plan";
 import { RoomStore } from "./store";
 import { TaskBoard } from "./tasks";
 import { ApprovalRequest, ChatMessage, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
@@ -38,6 +39,10 @@ export interface RoomDeps {
   resolveCwd(w: Worker): Promise<string>;
   mcpUrl(workerId: string): string;
   now?: () => number;
+  /** Reads an account's subscription-plan usage; turns on the plan monitor. */
+  planProbe?: PlanProbe;
+  /** ms between background plan checks (0 = only on demand and after turns). */
+  planPollMs?: () => number;
 }
 
 export interface RoomEvents {
@@ -47,6 +52,7 @@ export interface RoomEvents {
   approvalResolved: [string];
   tasks: [Task[]];
   usage: [];
+  plan: [];
   drafts: [SkillDraft[]];
 }
 
@@ -110,7 +116,21 @@ export class Room extends EventEmitter<RoomEvents> {
     }
     this.rebuildSkills();
     for (const a of deps.config.accounts) this.checkBudget(a.id, false);
+    if (deps.planProbe) {
+      this.plan = new PlanMonitor({
+        accounts: deps.config.accounts,
+        probe: deps.planProbe,
+        now: deps.now,
+        pollMs: deps.planPollMs ?? (() => 0),
+        alert: (text) => this.post(SYSTEM, text, { alert: true }),
+        pause: (id, until) => this.deps.scheduler.pauseUntil(id, until),
+      });
+      this.plan.on("change", () => this.emit("plan"));
+    }
   }
+
+  /** Subscription-plan usage per account (undefined when no probe was given). */
+  readonly plan?: PlanMonitor;
 
   get workers() { return this.deps.config.workers; }
   hasWorker(id: string) { return this.workers.some((w) => w.id === id); }
@@ -126,11 +146,13 @@ export class Room extends EventEmitter<RoomEvents> {
       tasks: this.tasks.list(),
       approvals: [...this.approvals.values()].map((a) => a.req),
       drafts: this.deps.skillDrafts.list(),
+      plans: this.plan?.list() ?? [],
       accounts: this.deps.config.accounts.map((a) => ({
         id: a.id,
         provider: a.provider,
         host: a.host,
         budgetUsdPerDay: a.budgetUsdPerDay,
+        warnAtPercent: a.warnAtPercent,
         spentToday: this.deps.usage.costToday(a.id),
         paused: this.budgetPaused.has(a.id),
       })),
@@ -433,6 +455,7 @@ export class Room extends EventEmitter<RoomEvents> {
         readOnly,
         signal: abort.signal,
         onCwd: (c) => { approvalCwd = c; },
+        onRateLimit: () => this.plan?.touch(account.id),
         onActivity: (a) => {
           const [tool, ...rest] = a.split(" ");
           tools[tool] = (tools[tool] ?? 0) + 1;
@@ -450,6 +473,7 @@ export class Room extends EventEmitter<RoomEvents> {
       this.cursors[key] = startedAt;
       this.deps.store.saveCursors(this.cursors);
       finish(result.usage);
+      this.plan?.touch(account.id);
       this.writeJournal(worker.id, taskId, result.text, edited);
       this.checkBudget(account.id);
       this.emit("usage");

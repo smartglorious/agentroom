@@ -90,7 +90,10 @@ export class ClaudeAdapter implements AgentAdapter {
           if (block.type === "tool_use") req.onActivity(`${block.name} ${summarizeInput(block.input)}`.trim());
           else if (block.type === "text" && block.text.trim()) lastText = block.text;
         }
+      } else if (m.type === "rate_limit_event" && m.rate_limit_info.status !== "rejected") {
+        req.onRateLimit?.();
       } else if (m.type === "rate_limit_event" && m.rate_limit_info.status === "rejected") {
+        req.onRateLimit?.();
         const at = m.rate_limit_info.resetsAt;
         const ms = at ? (at < 1e12 ? at * 1000 : at) - Date.now() : undefined;
         throw new RateLimitError(`Claude rate limit (${m.rate_limit_info.rateLimitType ?? "unknown"})`, ms && ms > 0 ? ms : undefined);

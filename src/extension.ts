@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { ClaudeAdapter } from "./adapters/claude";
 import { CodexAdapter, PriceTable } from "./adapters/codex";
+import { makePlanProbe } from "./adapters/plan";
 import { RemoteAdapter } from "./adapters/remote";
 import { BotApi } from "./channels/telegram/api";
 import { TelegramBot } from "./channels/telegram/bot";
@@ -53,6 +54,7 @@ let live: Live | undefined;
 function dispose() {
   if (!live) return;
   live.room.stopAll();
+  live.room.plan?.stop();
   live.cron.stop();
   live.hookServer?.dispose();
   live.telegram?.stop();
@@ -199,7 +201,10 @@ export async function activate(ctx: vscode.ExtensionContext) {
         inspector,
         resolveCwd: (w) => ensureWorktree(localBase(ws, w), w),
         mcpUrl: (id) => server.current!.urlFor(id),
+        planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
+        planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });
+      room.plan?.start();
       const mcp = (server.current = new AgentRoomMcp(room));
       await mcp.start();
 

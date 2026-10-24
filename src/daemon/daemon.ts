@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { ClaudeAdapter } from "../adapters/claude";
 import { CodexAdapter } from "../adapters/codex";
+import { makePlanProbe } from "../adapters/plan";
 import { RemoteAdapter } from "../adapters/remote";
 import type { AgentAdapter } from "../adapters/types";
 import { BotApi } from "../channels/telegram/api";
@@ -50,6 +51,7 @@ export interface DaemonOptions {
   adapters?: { claude: AgentAdapter; codex: AgentAdapter };
   apiBase?: string;
   bot?: BotDeps;
+  planProbe?: import("../core/plan").PlanProbe;
   lockHeartbeatMs?: number;
 }
 
@@ -160,7 +162,11 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       inspector: new TurnInspector(stateDir, s0.inspectorKeepTurns),
       resolveCwd: (w) => ensureWorktree(localBase(o.root, w), w),
       mcpUrl: (id) => server.current!.urlFor(id),
+      planProbe: o.planProbe ?? makePlanProbe({ claude: () => findExecutable("claude", settings().claudePath), codex: cli("codex") }),
+      planPollMs: () => settings().planPollMinutes * 60_000,
     });
+    room.plan?.start();
+    disposers.push(() => room.plan?.stop());
     disposers.push(() => room.stopAll());
 
     const mcp = (server.current = new AgentRoomMcp(room));

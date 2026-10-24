@@ -8,7 +8,7 @@ Cần Node ≥ 20 và `claude` / `codex` đã đăng nhập trên máy đó.
 
 ```bash
 node dist/daemon.mjs help                       # từ mã nguồn sau `npm run build`
-# hoặc đã cài .vsix:  node ~/.vscode/extensions/agentroom.agentroom-0.7.1/dist/daemon.mjs help
+# hoặc đã cài .vsix:  node ~/.vscode/extensions/agentroom.agentroom-0.8.0/dist/daemon.mjs help
 # hoặc:               npm link   →   agentroom-daemon help
 ```
 
@@ -49,7 +49,7 @@ Daemon dùng chung `RoomLock` (`.agentroom/state/room.lock`) với extension nê
 
 Lưu trong `~/.agentroom/daemon.json` (chế độ 0600, chứa cả token bot). Tên khóa trùng với VS Code:
 
-`detail`, `approveFromPhone`, `summaryChars`, `quietHours` (xem TELEGRAM.md mục 6), `hookPort`, `maxAgentHops`, `contextMessages`, `memoryBudgetChars`, `inspectorKeepTurns`, `claudePath`, `codexPath`, `pricing` (JSON).
+`detail`, `approveFromPhone`, `summaryChars`, `quietHours` (xem TELEGRAM.md mục 6), `hookPort`, `maxAgentHops`, `contextMessages`, `memoryBudgetChars`, `inspectorKeepTurns`, `planPollMinutes` (hạn mức gói, xem PLAN-USAGE.md), `claudePath`, `codexPath`, `pricing` (JSON).
 
 Giá trị sai bị từ chối ngay (`set detail everything` → "chỉ nhận: summary | full | alerts"). Nhóm Telegram và `claudePath`/`codexPath`/`pricing` có hiệu lực ngay; các khóa còn lại sau khi `kill -HUP` hoặc chạy lại.
 

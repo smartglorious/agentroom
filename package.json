@@ -2,7 +2,7 @@
   "name": "agentroom",
   "displayName": "AgentRoom — AI team group chat",
   "description": "Nhiều AI worker (Claude Code / Codex) với vai trò riêng cùng làm việc trong một group chat ngay trong VS Code.",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "publisher": "agentroom",
   "license": "MIT",
   "engines": {
@@ -168,6 +168,13 @@
           "default": "",
           "scope": "machine",
           "description": "Khung giờ yên lặng, ví dụ 22:00-07:00: tin vẫn gửi nhưng không rung/chuông."
+        },
+        "agentroom.planUsage.pollMinutes": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "maximum": 1440,
+          "description": "Cứ bao nhiêu phút đọc lại hạn mức gói đăng ký (Claude/Codex) của từng account. 0 = chỉ đọc khi bấm Làm mới hoặc sau mỗi lượt chạy. Mỗi lần đọc không tốn token."
         }
       }
     }

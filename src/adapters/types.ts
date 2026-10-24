@@ -21,6 +21,8 @@ export interface TurnRequest {
   signal: AbortSignal;
   /** The remote runner reports the folder the turn really runs in (after any worktree was made). */
   onCwd?(cwd: string): void;
+  /** Claude reported a rate-limit status change: a good moment to re-read the plan numbers. */
+  onRateLimit?(): void;
   /** Short progress lines ("Edit src/a.ts", "Bash npm test") for the UI. */
   onActivity(text: string): void;
   /** Asks the human; resolves true to allow the tool call. */

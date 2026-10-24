@@ -85,3 +85,16 @@ nav button.on { opacity: 1; border-bottom: 2px solid var(--vscode-focusBorder); 
 
 .task.tg.running { border-color: var(--vscode-charts-green); }
 .task.tg.error, .task.tg.conflict { border-color: var(--vscode-charts-red); }
+
+/* subscription plan windows */
+.plan-card .plan-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px; flex-wrap: wrap; }
+.plan-card .plan-label { min-width: 84px; }
+.plan-card .bar-track.wide { flex: 1; min-width: 80px; }
+.plan-card .plan-left { min-width: 56px; text-align: right; font-weight: 600; }
+.bar-fill.warn { background: var(--vscode-charts-yellow); }
+.bar-fill.over { background: var(--vscode-charts-red); }
+.plan-card { margin: 6px 0; padding: 6px 8px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; }
+.plan-card.over { border-color: var(--vscode-charts-red); }
+.plan-card.warn { border-color: var(--vscode-charts-yellow); }
+.plan-card > .meta:first-child { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; opacity: 1; }
+.plan-card > .meta:first-child .tag { margin-left: auto; opacity: .6; }
