@@ -3,6 +3,7 @@
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
 ## 0.14.4
+- Thêm logo PNG cho trang extension trên VS Code Marketplace.
 - **Đo context cố định của session Claude mới:** lượt đầu của mỗi session mới ghi lại CLI báo gì đang chiếm cửa sổ (system prompt, tool, CLAUDE.md/memory, skill, MCP…); xem ở nút 🔍 (Context Inspector), mục "Context cố định". Lý do: trên log thật mỗi session mới đã ~70–125 nghìn token trước khi worker làm gì (không phải prompt của AgentRoom, chỉ ~5 nghìn), và mức này bị đọc lại ở mọi lần gọi. Đã kiểm chứng `getContextUsage` với CLI thật ở thời điểm `init` (sau `result` thì phiên đã đóng).
 - Tin hệ thống dành cho người dùng (cảnh báo gói, ♻️, 🧯 …; không gửi ai) không còn đưa vào prompt của worker.
 
