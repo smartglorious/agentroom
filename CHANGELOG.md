@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.11
+- Mục "Context cố định" trong 🔍 (lượt đầu của session Claude mới) giờ được đo **sau phản hồi đầu tiên** của model (CLI báo đúng những gì đã gửi, tổng khớp token thực), thay vì chỉ lúc khởi động. Lý do: trên máy một người dùng, lúc khởi động CLI chỉ thấy ~17–25 nghìn token nhưng mỗi session mới thật ra nhận ~90 nghìn ngay ở lượt đầu, và phần ~60 nghìn chênh lệch chưa rõ nằm ở đâu. Đã kiểm chứng với CLI thật (tổng báo 8.424 khớp usage 8.424 trong một lượt thử). Chi phí thêm: một yêu cầu điều khiển đếm token cho mỗi session mới, không gọi model.
+
 ## 0.14.10
 - **Worker Claude chỉ dùng máy chủ MCP của phòng:** khởi động CLI với `strictMcpConfig` và `disableClaudeAiConnectors`, để CLI không tự nối các connector claude.ai của tài khoản (Figma, Docs, …) và nạp định nghĩa tool của chúng vào mọi session. Lý do: trên máy một người dùng, `claude mcp list` thấy 2 connector claude.ai đang kết nối cùng nhiều server plugin, và mỗi session mới `claude-main` nặng ~85–135 nghìn token trong khi bảng đo chỉ thấy 15–25 nghìn. **Chưa đo mức giảm thật** (chỉ kiểm chứng CLI chấp nhận cờ và test dựng tùy chọn). Muốn giữ connector: đặt biến môi trường `AGENTROOM_KEEP_CONNECTORS=1`.
 
