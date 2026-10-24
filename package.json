@@ -49,6 +49,14 @@
         "title": "AgentRoom: Dừng tất cả worker"
       },
       {
+        "command": "agentroom.cleanup",
+        "title": "AgentRoom: Dọn dẹp file rác/tạm/cache (gom, không xóa)"
+      },
+      {
+        "command": "agentroom.cleanup.restore",
+        "title": "AgentRoom: Khôi phục mục đã dọn"
+      },
+      {
         "command": "agentroom.consolidateMemory",
         "title": "AgentRoom: Gom trí nhớ worker"
       },
@@ -168,6 +176,12 @@
           "default": "",
           "scope": "machine",
           "description": "Khung giờ yên lặng, ví dụ 22:00-07:00: tin vẫn gửi nhưng không rung/chuông."
+        },
+        "agentroom.cleanup.turnsOlderThanDays": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Khi chạy lệnh dọn dẹp, đề xuất cả bản ghi lượt (Context Inspector) cũ hơn N ngày. 0 = không đề xuất. Chỉ là đề xuất; không có gì tự động bị xóa."
         },
         "agentroom.planUsage.pollMinutes": {
           "type": "number",

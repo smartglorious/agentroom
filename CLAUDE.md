@@ -18,7 +18,7 @@ npm run bench:tokens   # đo token trước/sau mỗi thay đổi liên quan pro
 
 ## Bản đồ
 
-- `src/core/` lõi không phụ thuộc VS Code: `room.ts` (điều phối), `router.ts`, `scheduler.ts`, `tasks.ts`, `prompt.ts`, `memory.ts`, `skills.ts`, `usage.ts`, `plan.ts` (hạn mức gói), `autonomy.ts` (chính sách Manual/Auto/Full), `cron.ts`, `webhooks.ts`, `lock.ts`, `config.ts`.
+- `src/core/` lõi không phụ thuộc VS Code: `room.ts` (điều phối), `router.ts`, `scheduler.ts`, `tasks.ts`, `prompt.ts`, `memory.ts`, `skills.ts`, `usage.ts`, `plan.ts` (hạn mức gói), `autonomy.ts` (chính sách Manual/Auto/Full), `cron.ts`, `cleanup.ts`, `webhooks.ts`, `lock.ts`, `config.ts`.
 - `src/adapters/` Claude (Agent SDK), Codex, remote. `src/remote/` runner và SSH. `src/channels/telegram/`. `src/daemon/`. `src/mcp/` server MCP của phòng. `src/ui/` + `media/` giao diện.
 - `test/` test đơn vị; `scripts/live/` kịch bản thật; `scripts/validate-agentroom.mjs` (bản sao nằm ở Phụ lục A của `docs/SETUP-GUIDE.md`: sửa một nơi thì cập nhật nơi kia).
 - Tài liệu: `docs/DESIGN.md`, `SETUP-GUIDE.md`, `MULTI-MACHINE.md`, `TELEGRAM.md`, `DAEMON.md`, `PLAN-USAGE.md`, `AUTONOMY.md`, `PLAN-v0.8-tokens.md`.
@@ -35,6 +35,7 @@ npm run bench:tokens   # đo token trước/sau mỗi thay đổi liên quan pro
 8. **Tin của người dùng không bao giờ bị chặn** bởi giới hạn lượt/NOOP/chống lặp/gom tin (chỉ áp dụng cho tin giữa các worker). Mọi tin worker đăng mang `chain` của hội thoại mà lượt của nó thuộc về.
 9. Cron/webhook/Telegram: nội dung từ ngoài là dữ liệu không tin cậy (bọc trong `<untrusted_payload>`).
 10. **README theo version**: mỗi lần tăng `version` trong `package.json` phải cập nhật cùng commit: `CHANGELOG.md` (mục mới ở đầu), README (lệnh cài `.vsix`, bảng tính năng, danh sách tài liệu, settings) và `CLAUDE.md` nếu bản đồ/quy tắc đổi. `test/readme.test.ts` sẽ đỏ nếu quên.
+11. **Không tự xóa file của người dùng.** Dọn dẹp (`src/core/cleanup.ts`) chỉ *di chuyển* vào `.agentroom/cleanup/`, chỉ khi chủ máy yêu cầu (lệnh VS Code / CLI daemon); không có tool cho agent, không bỏ qua git-tracked, `.git`, `node_modules`.
 
 ## Cách làm việc
 

@@ -11,6 +11,7 @@ import { TelegramBot } from "./channels/telegram/bot";
 import { PIN_FORMAT, hashPin } from "./channels/telegram/pin";
 import { PairedUser, TelegramService, TelegramSettings } from "./channels/telegram/service";
 import { findExecutable } from "./core/cli";
+import { gatherCleanup, humanBytes, listBatches, restoreCleanup, scanCleanup } from "./core/cleanup";
 import { parseConfig, SAMPLE_CONFIG } from "./core/config";
 import { CronEngine } from "./core/cron";
 import { TurnInspector, renderTurn } from "./core/inspector";
@@ -388,6 +389,29 @@ export async function activate(ctx: vscode.ExtensionContext) {
       const pick = await vscode.window.showQuickPick(["(tất cả worker)", ...live.room.workers.map((w) => w.id)], { placeHolder: "Gom trí nhớ của ai?" });
       if (!pick) return;
       for (const w of pick === "(tất cả worker)" ? live.room.workers : live.room.workers.filter((x) => x.id === pick)) live.room.consolidateMemory(w.id);
+    }),
+    vscode.commands.registerCommand("agentroom.cleanup", async () => {
+      const ws = root();
+      if (!ws) return;
+      const days = vscode.workspace.getConfiguration("agentroom").get<number>("cleanup.turnsOlderThanDays", 0);
+      const items = scanCleanup(ws, { turnsOlderThanDays: days });
+      if (!items.length) return vscode.window.showInformationMessage("Không thấy file rác, tạm hay cache nào để dọn.");
+      const picks = await vscode.window.showQuickPick(items.map((i) => ({ label: i.rel + (i.dir ? "/" : ""), description: `${humanBytes(i.bytes)} · ${i.why}`, picked: false, rel: i.rel })), { canPickMany: true, title: "Chọn mục để GOM về thư mục dọn dẹp (chỉ di chuyển, không xóa)" });
+      if (!picks?.length) return;
+      const r = gatherCleanup(ws, picks.map((p) => p.rel));
+      const msg = `Đã gom ${r.manifest.entries.length} mục vào ${r.dir}. Không có gì bị xóa; bạn tự xóa thư mục đó khi chắc chắn.${r.skipped.length ? ` Bỏ qua ${r.skipped.length} mục.` : ""}`;
+      const act = await vscode.window.showInformationMessage(msg, "Mở thư mục");
+      if (act) void vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(r.dir));
+    }),
+    vscode.commands.registerCommand("agentroom.cleanup.restore", async () => {
+      const ws = root();
+      if (!ws) return;
+      const batches = listBatches(ws);
+      if (!batches.length) return vscode.window.showInformationMessage("Chưa có lô dọn dẹp nào.");
+      const pick = await vscode.window.showQuickPick(batches.map((b) => ({ label: b.stamp, description: `${b.entries.length} mục · ${humanBytes(b.entries.reduce((a, e) => a + e.bytes, 0))}`, stamp: b.stamp })), { title: "Khôi phục lô nào về chỗ cũ?" });
+      if (!pick) return;
+      const r = restoreCleanup(ws, pick.stamp);
+      vscode.window.showInformationMessage(`Đã khôi phục ${r.restored.length} mục${r.skipped.length ? `, bỏ qua ${r.skipped.length} (đã có file mới hoặc không còn)` : ""}.`);
     }),
     vscode.commands.registerCommand("agentroom.newSkill", async () => {
       const ws = root();

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { BotApi } from "../channels/telegram/api";
 import { PIN_FORMAT, hashPin } from "../channels/telegram/pin";
 import { Autonomy, isAutonomy } from "../core/autonomy";
+import { gatherCleanup, humanBytes, listBatches, renderScan, restoreCleanup, scanCleanup } from "../core/cleanup";
 import { parseConfig } from "../core/config";
 import { RoomLock } from "../core/lock";
 import { fingerprint } from "../remote/host";
@@ -25,6 +26,7 @@ const USAGE = `agentroom-daemon — chạy AgentRoom không cần VS Code
   settings                                xem cài đặt
   set <khóa> <giá trị>                    đổi cài đặt (detail, hookPort, claudePath, …)
   autonomy [<worker> <manual|auto|full>] [--root <thư mục>]   xem/đổi mức tự chủ của worker
+  cleanup [scan|gather|list|restore <lô>] [--root <thư mục>]   dọn file rác/tạm/cache: GOM vào .agentroom/cleanup/, không xóa
   status [--root <thư mục>]               ai đang giữ phòng
   service [--root <thư mục>]              in file systemd mẫu
 
@@ -228,6 +230,29 @@ async function main() {
       const chosen = mode as Autonomy;
       store.update((f) => { f.autonomy = { ...f.autonomy, [key(id)]: chosen }; });
       return console.log(`${id}: ${mode}. Có hiệu lực ở lượt tới của worker (không cần khởi động lại daemon).`);
+    }
+
+    case "cleanup": {
+      const [sub = "scan", arg] = rest;
+      if (sub === "scan") return console.log(renderScan(scanCleanup(root)));
+      if (sub === "gather") {
+        const items = scanCleanup(root);
+        if (!items.length) return console.log(renderScan(items));
+        console.log(renderScan(items));
+        if ((await ask(`Gom ${items.length} mục này vào ${join(root, ".agentroom", "cleanup")} (di chuyển, không xóa)? [y/N] `, false)).trim().toLowerCase() !== "y") die("Đã huỷ, không có gì bị đụng tới.", 1);
+        const r = gatherCleanup(root, items.map((i) => i.rel));
+        return console.log(`Đã gom ${r.manifest.entries.length} mục vào ${r.dir}. Bạn tự xóa thư mục đó khi chắc chắn.${r.skipped.length ? ` Bỏ qua ${r.skipped.length}.` : ""}`);
+      }
+      if (sub === "list") {
+        const b = listBatches(root);
+        return console.log(b.length ? b.map((x) => `${x.stamp}  ${x.entries.length} mục  ${humanBytes(x.entries.reduce((a, e) => a + e.bytes, 0))}`).join("\n") : "Chưa có lô dọn dẹp nào.");
+      }
+      if (sub === "restore") {
+        if (!arg) die("Cần tên lô (xem: cleanup list).", 1);
+        const r = restoreCleanup(root, arg);
+        return console.log(`Đã khôi phục ${r.restored.length} mục${r.skipped.length ? `, bỏ qua ${r.skipped.length}` : ""}.`);
+      }
+      return die("cleanup [scan|gather|list|restore <lô>]", 1);
     }
 
     case "status": {
