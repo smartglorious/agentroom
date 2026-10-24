@@ -167,7 +167,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
   // Resolved on every turn so a CLI installed after activation is picked up.
   const cli = (name: "claude" | "codex") => () => {
     const found = findExecutable(name, settings().get<string>(`${name}Path`));
-    if (!found) throw new Error(tr("Không tìm thấy CLI \"{name}\". Hãy cài {p} hoặc đặt agentroom.{name}Path.", { name, p: name === "claude" ? "Claude Code" : "Codex CLI" }));
+    if (!found) throw new Error(tr("Không tìm thấy CLI \"{name}\". Hãy cài {p} hoặc đặt agentroom.{name}Path (chạy `{finder} {name}` trong terminal rồi dán đường dẫn vào đó).", { finder: process.platform === "win32" ? "where" : "which", name, p: name === "claude" ? "Claude Code" : "Codex CLI" }));
     return found;
   };
 

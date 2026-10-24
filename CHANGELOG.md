@@ -2,8 +2,14 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.1
+- **Đổi session khi context quá lớn (Claude):** mỗi lần gọi trong một session đọc lại toàn bộ context nên session sống lâu làm mọi lượt sau đắt hơn (trên log thật, `fw`/`be` đọc ~520–570 nghìn token cache mỗi lượt). Khi context ước tính của một lượt (trung bình mỗi lần gọi) vượt `contextLimit` của worker (mặc định 150000 token; **điều phối viên mặc định không bị đổi**; `0` = tắt), session bị bỏ và lượt sau bắt đầu session mới, nhận lại trí nhớ, nhật ký và chat gần đây như khi persona đổi. Chat có một dòng hệ thống báo việc này.
+- **Cắt output Bash:** đặt `BASH_MAX_OUTPUT_LENGTH=15000` (mặc định của Claude Code là 30000) cho tiến trình Claude, trừ khi bạn đã đặt biến này. **Chưa đo mức tiết kiệm thật** và chưa kiểm chứng biến này với bản CLI của bạn.
+- Thông báo "Không tìm thấy CLI" có gợi ý `where`/`which`.
+
 ## 0.14.0
 - Panel của plugin có nút và form (`actions`, `form`, `badge`, `onAction`): host kiểm mọi giá trị trước khi gọi plugin, UI không chọn được hàm để gọi. Không đổi hành vi bản công khai (không có plugin nào). Xem `docs/EXTENSIONS.md`.
+
 ## 0.13.1
 - **Sửa chi phí Claude bị cộng dồn:** `total_cost_usd` của Claude CLI là tổng tích lũy của cả session, nhưng trước đây mỗi lượt ghi nguyên số đó nên tab Chi phí và ngân sách phình lên nhiều lần khi session dài (trên một log thật: $201 hiện ra so với ≈ $22,6 thực). Giờ mỗi lượt ghi phần chênh lệch so với lượt trước của cùng session (`sessionId`, `costCum` trong `usage.jsonl`); log cũ được sửa trong bộ nhớ khi nạp (file không bị đổi; suy ra session mới khi số giảm). Token không bị ảnh hưởng. **Chưa kiểm chứng với tài liệu chính thức của SDK**: dựa trên dữ liệu thật (chuỗi chi phí tăng đơn điệu trong mỗi session, lượt 8 token ra vẫn "tốn" $5).
 

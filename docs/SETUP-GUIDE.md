@@ -263,6 +263,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `skills` | | danh sách chuỗi | `[]` | thẻ mô tả, hiển thị cho đồng đội |
 | `useSkills` | | danh sách tên skill | `[]` | skill **thật** được bật (phải tồn tại) |
 | `model` | | chuỗi | mặc định của CLI | |
+| `contextLimit` | | số nguyên | `150000` (điều phối viên: tắt) | token context mà sau đó session Claude bị thay bằng session mới để tiết kiệm hạn mức; `0` = không bao giờ |
 | `instructions` | | chuỗi (dùng `\|` cho nhiều dòng) | `""` | |
 | `allowedTools` | | danh sách chuỗi | `[Read, Grep, Glob]` | chỉ Claude |
 | `worktree` | | bool | `false` | `true` cho mọi dev sửa code |

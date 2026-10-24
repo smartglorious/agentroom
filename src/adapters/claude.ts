@@ -36,7 +36,7 @@ export function buildClaudeOptions(
     allowedTools: [...allowed, "mcp__agentroom"],
     ...(req.readOnly ? { disallowedTools: READ_ONLY_DENY } : {}),
     mcpServers: { agentroom: { type: "http", url: req.mcpUrl } },
-    env: accountEnv(req.account, "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"),
+    env: { BASH_MAX_OUTPUT_LENGTH: BASH_OUTPUT_CHARS, ...accountEnv(req.account, "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY") },
     abortController,
     ...(req.claudeSkills ? { plugins: req.claudeSkills.plugins, skills: req.claudeSkills.skills } : {}),
     canUseTool: async (toolName, input) => {
@@ -50,6 +50,9 @@ export function buildClaudeOptions(
     },
   };
 }
+
+/** Claude Code cuts the middle out of a Bash result longer than this (default 30000). Every kept character is paid for again on each later call of the session, so a lower cap saves a lot; a value the person already set in the environment wins. */
+export const BASH_OUTPUT_CHARS = "15000";
 
 /** Reduces an SDK result message to normalised usage; the cost is the CLI's own number. */
 export function claudeUsage(m: {

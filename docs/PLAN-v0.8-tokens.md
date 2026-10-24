@@ -148,3 +148,8 @@ Tổng khoảng 7–8 ngày công cho tất cả; **S10+S1+S2 khoảng 2,5 ngày
 - The Complexity Trap (observation masking): <https://arxiv.org/pdf/2508.21433>
 - RCR-Router (chưa đọc toàn văn): <https://arxiv.org/pdf/2508.04903>
 - Số đo tự làm: `scripts/measure-prefix.mjs` (cùng SDK 0.3.309 của dự án); đo lặp lại bằng `node scripts/measure-prefix.mjs`.
+
+
+## Bổ sung 0.13.2 — theo log thật của một người dùng
+
+Số liệu từ `usage.jsonl` của một dự án thật (187 lượt, ~6 giờ): `fw` và `be` chiếm ~2/3 mức dùng; mỗi lượt đọc lại ~520–570 nghìn token cache vì session sống lâu; ghi cache là khoản lớn nhất. Hai thay đổi: (1) **đổi session** khi context vượt `contextLimit` (mặc định 150000, không áp cho điều phối viên); (2) **cắt output Bash** ở 15000 ký tự. Gợi ý cấu hình không cần code: cho các worker làm việc nhẹ (QA, review) dùng `model:` nhỏ hơn, giữ model mạnh cho điều phối viên và người viết code. **Chưa đo** mức tiết kiệm sau thay đổi; cách đo: so token đọc/ghi cache mỗi lượt của từng worker trong `usage.jsonl` trước và sau (và `npm run bench:tokens` cho kịch bản nhỏ).
