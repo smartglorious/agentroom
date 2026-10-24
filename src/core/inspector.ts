@@ -29,6 +29,8 @@ export interface TurnRecord {
   systemAppend: string;
   prompt: string;
   usage?: TurnUsage;
+  /** New Claude sessions only: what the CLI says fills the window before the worker does anything. */
+  context?: { categories: { name: string; tokens: number }[]; total: number };
   error?: string;
 }
 
@@ -93,6 +95,11 @@ export function renderTurn(r: TurnRecord): string {
   lines.push(`| **Tổng AgentRoom gửi** | | **${num(sent)}** |`);
   if (real !== undefined) {
     lines.push("", `Token thực tế phía model: **${num(real)}**. Phần chênh ≈ **${num(Math.max(0, real - sent))}** là system prompt của CLI và lịch sử session đã resume — phần này không xem chi tiết được.`);
+  }
+  if (r.context) {
+    lines.push("", "## Context cố định của session mới (CLI báo)", "", "| Mục | Token |", "|---|---:|");
+    for (const c of [...r.context.categories].sort((a, b) => b.tokens - a.tokens)) lines.push(`| ${c.name} | ${num(c.tokens)} |`);
+    lines.push(`| **Tổng** | **${num(r.context.total)}** |`, "", "Phần này được đọc lại ở MỌI lần gọi của session, nên nó là mức sàn của mỗi lượt.");
   }
   lines.push("", "## System prompt (phần AgentRoom thêm vào)", "", fence(r.systemAppend), "", "## Prompt của lượt", "", fence(r.prompt), "");
   return lines.join("\n");

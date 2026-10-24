@@ -36,10 +36,17 @@ export interface TurnRequest {
   autonomy?: Autonomy;
 }
 
+export interface ContextBreakdown {
+  categories: { name: string; tokens: number }[];
+  total: number;
+}
+
 export interface TurnResult {
   sessionId?: string;
   text: string;
   usage?: TurnUsage;
+  /** What fills the context window right after a NEW session's first turn (system prompt, tools, CLAUDE.md, skills…), as the CLI reports it. */
+  context?: ContextBreakdown;
   /** Where the turn actually ran (remote hosts decide this themselves). */
   cwd?: string;
 }
