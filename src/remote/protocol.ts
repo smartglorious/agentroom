@@ -55,6 +55,8 @@ export interface TurnMessage {
   prompt: string;
   sessionId?: string;
   readOnly?: boolean;
+  /** The worker's autonomy; the runner only uses it to size the Codex sandbox (approvals are decided on the hub). */
+  autonomy?: "manual" | "auto" | "full";
   skills: WireSkill[];
   claudePath?: string;
   codexPath?: string;
@@ -63,7 +65,7 @@ export interface TurnMessage {
 
 export type HubToRunner =
   | TurnMessage
-  | { t: "approval"; reqId: string; allow: boolean }
+  | { t: "approval"; reqId: string; allow: boolean; reason?: string }
   | { t: "abort"; id: string }
   | { t: "mcp-res"; reqId: string; status: number; headers: Record<string, string>; b64: string }
   | { t: "ping"; n: number };

@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ScheduleState } from "./cron";
 import { ChatMessage, Task } from "./types";
@@ -26,6 +26,15 @@ export class RoomStore {
 
   appendMessage(m: ChatMessage) {
     appendFileSync(join(this.dir, "chat.jsonl"), JSON.stringify(m) + "\n");
+  }
+
+  /** One line per automatic decision (and per escalation) made under a worker's autonomy mode. Rotated at 5 MB. */
+  appendAudit(entry: object) {
+    const f = join(this.dir, "audit.jsonl");
+    try {
+      if (existsSync(f) && statSync(f).size > 5_000_000) renameSync(f, join(this.dir, "audit.1.jsonl"));
+      appendFileSync(f, JSON.stringify(entry) + "\n");
+    } catch { /* the audit log must never break a turn */ }
   }
 
   loadTasks(): Task[] { return this.readJson("tasks.json", []); }

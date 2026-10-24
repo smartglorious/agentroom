@@ -1,4 +1,4 @@
-import { AgentAdapter, TurnRequest, TurnResult } from "../src/adapters/types";
+import { AgentAdapter, TurnRequest, TurnResult, approvalAllowed, approvalReason } from "../src/adapters/types";
 import { RateLimitError } from "../src/core/scheduler";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -12,8 +12,12 @@ export const scripted: AgentAdapter = {
     const p = req.prompt;
     if (p.includes("[ACT]")) { req.onActivity("Edit a.ts"); req.onActivity("Bash npm test"); }
     if (p.includes("[APPROVE]")) {
-      const ok = await req.approve("Bash", { command: "ls" });
-      return { text: ok ? "approved" : "denied" };
+      const r = await req.approve("Bash", { command: "ls" });
+      const why = approvalReason(r);
+      return { text: approvalAllowed(r) ? "approved" : `denied${why ? `:${why}` : ""}` };
+    }
+    if (p.includes("[AUTONOMY]")) {
+      return { text: `autonomy:${req.autonomy}` };
     }
     if (p.includes("[MCP]")) {
       // exactly what Claude/Codex do: speak MCP over HTTP to the URL they were given

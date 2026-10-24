@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BotApi } from "../channels/telegram/api";
 import { PIN_FORMAT, hashPin } from "../channels/telegram/pin";
+import { Autonomy, isAutonomy } from "../core/autonomy";
 import { parseConfig } from "../core/config";
 import { RoomLock } from "../core/lock";
 import { fingerprint } from "../remote/host";
@@ -23,6 +24,7 @@ const USAGE = `agentroom-daemon — chạy AgentRoom không cần VS Code
   trust-hosts [--root <thư mục>]          cho phép daemon ssh tới các hosts trong workers.yaml
   settings                                xem cài đặt
   set <khóa> <giá trị>                    đổi cài đặt (detail, hookPort, claudePath, …)
+  autonomy [<worker> <manual|auto|full>] [--root <thư mục>]   xem/đổi mức tự chủ của worker
   status [--root <thư mục>]               ai đang giữ phòng
   service [--root <thư mục>]              in file systemd mẫu
 
@@ -202,6 +204,30 @@ async function main() {
       if (!k) die("Dùng: agentroom-daemon set <khóa> <giá trị>");
       try { store.set(k, v.join(" ")); } catch (e) { die(`${k}: ${e instanceof Error ? e.message : e}`); }
       return console.log(`${k} đã đặt. Khởi động lại daemon (hoặc SIGHUP) nếu đó là hookPort/maxAgentHops/contextMessages/memoryBudgetChars/inspectorKeepTurns; các khoá còn lại có hiệu lực ngay.`);
+    }
+
+    case "autonomy": {
+      const config = loadConfig(root);
+      const [id, mode] = rest;
+      const key = (w: string) => `${root}|${w}`;
+      const modeOf = (w: { id: string; autonomy: string }) => store.read().autonomy?.[key(w.id)] ?? (w.autonomy === "full" ? "auto" : w.autonomy);
+      if (!id) {
+        for (const w of config.workers) console.log(`${w.id.padEnd(12)} ${modeOf(w)}${modeOf(w) === "full" ? "   ⚡ FULL ACCESS" : ""}`);
+        return;
+      }
+      if (!config.workers.some((w) => w.id === id)) die(`Không có worker "${id}" (có: ${config.workers.map((w) => w.id).join(", ")})`);
+      if (!isAutonomy(mode)) die("Mức tự chủ: manual | auto | full");
+      if (mode === "full") {
+        console.error([
+          "⚠ FULL ACCESS: worker sẽ không còn hỏi trước khi sửa/xóa file (kể cả ngoài dự án), chạy lệnh tùy ý, tải rồi chạy mã, cài gói, git push --force…",
+          "Nội dung nó đọc được (web, issue, file lạ) có thể chứa chỉ dẫn độc hại. Vẫn hỏi (qua Telegram/VS Code) với rm -rf thư mục gốc/home/hệ thống, sudo, ghi đĩa, tắt máy.",
+          "Daemon chạy không có ai canh: chỉ dùng trong máy ảo/container hoặc repo đã commit sạch. Mức này được GIỮ cho tới khi bạn đổi lại.",
+        ].join("\n"));
+        if ((await ask('Gõ FULL để xác nhận: ', false)) !== "FULL") die("Đã huỷ.", 1);
+      }
+      const chosen = mode as Autonomy;
+      store.update((f) => { f.autonomy = { ...f.autonomy, [key(id)]: chosen }; });
+      return console.log(`${id}: ${mode}. Có hiệu lực ở lượt tới của worker (không cần khởi động lại daemon).`);
     }
 
     case "status": {

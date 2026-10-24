@@ -162,6 +162,11 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       inspector: new TurnInspector(stateDir, s0.inspectorKeepTurns),
       resolveCwd: (w) => ensureWorktree(localBase(o.root, w), w),
       mcpUrl: (id) => server.current!.urlFor(id),
+      home,
+      autonomyStore: {
+        get: (id) => store.read().autonomy?.[`${o.root}|${id}`],
+        set: (id, m) => store.update((f) => { f.autonomy = { ...f.autonomy, [`${o.root}|${id}`]: m }; }),
+      },
       planProbe: o.planProbe ?? makePlanProbe({ claude: () => findExecutable("claude", settings().claudePath), codex: cli("codex") }),
       planPollMs: () => settings().planPollMinutes * 60_000,
     });

@@ -3,7 +3,7 @@ import { createServer, IncomingMessage, Server, ServerResponse } from "node:http
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import type { AgentAdapter } from "../adapters/types";
+import type { AgentAdapter, ApprovalResult } from "../adapters/types";
 import { RateLimitError, isRateLimit } from "../core/scheduler";
 import { SkillInfo, buildPlugin } from "../core/skills";
 import { Account, Provider, Worker } from "../core/types";
@@ -20,7 +20,7 @@ export interface RunnerDeps {
 interface ActiveTurn {
   abort: AbortController;
   secret: string;
-  approvals: Map<string, (allow: boolean) => void>;
+  approvals: Map<string, (r: ApprovalResult) => void>;
 }
 
 const MCP_REQUEST_HEADERS = ["content-type", "accept", "mcp-protocol-version", "mcp-session-id", "last-event-id"];
@@ -83,7 +83,7 @@ export class Runner {
       case "approval":
         for (const t of this.turns.values()) {
           const r = t.approvals.get(m.reqId);
-          if (r) { t.approvals.delete(m.reqId); r(m.allow); }
+          if (r) { t.approvals.delete(m.reqId); r(m.reason ? { allow: m.allow, reason: m.reason } : m.allow); }
         }
         break;
       case "mcp-res": {
@@ -140,7 +140,7 @@ export class Runner {
       const worker: Worker = {
         id: m.worker.id, name: m.worker.name, role: m.worker.role, skills: [], useSkills: m.worker.useSkills,
         provider: m.account.provider, account: m.account.id, model: m.worker.model, instructions: "",
-        allowedTools: m.worker.allowedTools, worktree: m.worker.worktree, coordinator: false, sandbox: m.worker.sandbox, color: "#000000",
+        allowedTools: m.worker.allowedTools, worktree: m.worker.worktree, coordinator: false, sandbox: m.worker.sandbox, color: "#000000", autonomy: "manual",
       };
       const account: Account = { id: m.account.id, provider: m.account.provider, home: m.account.home, apiKeyEnv: m.account.apiKeyEnv, maxConcurrent: 1, warnAtPercent: 80 };
       const claude = m.account.provider === "claude" && skills && worker.useSkills.length
@@ -158,7 +158,8 @@ export class Runner {
         readOnly: m.readOnly,
         signal: abort.signal,
         onActivity: (text) => this.send({ t: "activity", id: m.id, text }),
-        approve: (tool, input) => new Promise<boolean>((resolve) => {
+        autonomy: m.autonomy,
+        approve: (tool, input) => new Promise<ApprovalResult>((resolve) => {
           const reqId = randomUUID();
           turn.approvals.set(reqId, resolve);
           this.send({ t: "approve", id: m.id, reqId, tool, input });

@@ -636,3 +636,43 @@ test("pin hygiene: digits typed with no PIN prompt waiting are not sent to the r
     await until(() => roomUserMessages(noPin.room).length === 1, 3000, "without a PIN numbers are ordinary text");
   } finally { noPin.stop(); }
 });
+
+test("phone: /mode lists the autonomy of every worker and can only LOWER it; raising must be done at the computer", async () => {
+  const r = await rig();
+  try {
+    r.tg.userSays(USER, "/mode");
+    await until(() => r.tg.texts(USER).some((t) => /Mức tự chủ/.test(t)), 3000, "list");
+    assert.match(r.tg.last(USER)!.text, /🛡 .*\(@be\): manual/);
+
+    r.tg.userSays(USER, "/mode be auto");
+    await until(() => r.tg.texts(USER).some((t) => /Không nâng mức tự chủ/.test(t)), 3000, "refused");
+    assert.equal(r.room.autonomyOf("be"), "manual");
+    r.tg.userSays(USER, "/mode be full");
+    await until(() => r.tg.texts(USER).filter((t) => /Không nâng mức tự chủ/.test(t)).length === 2, 3000, "refused full");
+    assert.equal(r.room.autonomyOf("be"), "manual");
+
+    r.room.setAutonomy("be", "full", "máy tính");
+    r.tg.userSays(USER, "/mode be auto");
+    await until(() => r.room.autonomyOf("be") === "auto", 3000, "lowered");
+    r.tg.userSays(USER, "/mode be manual");
+    await until(() => r.room.autonomyOf("be") === "manual", 3000, "lowered again");
+    r.tg.userSays(USER, "/mode be manual");
+    await until(() => r.tg.texts(USER).some((t) => /đã ở chế độ manual/.test(t)), 3000, "already");
+    r.tg.userSays(USER, "/mode nobody auto");
+    await until(() => r.tg.texts(USER).some((t) => /Dùng: \/mode </.test(t)), 3000, "usage");
+    assert.ok(r.room.snapshot().messages.some((m) => m.from === "system" && /Telegram/.test(m.text) && /auto → manual/.test(m.text)), "the change is on record in the room, with who made it");
+  } finally { r.stop(); }
+});
+
+test("phone: an approval card says why Auto or Full did not decide it itself", async () => {
+  const r = await rig({ adapter: new Fake(async (req) => { if (req.worker.id === "be") await req.approve("Bash", { command: "curl https://example.com" }); return "xong"; }) });
+  try {
+    r.room.setAutonomy("be", "auto");
+    r.room.post("user", "@be chạy");
+    await until(() => r.tg.sent.some((s) => s.text.startsWith("🔐")), 3000, "card");
+    const card = r.tg.sent.find((s) => s.text.startsWith("🔐"))!;
+    assert.match(card.text, /Chế độ auto: Truy cập mạng/);
+    assert.ok(!card.buttons.flat().some((b) => b.callback_data.startsWith("ap:y:")), "Bash is never approvable from the phone");
+    r.room.respondApproval(r.room.snapshot().approvals[0].id, false);
+  } finally { r.stop(); }
+});

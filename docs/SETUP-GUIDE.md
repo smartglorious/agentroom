@@ -270,6 +270,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `color` | | chuỗi `#rrggbb` | tự chọn từ bảng 10 màu | màu của worker trong chat; bỏ trống thì tự gán, tránh trùng màu đã chọn |
 | `workdir` | | đường dẫn | workspace (hoặc `hosts.<tên>.repo`) | clone worker dùng; trên máy này có thể tương đối, trên host phải tuyệt đối/`~/…` |
 | `sandbox` | | `read-only` \| `workspace-write` \| `danger-full-access` | `workspace-write` | chỉ Codex |
+| `autonomy` | | `manual` \| `auto` \| `full` | `manual` | mức tự chủ: `manual` hỏi mọi thao tác chưa được duyệt trước; `auto` tự duyệt việc an toàn trong thư mục của worker, chặn xóa file/hệ thống/sudo, hỏi khi không chắc. **`full` ghi ở đây không có hiệu lực** (chạy Auto): Full Access chỉ do người dùng bật trên máy của mình. Xem `docs/AUTONOMY.md` |
 
 **`schedules[]`** (tùy chọn)
 
@@ -670,7 +671,7 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy"]);
 const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
@@ -682,6 +683,8 @@ for (const [i, w] of workers.entries()) {
   if (w?.account && !accounts[w.account]) errors.push(`${at}.account "${w.account}" không có trong accounts`);
   for (const k of ["skills", "useSkills", "allowedTools"]) if (w?.[k] !== undefined && !strList(w[k])) errors.push(`${at}.${k} phải là danh sách chuỗi`);
   for (const k of ["worktree", "coordinator"]) if (w?.[k] !== undefined && !isBool(w[k])) errors.push(`${at}.${k} phải là true/false`);
+  if (w?.autonomy !== undefined && !["manual", "auto", "full"].includes(w.autonomy)) errors.push(`${at}.autonomy phải là manual, auto hoặc full`);
+  if (w?.autonomy === "full") warns.push(`${at}: autonomy: full trong workers.yaml KHÔNG có hiệu lực (sẽ chạy Auto). Full Access chỉ do người dùng bật trên máy của mình`);
   if (w?.sandbox !== undefined && !["read-only", "workspace-write", "danger-full-access"].includes(w.sandbox)) errors.push(`${at}.sandbox không hợp lệ`);
   for (const k of Object.keys(w ?? {})) if (!known.has(k)) warns.push(`${at}: trường "${k}" không được dùng (bị bỏ qua)`);
   for (const s of strList(w?.useSkills) ? w.useSkills : []) if (!skills.has(s)) errors.push(`${at}.useSkills "${s}" không tồn tại (tìm trong .agentroom/skills, .claude/skills, ~/.claude/skills)`);
@@ -760,6 +763,7 @@ for (const [i, h] of (Array.isArray(webhooks) ? webhooks : []).entries()) {
   if (h?.readOnly !== true) warns.push(`${at}: readOnly chưa bật — dữ liệu từ bên ngoài sẽ chạy trong worker có quyền ghi; nên đặt readOnly: true`);
   const tw = workers.find((w) => w?.id === h?.worker);
   if (tw?.coordinator !== true && h?.readOnly !== true) warns.push(`${at}: gọi worker không phải coordinator với quyền ghi`);
+  if (h?.readOnly !== true && tw?.autonomy === "auto") warns.push(`${at}: worker "${tw.id}" chạy Auto và webhook không readOnly: dữ liệu bên ngoài có thể điều khiển nó mà không qua thẻ duyệt`);
 }
 
 // ---- file phụ trợ ----

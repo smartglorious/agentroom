@@ -1,4 +1,9 @@
+import type { Autonomy } from "../core/autonomy";
 import { Account, TurnUsage, Worker } from "../core/types";
+
+export type ApprovalResult = boolean | { allow: boolean; reason?: string };
+export const approvalAllowed = (r: ApprovalResult) => (typeof r === "boolean" ? r : r.allow);
+export const approvalReason = (r: ApprovalResult) => (typeof r === "boolean" ? undefined : r.reason);
 
 export interface TurnRequest {
   worker: Worker;
@@ -25,8 +30,10 @@ export interface TurnRequest {
   onRateLimit?(): void;
   /** Short progress lines ("Edit src/a.ts", "Bash npm test") for the UI. */
   onActivity(text: string): void;
-  /** Asks the human; resolves true to allow the tool call. */
-  approve(tool: string, input: unknown): Promise<boolean>;
+  /** Decides a tool call: the human, or the worker's autonomy policy. A refusal may carry the reason, which the model is told. */
+  approve(tool: string, input: unknown): Promise<ApprovalResult>;
+  /** The worker's current autonomy (Codex maps it to its sandbox). */
+  autonomy?: Autonomy;
 }
 
 export interface TurnResult {

@@ -28,6 +28,7 @@ type FromWebview =
   | { type: "newSkill" }
   | { type: "hostCheck"; name?: string }
   | { type: "refreshPlans" }
+  | { type: "setAutonomy"; workerId: string; mode: string }
   | { type: "takeOver" }
   | { type: "telegramAction"; action: string };
 
@@ -46,6 +47,8 @@ export interface ViewHandlers {
   inspect(turnId: string): Promise<void>;
   openFile(workerId: string, kind: "soul" | "memory" | "journal" | "team"): Promise<void>;
   copy(text: string): void;
+  /** Switches a worker's autonomy; `full` is confirmed with the user here, never in the webview. */
+  setAutonomy(workerId: string, mode: string): Promise<void>;
 }
 
 const RANGES: UsageRange[] = ["today", "7d", "30d"];
@@ -63,6 +66,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   constructor(private extensionUri: vscode.Uri) {}
 
   setHandlers(h: ViewHandlers) { this.handlers = h; }
+
+  /** Re-sends the worker list (e.g. after the user cancelled a mode change, so the selector snaps back). */
+  refreshWorkers() { if (this.ctx) this.post({ type: "workers", workers: this.ctx.room.snapshot().workers }); }
 
   /** Another window already runs this room: show who, and offer to take over. */
   attachLocked(holder?: LockInfo) {
@@ -90,6 +96,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     sub(room, "tasks", (tasks) => ({ type: "tasks", tasks }));
     sub(room, "drafts", (drafts) => ({ type: "drafts", drafts }));
     sub(room, "usage", () => this.usagePayload());
+    sub(room, "autonomy", () => ({ type: "workers", workers: room.snapshot().workers }));
     sub(room, "plan", () => ({ type: "plans", plans: room.plan?.list() ?? [], now: Date.now() }));
     sub(cron, "change", () => ({ type: "schedules", schedules: cron.statuses() }));
     if (hooks) sub(hooks, "call", () => this.hooksPayload());
@@ -175,6 +182,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (cmd) void vscode.commands.executeCommand(cmd);
         break;
       }
+      case "setAutonomy": if (typeof m.workerId === "string" && typeof m.mode === "string") void this.handlers?.setAutonomy(m.workerId, m.mode); break;
       case "refreshPlans": void room.plan?.refresh(undefined, true); break;
       case "hostCheck": void c.hosts?.check(typeof m.name === "string" ? m.name : undefined); break;
       case "copyHook": { const h = this.hooksPayload().hooks.find((x) => x.id === m.id); if (h?.url) this.handlers?.copy(h.url); break; }

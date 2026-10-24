@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { randomInt, timingSafeEqual } from "node:crypto";
+import { isAutonomy } from "../../core/autonomy";
 import { redactSecrets } from "../../core/memory";
 import { PlanUsage, untilText } from "../../core/plan";
 import type { Room } from "../../core/room";
@@ -62,7 +63,7 @@ const HELP = [
   "AgentRoom trên điện thoại",
   "• Nhắn thường → gửi cho worker điều phối; @id → gọi đúng worker",
   "/status — worker đang làm gì · /tasks — việc đang mở · /cost — chi phí hôm nay",
-  "/plan — hạn mức gói Claude/Codex còn lại (/plan refresh để đọc lại) · /stop <id|all> — dừng worker · /mute [30m|2h] · /unmute",
+  "/mode — mức tự chủ của worker (chỉ hạ được từ đây) · /plan — hạn mức gói Claude/Codex còn lại (/plan refresh để đọc lại) · /stop <id|all> — dừng worker · /mute [30m|2h] · /unmute",
   "/detail summary|full|alerts — mức chi tiết tin gửi về",
   "/budget — cho account hết ngân sách chạy tiếp · /unpair — ngắt ghép cặp",
 ].join("\n");
@@ -223,6 +224,7 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
       { text: "❌ Từ chối", callback_data: `ap:n:${req.id}` },
     ];
     const text = describeApproval(req, this.workerName(req.workerId))
+      + (req.reason ? `\n${req.reason}` : "")
       + (mayApprove ? (this.d.stores.pin.get() ? "\n(cần PIN để cho phép)" : "") : `\n⚠️ Chỉ duyệt được ở máy tính: ${this.d.settings().approveFromPhone === "none" ? "đã tắt duyệt từ điện thoại" : verdict.reason}`);
     const id = await this.tell(p.chat, text, { quiet: this.quietNow(), buttons: [buttons] });
     if (this.phoneHandled.delete(req.id)) return;
@@ -321,6 +323,18 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
         const t = this.d.usage.summarize("today").totals;
         const accs = room.snapshot().accounts.filter((a) => a.budgetUsdPerDay).map((a) => `${a.id}: ${usd(a.spentToday)} / ${usd(a.budgetUsdPerDay!)}${a.paused ? " ⛔" : ""}`);
         return void (await say(`💰 Hôm nay: ${t.estimated ? "≈ " : ""}${usd(t.costUsd)} · ${t.turns} lượt · ${t.errors} lỗi${accs.length ? "\n" + accs.join("\n") : ""}`));
+      }
+      case "mode": {
+        const ws = room.snapshot().workers;
+        const icon = { manual: "🛡", auto: "🤖", full: "⚡" } as const;
+        const [id, want] = arg.split(/\s+/);
+        if (!id) return void (await say(`Mức tự chủ:\n${ws.map((w) => `${icon[w.autonomy]} ${w.name} (@${w.id}): ${w.autonomy}`).join("\n")}\n\nChỉ HẠ được từ điện thoại: /mode <id> manual|auto. Nâng lên (Auto, Full) phải làm ở máy tính.`));
+        const w = ws.find((x) => x.id === id);
+        if (!w || !isAutonomy(want)) return void (await say(`Dùng: /mode <${ws.map((x) => x.id).join("|")}> manual|auto`));
+        const rank = { manual: 0, auto: 1, full: 2 } as const;
+        if (rank[want] >= rank[w.autonomy]) return void (await say(w.autonomy === want ? `@${id} đã ở chế độ ${want}.` : `⛔ Không nâng mức tự chủ từ điện thoại (${w.autonomy} → ${want}). Làm ở máy tính.`));
+        room.setAutonomy(id, want, "Telegram");
+        return void (await say(`${icon[want]} @${id}: ${w.autonomy} → ${want}.`));
       }
       case "plan": {
         if (!room.plan) return void (await say("Chưa bật theo dõi hạn mức gói."));

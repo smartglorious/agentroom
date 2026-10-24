@@ -43,6 +43,7 @@ const WorkerSchema = z.object({
   coordinator: z.boolean().default(false),
   sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).default("workspace-write"),
   workdir: z.string().min(1).optional(),
+  autonomy: z.enum(["manual", "auto", "full"]).default("manual"),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "color: dạng #rrggbb").optional(),
 });
 

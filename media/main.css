@@ -98,3 +98,9 @@ nav button.on { opacity: 1; border-bottom: 2px solid var(--vscode-focusBorder); 
 .plan-card.warn { border-color: var(--vscode-charts-yellow); }
 .plan-card > .meta:first-child { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; opacity: 1; }
 .plan-card > .meta:first-child .tag { margin-left: auto; opacity: .6; }
+
+/* autonomy selector on the worker chips */
+.worker select.autonomy { font-size: 10px; border: 0; border-radius: 6px; padding: 0 2px; color: inherit; background: transparent; cursor: pointer; max-width: 78px; }
+.worker.mode-auto { outline: 1px solid var(--vscode-charts-blue); }
+.worker.mode-full { outline: 2px solid var(--vscode-charts-red); }
+.worker.mode-full select.autonomy { font-weight: 700; color: var(--vscode-charts-red); }

@@ -41,6 +41,15 @@
       const info = btn("ⓘ", (e) => { e.stopPropagation(); openProfile(w.id); }, "stop");
       info.title = "Hồ sơ: SOUL, trí nhớ, skills";
       card.append(info);
+      const mode = w.autonomy || "manual";
+      card.classList.add("mode-" + mode);
+      const sel = el("select", "autonomy");
+      for (const [v, label] of [["manual", "🛡 Manual"], ["auto", "🤖 Auto"], ["full", "⚡ Full"]]) { const o = el("option", null, label); o.value = v; sel.append(o); }
+      sel.value = mode;
+      sel.title = "Mức tự chủ: Manual hỏi mọi thao tác · Auto tự duyệt việc an toàn, chặn xóa file/hệ thống/sudo, hỏi khi không chắc · Full không hỏi (cần xác nhận)";
+      sel.onclick = (e) => e.stopPropagation();
+      sel.onchange = (e) => { e.stopPropagation(); send({ type: "setAutonomy", workerId: w.id, mode: sel.value }); };
+      card.append(sel);
       if (s.state !== "idle") {
         const stop = btn("■", (e) => { e.stopPropagation(); send({ type: "stop", workerId: w.id }); }, "stop");
         stop.title = "Dừng worker này";
@@ -399,6 +408,7 @@
     const card = el("div", "approval");
     card.id = "ap-" + req.id;
     card.append(el("b", null, `${nameOf(req.workerId)} muốn dùng ${req.tool}`));
+    if (req.reason) card.append(el("div", "meta warn", req.reason));
     card.append(el("pre", null, JSON.stringify(req.input, null, 2).slice(0, 2000)));
     const yes = el("button", "allow", "Cho phép");
     const no = el("button", "deny", "Từ chối");
@@ -460,6 +470,7 @@
       case "status": state.statuses[data.status.id] = data.status; renderTeam(); break;
       case "tasks": state.tasks = data.tasks; renderTasks(); break;
       case "plans": state.plans = data.plans; renderCost(); break;
+      case "workers": state.workers = data.workers; renderTeam(); break;
       case "approval": renderApproval(data.req); break;
       case "approvalResolved": $("ap-" + data.id)?.remove(); break;
       case "usage": state.usage = data; state.range = data.range; state.accounts = data.accounts; state.todayByWorker = data.todayByWorker; renderTeam(); renderCost(); renderTasks(); break;

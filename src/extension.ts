@@ -30,6 +30,17 @@ import { AgentRoomMcp } from "./mcp/server";
 import { ChatViewProvider, ViewContext } from "./ui/chatView";
 import { TelegramPanel } from "./ui/telegramPanel";
 import { createHash } from "node:crypto";
+import { Autonomy, isAutonomy } from "./core/autonomy";
+
+const FULL_WARNING = [
+  "Worker này sẽ KHÔNG còn hỏi bạn trước khi: sửa hoặc xóa bất kỳ file nào (kể cả ngoài dự án), chạy lệnh tùy ý, tải rồi chạy mã từ Internet, cài gói, git push --force, gửi dữ liệu ra ngoài.",
+  "",
+  "Nội dung worker đọc được (trang web, issue, file lạ) có thể chứa chỉ dẫn độc hại điều khiển nó (prompt injection). Ở Full Access, những chỉ dẫn đó chạy mà không qua kiểm duyệt.",
+  "",
+  "Vẫn hỏi bạn với: rm -rf thư mục gốc/home/hệ thống, sudo, ghi đĩa, tắt máy, ghi vào /etc… Đây chỉ là chốt chặn tối thiểu, KHÔNG phải sandbox.",
+  "",
+  "Chỉ nên dùng trong máy ảo/container hoặc repo đã commit sạch. Full Access chỉ kéo dài đến khi bạn đóng VS Code, và chỉ bạn mới bật được (repo, agent và Telegram không bật được). Nguồn không tin cậy như webhook vẫn chỉ-đọc.",
+].join("\n");
 
 const TOKEN_KEY = "agentroom.telegram.token";
 const PIN_KEY = "agentroom.telegram.pin";
@@ -82,6 +93,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
   const out = vscode.window.createOutputChannel("AgentRoom");
   ctx.subscriptions.push(out);
   let forceTakeOver = false;
+  const fullGrants = new Set<string>();
+  const autonomyKey = (ws: string, id: string) => `agentroom.autonomy.${createHash("sha1").update(ws).digest("hex").slice(0, 10)}.${id}`;
   const panel = new TelegramPanel();
   const pinHolder: { hash?: string } = {};
 
@@ -201,6 +214,16 @@ export async function activate(ctx: vscode.ExtensionContext) {
         inspector,
         resolveCwd: (w) => ensureWorktree(localBase(ws, w), w),
         mcpUrl: (id) => server.current!.urlFor(id),
+        autonomyStore: {
+          // Manual/Auto are remembered per project on this machine; Full lasts for this VS Code session only.
+          get: (id) => (fullGrants.has(`${ws}|${id}`) ? "full" : (ctx.globalState.get<string>(autonomyKey(ws, id)) as Autonomy | undefined)),
+          set: (id, m) => {
+            if (m === "full") { fullGrants.add(`${ws}|${id}`); return; }
+            fullGrants.delete(`${ws}|${id}`);
+            void ctx.globalState.update(autonomyKey(ws, id), m);
+          },
+        },
+        home: homedir(),
         planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
         planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });
@@ -279,6 +302,16 @@ export async function activate(ctx: vscode.ExtensionContext) {
       await vscode.window.showTextDocument(vscode.Uri.file(path));
     },
     copy: (text) => vscode.env.clipboard.writeText(text),
+    setAutonomy: async (workerId, mode) => {
+      const room = live?.room;
+      if (!room || !isAutonomy(mode) || !room.hasWorker(workerId)) return;
+      if (mode === "full" && room.autonomyOf(workerId) !== "full") {
+        const name = room.workers.find((w) => w.id === workerId)?.name ?? workerId;
+        const pick = await vscode.window.showWarningMessage(`⚠ Bật FULL ACCESS cho ${name} (@${workerId})?`, { modal: true, detail: FULL_WARNING }, "Bật Full Access");
+        if (pick !== "Bật Full Access") return view.refreshWorkers();
+      }
+      room.setAutonomy(workerId, mode, "VS Code");
+    },
   });
 
   ctx.subscriptions.push(

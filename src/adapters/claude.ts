@@ -1,7 +1,7 @@
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { RateLimitError } from "../core/scheduler";
 import { TurnUsage } from "../core/types";
-import { AgentAdapter, READ_ONLY_TOOLS, TurnRequest, TurnResult, accountEnv, summarizeInput } from "./types";
+import { AgentAdapter, READ_ONLY_TOOLS, approvalAllowed, approvalReason, TurnRequest, TurnResult, accountEnv, summarizeInput } from "./types";
 
 type Sdk = typeof import("@anthropic-ai/claude-agent-sdk");
 let sdk: Promise<Sdk> | undefined;
@@ -42,9 +42,10 @@ export function buildClaudeOptions(
       if (req.readOnly && !READ_ONLY_TOOLS.includes(toolName) && !isRoomTool(toolName)) {
         return { behavior: "deny", message: "Lượt này chỉ có quyền đọc (nguồn kích hoạt không tin cậy)." };
       }
-      return (await req.approve(toolName, input))
+      const r = await req.approve(toolName, input);
+      return approvalAllowed(r)
         ? { behavior: "allow", updatedInput: input }
-        : { behavior: "deny", message: "Người dùng đã từ chối thao tác này." };
+        : { behavior: "deny", message: approvalReason(r) ?? "Người dùng đã từ chối thao tác này." };
     },
   };
 }

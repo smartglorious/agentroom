@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn as nodeSpawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import type { AgentAdapter, TurnRequest, TurnResult } from "../adapters/types";
+import { AgentAdapter, TurnRequest, TurnResult, approvalAllowed, approvalReason } from "../adapters/types";
 import { RateLimitError } from "../core/scheduler";
 import { packSkills } from "../core/skills";
 import { Account, HostDef, SSH_TARGET, Worker } from "../core/types";
@@ -228,7 +228,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
       case "activity": p.req.onActivity(m.text); break;
       case "approve":
         Promise.resolve(p.req.approve(m.tool, m.input)).then(
-          (allow) => this.send({ t: "approval", reqId: m.reqId, allow }),
+          (r) => this.send({ t: "approval", reqId: m.reqId, allow: approvalAllowed(r), reason: approvalReason(r) }),
           () => this.send({ t: "approval", reqId: m.reqId, allow: false }),
         );
         break;
@@ -262,7 +262,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
     const msg: TurnMessage = {
       t: "turn", id,
       worker: wireWorker(req.worker), account: wireAccount(req.account),
-      base: req.remote.base, systemAppend: req.systemAppend, prompt: req.prompt, sessionId: req.sessionId, readOnly: req.readOnly,
+      base: req.remote.base, systemAppend: req.systemAppend, prompt: req.prompt, sessionId: req.sessionId, readOnly: req.readOnly, autonomy: req.autonomy,
       skills, claudePath: this.deps.spec.claudePath, codexPath: this.deps.spec.codexPath, pricing: this.deps.prices?.(),
     };
     return new Promise<TurnResult>((resolve, reject) => {

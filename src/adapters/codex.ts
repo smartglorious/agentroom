@@ -1,4 +1,5 @@
 import type { ThreadEvent, ThreadOptions } from "@openai/codex-sdk";
+import { codexSandbox } from "../core/autonomy";
 import { TurnUsage } from "../core/types";
 import { AgentAdapter, TurnRequest, TurnResult, accountEnv, summarizeInput } from "./types";
 
@@ -48,7 +49,7 @@ export class CodexAdapter implements AgentAdapter {
     const threadOpts: ThreadOptions = {
       workingDirectory: req.cwd,
       model: req.worker.model,
-      sandboxMode: req.readOnly ? "read-only" : req.worker.sandbox,
+      sandboxMode: req.readOnly ? "read-only" : codexSandbox(req.autonomy ?? "manual", req.worker.sandbox),
       approvalPolicy: "never",
       skipGitRepoCheck: true,
       additionalDirectories: req.extraReadDirs?.length ? req.extraReadDirs : undefined,

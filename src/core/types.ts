@@ -1,3 +1,4 @@
+import type { Autonomy } from "./autonomy";
 export type Provider = "claude" | "codex";
 
 /** A shared login (Claude subscription / Codex login / API key) that many workers use. */
@@ -41,6 +42,8 @@ export interface Worker {
   workdir?: string;
   /** #rrggbb used to tell this worker apart in the chat. Filled from a palette when not set. */
   color: string;
+  /** What this worker may do without asking. `full` in workers.yaml is not honoured: it must be switched on by the user on their own machine. */
+  autonomy: Autonomy;
 }
 
 export interface ScheduleDef {
@@ -154,6 +157,8 @@ export interface ApprovalRequest {
   /** Folder the turn works in (on `host` when set); lets remote approvers check the path is inside it. */
   cwd?: string;
   host?: string;
+  /** Why the worker's autonomy mode did not decide this itself. */
+  reason?: string;
 }
 
 /** Normalised token/cost numbers for one turn. */

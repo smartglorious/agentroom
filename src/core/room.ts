@@ -1,12 +1,13 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { AgentAdapter } from "../adapters/types";
+import { AgentAdapter, ApprovalResult } from "../adapters/types";
 import { TurnInspector, TurnRecord, newTurnId, sectionInfo } from "./inspector";
-import { CONSOLIDATE_PROMPT, MemoryEntry, MemoryStore, ymd } from "./memory";
+import { CONSOLIDATE_PROMPT, MemoryEntry, MemoryStore, redactSecrets, ymd } from "./memory";
 import { buildPersona, buildTurn } from "./prompt";
 import { route } from "./router";
 import { isRateLimit, Scheduler } from "./scheduler";
 import { REMOTE_SKILLS, SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, claudeSkillOptions, codexSkillDirs, codexSkillsBlock } from "./skills";
+import { Autonomy, PolicyContext, absolutePath, decide, describeCall, toolPaths } from "./autonomy";
 import { PlanMonitor, PlanProbe } from "./plan";
 import { RoomStore } from "./store";
 import { TaskBoard } from "./tasks";
@@ -43,6 +44,10 @@ export interface RoomDeps {
   planProbe?: PlanProbe;
   /** ms between background plan checks (0 = only on demand and after turns). */
   planPollMs?: () => number;
+  /** Where the user's per-worker autonomy choices live (machine-level, never in the repo). */
+  autonomyStore?: { get(workerId: string): Autonomy | undefined; set(workerId: string, mode: Autonomy): void };
+  /** Home folder on this machine, for judging `~/…` paths of local workers. */
+  home?: string;
 }
 
 export interface RoomEvents {
@@ -53,6 +58,7 @@ export interface RoomEvents {
   tasks: [Task[]];
   usage: [];
   plan: [];
+  autonomy: [];
   drafts: [SkillDraft[]];
 }
 
@@ -115,6 +121,12 @@ export class Room extends EventEmitter<RoomEvents> {
       deps.memory.ensureWorker(w);
     }
     this.rebuildSkills();
+    for (const w of deps.config.workers) {
+      const stored = deps.autonomyStore?.get(w.id);
+      // `full` written in workers.yaml is only a request: a repository cannot grant itself full access.
+      this.modes.set(w.id, stored ?? (w.autonomy === "full" ? "auto" : w.autonomy));
+      if (w.autonomy === "full" && stored !== "full") this.post(SYSTEM, `⚠️ workers.yaml đặt autonomy: full cho ${w.name} (${w.id}) nhưng Full Access chỉ do người dùng bật trên máy của mình (nút ở thẻ worker). Đang chạy ở chế độ Auto.`, { alert: true });
+    }
     for (const a of deps.config.accounts) this.checkBudget(a.id, false);
     if (deps.planProbe) {
       this.plan = new PlanMonitor({
@@ -131,6 +143,27 @@ export class Room extends EventEmitter<RoomEvents> {
 
   /** Subscription-plan usage per account (undefined when no probe was given). */
   readonly plan?: PlanMonitor;
+  private modes = new Map<string, Autonomy>();
+  /** Absolute paths each worker has created or edited this session (see PolicyContext.written). */
+  private written = new Map<string, Set<string>>();
+
+  /** The user's stored choice (read live, so a CLI change applies at the next call) over the default taken from workers.yaml. */
+  autonomyOf(workerId: string): Autonomy { return this.deps.autonomyStore?.get(workerId) ?? this.modes.get(workerId) ?? "manual"; }
+
+  /** The caller (UI, Telegram, CLI) is responsible for confirming `full` with the user first. */
+  setAutonomy(workerId: string, mode: Autonomy, by = "người dùng") {
+    const w = this.workers.find((x) => x.id === workerId);
+    if (!w) throw new Error(`Không có worker "${workerId}"`);
+    const was = this.autonomyOf(workerId);
+    if (was === mode) return;
+    this.modes.set(workerId, mode);
+    this.deps.autonomyStore?.set(workerId, mode);
+    this.deps.store.appendAudit({ ts: this.now(), worker: workerId, event: "mode", from: was, to: mode, by });
+    const label = { manual: "Manual (hỏi mọi thao tác)", auto: "Auto (tự duyệt việc an toàn trong thư mục của worker)", full: "FULL ACCESS (không hỏi gì, trừ vài hành động có thể phá máy)" }[mode];
+    this.post(SYSTEM, `${mode === "full" ? "⚡" : "🛡"} ${w.name} (${workerId}): chế độ ${was} → ${mode}. ${label}. Đổi bởi ${by}.`, { alert: true });
+    this.emit("autonomy");
+    this.emit("status", this.statuses.get(workerId) ?? { id: workerId, state: "idle" });
+  }
 
   get workers() { return this.deps.config.workers; }
   hasWorker(id: string) { return this.workers.some((w) => w.id === id); }
@@ -139,7 +172,7 @@ export class Room extends EventEmitter<RoomEvents> {
   snapshot() {
     return {
       workers: this.workers.map(({ id, name, role, skills, useSkills, provider, coordinator, account, color }) => ({
-        id, name, role, skills, useSkills, provider, coordinator, account, color, host: this.deps.config.accounts.find((a) => a.id === account)?.host,
+        id, name, role, skills, useSkills, provider, coordinator, account, color, autonomy: this.autonomyOf(id), host: this.deps.config.accounts.find((a) => a.id === account)?.host,
       })),
       messages: this.messages.slice(-200),
       statuses: [...this.statuses.values()],
@@ -456,6 +489,7 @@ export class Room extends EventEmitter<RoomEvents> {
         signal: abort.signal,
         onCwd: (c) => { approvalCwd = c; },
         onRateLimit: () => this.plan?.touch(account.id),
+        autonomy: this.autonomyOf(worker.id),
         onActivity: (a) => {
           const [tool, ...rest] = a.split(" ");
           tools[tool] = (tools[tool] ?? 0) + 1;
@@ -500,14 +534,61 @@ export class Room extends EventEmitter<RoomEvents> {
     } catch { /* the journal is best effort */ }
   }
 
-  private requestApproval(workerId: string, tool: string, input: unknown, signal: AbortSignal, key: string, where: { cwd?: string; host?: string } = {}): Promise<boolean> {
-    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input, ...where };
-    return new Promise((resolve) => {
+  private policyContext(workerId: string, where: { cwd?: string; host?: string }): PolicyContext {
+    const set = this.written.get(workerId);
+    return { cwd: where.cwd, home: where.host ? undefined : this.deps.home, written: set ? (p) => set.has(p) : undefined };
+  }
+
+  private noteWritten(workerId: string, tool: string, input: unknown, ctx: PolicyContext) {
+    if (!["Edit", "MultiEdit", "Write", "NotebookEdit"].includes(tool)) return;
+    for (const p of toolPaths(tool, input)) {
+      const abs = absolutePath(p, ctx);
+      if (!abs) continue;
+      let set = this.written.get(workerId);
+      if (!set) this.written.set(workerId, (set = new Set()));
+      if (set.size > 500) set.clear();
+      set.add(abs);
+    }
+  }
+
+  private audit(workerId: string, mode: Autonomy, tool: string, input: unknown, outcome: string, reason?: string) {
+    this.deps.store.appendAudit({ ts: this.now(), worker: workerId, mode, call: redactSecrets(describeCall(tool, input)), outcome, reason });
+  }
+
+  private async requestApproval(workerId: string, tool: string, input: unknown, signal: AbortSignal, key: string, where: { cwd?: string; host?: string } = {}): Promise<ApprovalResult> {
+    const mode = this.autonomyOf(workerId);
+    const ctx = this.policyContext(workerId, where);
+    let why: string | undefined, authored: string[] | undefined;
+    if (mode !== "manual") {
+      const v = decide(mode, tool, input, ctx);
+      if (v.kind === "allow") {
+        this.noteWritten(workerId, tool, input, ctx);
+        this.audit(workerId, mode, tool, input, "tự duyệt");
+        return true;
+      }
+      if (v.kind === "deny") {
+        this.audit(workerId, mode, tool, input, "chặn", v.reason);
+        const w = this.workers.find((x) => x.id === workerId);
+        this.post(SYSTEM, `🛡 Chế độ ${mode} đã chặn ${w?.name ?? workerId}: ${redactSecrets(describeCall(tool, input)).replace(/@/g, "(at)")} — ${v.reason.replace(/@/g, "(at)")}`, {});
+        return { allow: false, reason: `Bị chặn bởi chế độ ${mode}: ${v.reason}. Hãy dùng cách khác trong thư mục làm việc, hoặc hỏi người dùng (@user) nếu thật sự cần.` };
+      }
+      why = v.reason;
+      authored = v.authored;
+    }
+    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input, ...where, ...(why ? { reason: `Chế độ ${mode}: ${why}` } : {}) };
+    const allowed = await new Promise<boolean>((resolve) => {
       this.approvals.set(req.id, { req, resolve, key });
       signal.addEventListener("abort", () => this.respondApproval(req.id, false), { once: true });
       this.setStatus(workerId, "waiting_approval", tool);
       this.emit("approval", req);
     });
+    if (mode !== "manual") this.audit(workerId, mode, tool, input, allowed ? "người dùng cho phép" : "người dùng từ chối", why);
+    if (allowed) {
+      this.noteWritten(workerId, tool, input, ctx);
+      // The human has now seen this script run; stop asking about it every time.
+      for (const p of authored ?? []) this.written.get(workerId)?.delete(p);
+    }
+    return allowed;
   }
 
   private setStatus(id: string, state: WorkerStatus["state"], activity?: string) {

@@ -8,7 +8,7 @@ Cần Node ≥ 20 và `claude` / `codex` đã đăng nhập trên máy đó.
 
 ```bash
 node dist/daemon.mjs help                       # từ mã nguồn sau `npm run build`
-# hoặc đã cài .vsix:  node ~/.vscode/extensions/agentroom.agentroom-0.8.0/dist/daemon.mjs help
+# hoặc đã cài .vsix:  node ~/.vscode/extensions/agentroom.agentroom-0.9.0/dist/daemon.mjs help
 # hoặc:               npm link   →   agentroom-daemon help
 ```
 
@@ -21,6 +21,7 @@ node dist/daemon.mjs help                       # từ mã nguồn sau `npm run 
 | `telegram-off` | Xoá token đã lưu |
 | `trust-hosts` | Cho phép daemon ssh tới các `hosts:` của project (mục 4) |
 | `settings` · `set <khóa> <giá trị>` | Xem/đổi cài đặt (mục 3) |
+| `autonomy [<worker> <mức>]` | Xem/đổi mức tự chủ (manual/auto/full); Full yêu cầu gõ `FULL`, xem `AUTONOMY.md` |
 | `status` | Ai đang giữ phòng (daemon hay cửa sổ VS Code) |
 | `service` | In file systemd mẫu |
 

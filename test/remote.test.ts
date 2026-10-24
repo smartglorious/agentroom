@@ -138,6 +138,18 @@ test("runner: approvals are asked on the hub and the answer goes back to the rem
   c.close();
 });
 
+test("runner: a refusal carries its reason to the remote agent, and the worker's autonomy reaches the runner", async () => {
+  const { spawn } = inProcess(tmp());
+  const c = new HostConnection({ spec: spec(), spawn });
+  const r = await c.runTurn(request({ prompt: "[APPROVE]", approve: async () => ({ allow: false, reason: "Bị chặn bởi chế độ auto: sudo" }) }, { base: tmp() }).req);
+  assert.equal(r.text, "denied:Bị chặn bởi chế độ auto: sudo");
+  const ok = await c.runTurn(request({ prompt: "[APPROVE]", approve: async () => ({ allow: true }) }, { base: tmp() }).req);
+  assert.equal(ok.text, "approved");
+  const a = await c.runTurn(request({ prompt: "[AUTONOMY]", autonomy: "auto" }, { base: tmp() }).req);
+  assert.equal(a.text, "autonomy:auto");
+  c.close();
+});
+
 test("runner: errors keep their meaning — plain failure vs rate limit with retry-after", async () => {
   const { spawn } = inProcess(tmp());
   const c = new HostConnection({ spec: spec(), spawn });

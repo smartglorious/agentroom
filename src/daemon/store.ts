@@ -20,6 +20,8 @@ export interface DaemonFile {
   settings?: Partial<DaemonSettings>;
   /** "<root>|<host fingerprint>" the user approved with `trust-hosts`. */
   trusted?: string[];
+  /** "<root>|<worker>" → the mode the user chose with `agentroom-daemon autonomy`. */
+  autonomy?: Record<string, "manual" | "auto" | "full">;
 }
 
 export const DEFAULT_SETTINGS: DaemonSettings = {
