@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.3
+- `cc` viết giữa dòng ("@lead @user cc @fw @be: …") cũng không đánh thức người đứng sau chữ `cc`, không chỉ dòng bắt đầu bằng `cc:`. Phát hiện từ log thật: model hay viết kiểu này nên `fw`/`be` vẫn bị gọi dậy chỉ để trả `[NOOP]`.
+
 ## 0.14.2
 - **Bớt đánh thức worker không cần thiết** (mỗi lần một worker được gọi, nó đọc lại cả session: trên log thật, 38 lượt cho 5 tin của người dùng, ~11 triệu token cache đọc, 13 lượt chỉ để nói "không có việc cho mình"). (1) Dòng bắt đầu bằng `cc:`/`FYI:` trong tin của worker không đánh thức ai. (2) Một tin của worker đánh thức tối đa `limits.maxFanout` (mặc định 3) người. (3) `limits.chainTurns` mặc định 10 → 6. (4) Gom tin `agentroom.agentDebounceMs` mặc định 1500 → 8000 ms (các tin đến gần nhau được trả lời trong một lượt). (5) Persona dặn: chỉ @ người phải làm ngay, dùng `cc:` để báo, tin tối đa ~10 dòng. Persona đổi nên session của mọi worker bắt đầu lại một lần. Tin của người dùng không bị giới hạn. **Chưa đo mức tiết kiệm thật**; cần so lại `usage.jsonl` sau một buổi làm việc.
 
