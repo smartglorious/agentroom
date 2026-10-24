@@ -32,6 +32,8 @@ export interface Worker {
   useSkills: string[];
   provider: Provider;
   account: string;
+  /** Accounts (same provider and host) to use, in order, while `account` is limited. */
+  fallback: string[];
   model?: string;
   /** Claude: start a fresh session once a turn's context grows past this many tokens (0 = never). Default 150000; the coordinator is never rotated unless set. */
   contextLimit?: number;

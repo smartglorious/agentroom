@@ -72,6 +72,9 @@ export class Scheduler {
     this.pump(account);
   }
 
+  /** True while the account is held (rate limit back-off, plan used up, budget). */
+  isPaused(account: string): boolean { return this.lane(account).pausedUntil > this.now(); }
+
   resume(account: string) {
     const l = this.lane(account);
     l.pausedUntil = 0;

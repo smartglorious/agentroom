@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.8
+- **Account dự phòng (`fallback`)**: worker có thể khai báo `fallback: [claude-ds]`. Khi account của worker bị giới hạn (rate limit của lượt đang chạy, gói báo hết, hết ngân sách ngày), các tin đang chờ và tin mới chạy ngay trên account dự phòng đầu tiên còn dùng được; trong chat có dòng 🔀 báo một lần, và ↩️ khi quay về account chính (mỗi lượt đều ưu tiên account chính nếu nó dùng được). Dự phòng phải cùng provider và cùng host; mỗi account dự phòng có session riêng (worker nhận lại trí nhớ, nhật ký và chat gần đây); `model:` của worker không gửi sang account có `baseUrl`. Mặc định không có dự phòng. Một session mới (kể cả sau khi chuyển) luôn bắt đầu từ chat gần đây. **Chưa kiểm chứng với DeepSeek/gói thật**: chỉ có test với bộ điều khiển giả.
+
 ## 0.14.7
 - **Sửa an toàn (0.14.6):** account có `baseUrl` mà biến `authTokenEnv` chưa có giá trị trong tiến trình thì **không chạy** và báo lỗi rõ. Trước đó CLI sẽ quay về phiên đăng nhập Claude của bạn và gửi nó tới endpoint khác. Nếu bạn đã chạy `claude-ds` khi biến chưa có, nên coi token phiên đăng nhập Claude có thể đã tới endpoint đó và đăng xuất rồi đăng nhập lại Claude.
 - **Lượt im lặng quá lâu bị dừng:** `limits.turnIdleMinutes` (mặc định 20, `0` = tắt). Trước đây một CLI treo giữ worker mãi và không báo gì. Thẻ duyệt đang chờ người không tính là im lặng.
