@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.10
+- **Worker Claude chỉ dùng máy chủ MCP của phòng:** khởi động CLI với `strictMcpConfig` và `disableClaudeAiConnectors`, để CLI không tự nối các connector claude.ai của tài khoản (Figma, Docs, …) và nạp định nghĩa tool của chúng vào mọi session. Lý do: trên máy một người dùng, `claude mcp list` thấy 2 connector claude.ai đang kết nối cùng nhiều server plugin, và mỗi session mới `claude-main` nặng ~85–135 nghìn token trong khi bảng đo chỉ thấy 15–25 nghìn. **Chưa đo mức giảm thật** (chỉ kiểm chứng CLI chấp nhận cờ và test dựng tùy chọn). Muốn giữ connector: đặt biến môi trường `AGENTROOM_KEEP_CONNECTORS=1`.
+
 ## 0.14.9
 - **Sửa đổi session liên tục (0.13.2):** nếu một session mới đã nặng hơn `contextLimit` ngay từ lượt đầu (trên log thật ~85–95 nghìn token khi giới hạn là 80000) thì trước đây nó bị thay ở **mọi lượt** và mỗi lần ghi lại toàn bộ cache. Giờ session chỉ bị thay khi vượt `contextLimit` **và** đã lớn hơn 1,5 lần kích thước lượt đầu của chính nó (đo trong lần chạy hiện tại).
 - Ghi vào `docs/PLAN-v0.8-tokens.md` số đo đầu tiên nối token với phần trăm gói 5 giờ (xem mục "Bổ sung 0.14.9"). Ước lượng thô từ ba cửa sổ, chưa chắc.

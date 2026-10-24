@@ -49,3 +49,21 @@ workers:
   assert.equal(c.workers[1].tools, undefined);
   assert.throws(() => parseConfig(`accounts: { c: { provider: claude } }\nworkers:\n  - { id: a, name: A, role: r, account: c, tools: [""] }\n`));
 });
+
+test("claude options: only the room's MCP server is used (no claude.ai connectors) unless AGENTROOM_KEEP_CONNECTORS=1", () => {
+  const cfg = parseConfig(`accounts: { c: { provider: claude } }\nworkers:\n  - { id: be, name: B, role: r, account: c }\n`);
+  const base = { cwd: "/w", systemAppend: "S", mcpUrl: "http://x", account: cfg.accounts[0], approve: async () => true };
+  const mk = () => buildClaudeOptions({ ...base, worker: cfg.workers[0] }, undefined, new AbortController()) as unknown as Record<string, unknown>;
+  const save = process.env.AGENTROOM_KEEP_CONNECTORS;
+  try {
+    delete process.env.AGENTROOM_KEEP_CONNECTORS;
+    const o = mk();
+    assert.equal(o.strictMcpConfig, true);
+    assert.deepEqual(o.settings, { disableClaudeAiConnectors: true });
+    assert.deepEqual(Object.keys(o.mcpServers as object), ["agentroom"]);
+    process.env.AGENTROOM_KEEP_CONNECTORS = "1";
+    const k = mk();
+    assert.equal(k.strictMcpConfig, undefined);
+    assert.equal(k.settings, undefined);
+  } finally { if (save === undefined) delete process.env.AGENTROOM_KEEP_CONNECTORS; else process.env.AGENTROOM_KEEP_CONNECTORS = save; }
+});
