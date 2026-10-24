@@ -4,6 +4,7 @@
   "cmd.init": "AgentRoom: Tạo cấu hình workers mẫu",
   "cmd.reload": "AgentRoom: Nạp lại workers.yaml",
   "cmd.stopAll": "AgentRoom: Dừng tất cả worker",
+  "cmd.measureContext": "AgentRoom: Đo context cố định của session mới (không tốn hạn mức)",
   "cmd.reportIssue": "AgentRoom: Ghi một vấn đề / lỗi",
   "cmd.exportIssues": "AgentRoom: Xuất báo cáo lỗi (Markdown)",
   "cmd.cleanup": "AgentRoom: Dọn dẹp file rác/tạm/cache (gom, không xóa)",

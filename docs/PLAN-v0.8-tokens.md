@@ -153,3 +153,8 @@ Tổng khoảng 7–8 ngày công cho tất cả; **S10+S1+S2 khoảng 2,5 ngày
 ## Bổ sung 0.13.2 — theo log thật của một người dùng
 
 Số liệu từ `usage.jsonl` của một dự án thật (187 lượt, ~6 giờ): `fw` và `be` chiếm ~2/3 mức dùng; mỗi lượt đọc lại ~520–570 nghìn token cache vì session sống lâu; ghi cache là khoản lớn nhất. Hai thay đổi: (1) **đổi session** khi context vượt `contextLimit` (mặc định 150000, không áp cho điều phối viên); (2) **cắt output Bash** ở 15000 ký tự. Gợi ý cấu hình không cần code: cho các worker làm việc nhẹ (QA, review) dùng `model:` nhỏ hơn, giữ model mạnh cho điều phối viên và người viết code. **Chưa đo** mức tiết kiệm sau thay đổi; cách đo: so token đọc/ghi cache mỗi lượt của từng worker trong `usage.jsonl` trước và sau (và `npm run bench:tokens` cho kịch bản nhỏ).
+
+
+## Bổ sung 0.14.5 — đo mức sàn không tốn hạn mức
+
+Lệnh "AgentRoom: Đo context cố định của session mới" (`agentroom.measureContext`) cho biết mỗi worker Claude mang bao nhiêu token trước khi làm gì (system prompt, tool, CLAUDE.md, skill, MCP), bằng `getContextUsage` của SDK trên một query có luồng input không bao giờ gửi tin. Lý do: trên log thật, session mới đã ~70–125 nghìn token trong khi file CLAUDE.md/skill của dự án đó chỉ vài nghìn, và mức sàn này bị đọc lại ở mọi lần gọi.

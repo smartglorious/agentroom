@@ -53,6 +53,8 @@ export interface TurnResult {
 
 export interface AgentAdapter {
   runTurn(req: TurnRequest): Promise<TurnResult>;
+  /** Claude: what would fill the window of a new session for this request, without sending any message to the model. */
+  measureContext?(req: TurnRequest): Promise<ContextBreakdown | undefined>;
 }
 
 /** Env for a CLI child process, pointing it at the shared account's login. */
