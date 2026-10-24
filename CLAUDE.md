@@ -34,6 +34,7 @@ npm run bench:tokens   # đo token trước/sau mỗi thay đổi liên quan pro
 7. **Mỗi tool Claude nạp tốn token ở mọi lượt**: bộ tool là tường minh (`claudeToolSet`), không để mặc định nạp hết.
 8. **Tin của người dùng không bao giờ bị chặn** bởi giới hạn lượt/NOOP/chống lặp/gom tin (chỉ áp dụng cho tin giữa các worker). Mọi tin worker đăng mang `chain` của hội thoại mà lượt của nó thuộc về.
 9. Cron/webhook/Telegram: nội dung từ ngoài là dữ liệu không tin cậy (bọc trong `<untrusted_payload>`).
+10. **README theo version**: mỗi lần tăng `version` trong `package.json` phải cập nhật cùng commit: `CHANGELOG.md` (mục mới ở đầu), README (lệnh cài `.vsix`, bảng tính năng, danh sách tài liệu, settings) và `CLAUDE.md` nếu bản đồ/quy tắc đổi. `test/readme.test.ts` sẽ đỏ nếu quên.
 
 ## Cách làm việc
 

@@ -45,7 +45,7 @@ Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → ch�
 ```bash
 npm install
 npm run build        # dist/extension.js + dist/runner.mjs (file được cài lên máy từ xa)
-npm test             # 202 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH, Telegram
+npm test             # router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH, Telegram
 npm run test:live    # kịch bản thật với Claude (tốn vài cent, cần đã đăng nhập claude)
 npm run test:ssh     # nhiều máy qua sshd THẬT + Claude thật (cần openssh-server, root: scripts/live/ssh-sandbox.sh up)
 npm run package      # agentroom-<version>.vsix
