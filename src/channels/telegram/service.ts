@@ -1,3 +1,4 @@
+import { tr, trVi } from "../../core/i18n";
 import { EventEmitter } from "node:events";
 import { randomInt, timingSafeEqual } from "node:crypto";
 import { isAutonomy } from "../../core/autonomy";
@@ -59,13 +60,13 @@ const PAIR_TTL = 10 * 60_000;
 const PIN_TTL = 90_000;
 const FULL_CACHE = 50;
 const MAX_INBOUND = 4000;
-const HELP = [
-  "AgentRoom trên điện thoại",
-  "• Nhắn thường → gửi cho worker điều phối; @id → gọi đúng worker",
-  "/status — worker đang làm gì · /tasks — việc đang mở · /cost — chi phí hôm nay",
-  "/mode — mức tự chủ của worker (chỉ hạ được từ đây) · /plan — hạn mức gói Claude/Codex còn lại (/plan refresh để đọc lại) · /stop <id|all> — dừng worker · /mute [30m|2h] · /unmute",
-  "/detail summary|full|alerts — mức chi tiết tin gửi về · /issue <mô tả> — ghi một vấn đề · /issues — vấn đề đang mở",
-  "/budget — cho account hết ngân sách chạy tiếp · /unpair — ngắt ghép cặp",
+const help = () => [
+  tr("AgentRoom trên điện thoại"),
+  tr("• Nhắn thường → gửi cho worker điều phối; @id → gọi đúng worker"),
+  tr("/status — worker đang làm gì · /tasks — việc đang mở · /cost — chi phí hôm nay"),
+  tr("/mode — mức tự chủ của worker (chỉ hạ được từ đây) · /plan — hạn mức gói Claude/Codex còn lại (/plan refresh để đọc lại) · /stop <id|all> — dừng worker · /mute [30m|2h] · /unmute"),
+  tr("/detail summary|full|alerts — mức chi tiết tin gửi về · /issue <mô tả> — ghi một vấn đề · /issues — vấn đề đang mở"),
+  tr("/budget — cho account hết ngân sách chạy tiếp · /unpair — ngắt ghép cặp"),
 ].join("\n");
 
 const mentionsUser = (t: string) => /(^|[^\w@])@user\b/i.test(t);
@@ -110,11 +111,11 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     this.started = true;
     const { room, bot } = this.d;
     bot.on("state", () => this.emit("change"));
-    bot.on("message", (m) => void this.onMessage(m).catch((e) => this.log(`lỗi xử lý tin: ${e}`)));
-    bot.on("callback", (c) => void this.onCallback(c).catch((e) => this.log(`lỗi xử lý nút: ${e}`)));
+    bot.on("message", (m) => void this.onMessage(m).catch((e) => this.log(trVi("lỗi xử lý tin: {e}", { e }))));
+    bot.on("callback", (c) => void this.onCallback(c).catch((e) => this.log(trVi("lỗi xử lý nút: {e}", { e }))));
     bot.on("backlog", (u) => void this.onBacklog(u).catch(() => undefined));
-    const onMsg = (m: ChatMessage) => void this.forward(m).catch((e) => this.log(`không gửi được tin: ${e}`));
-    const onApproval = (r: ApprovalRequest) => void this.sendApproval(r).catch((e) => this.log(`không gửi được thẻ duyệt: ${e}`));
+    const onMsg = (m: ChatMessage) => void this.forward(m).catch((e) => this.log(trVi("không gửi được tin: {e}", { e })));
+    const onApproval = (r: ApprovalRequest) => void this.sendApproval(r).catch((e) => this.log(trVi("không gửi được thẻ duyệt: {e}", { e })));
     const onResolved = (id: string) => void this.approvalResolved(id).catch(() => undefined);
     room.on("message", onMsg);
     room.on("approval", onApproval);
@@ -124,7 +125,7 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     const p = this.d.stores.paired.get();
     if (bot.state === "running" && p) {
       const n = room.snapshot().workers.length;
-      void bot.send(p.chat, `🟢 AgentRoom đã kết nối${this.d.workspaceName ? ` (${this.d.workspaceName})` : ""} · ${n} worker. /help để xem lệnh.`, { quiet: true }).catch(() => undefined);
+      void bot.send(p.chat, tr("🟢 AgentRoom đã kết nối{ws} · {n} worker. /help để xem lệnh.", { ws: this.d.workspaceName ? ` (${this.d.workspaceName})` : "", n }), { quiet: true }).catch(() => undefined);
       // approvals that were already waiting when the phone connected
       for (const a of room.snapshot().approvals) void this.sendApproval(a).catch(() => undefined);
     }
@@ -202,13 +203,13 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     const p = this.paired();
     if (!p || this.d.bot.state !== "running") return;
     // The user answered a question at the computer: show the pick on the phone too and take its buttons away.
-    if (m.choice && m.source !== "telegram") return void (await this.closeQuestion(m.choice.message, m.choice.option, "ở máy tính"));
+    if (m.choice && m.source !== "telegram") return void (await this.closeQuestion(m.choice.message, m.choice.option, tr("ở máy tính")));
     if (m.from === "user" || m.source === "telegram") return;
     const quiet = this.quietNow();
 
     if (m.from === "system") {
       if (!m.alert) return;
-      const hint = /chạm ngân sách/.test(m.text) ? "\nGõ /budget để cho chạy tiếp." : "";
+      const hint = /chạm ngân sách|reached its daily budget/.test(m.text) ? "\n" + tr("Gõ /budget để cho chạy tiếp.") : "";
       await this.tell(p.chat, redactSecrets(m.text) + hint, { quiet });
       return;
     }
@@ -221,11 +222,11 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
 
     const cap = this.d.settings().summaryChars;
     const full = mode === "full" && !wantsYou ? { text: redactSecrets(m.text), cut: false } : summarize(m.text, cap);
-    const footer = m.readOnly ? "\n\n🔒 Chuỗi chỉ-đọc: bạn nhắn lại @tên-worker để tiếp tục." : "";
+    const footer = m.readOnly ? "\n\n" + tr("🔒 Chuỗi chỉ-đọc: bạn nhắn lại @tên-worker để tiếp tục.") : "";
     const key = m.options ? (++this.questionSeq).toString(36) : undefined;
     const rows: InlineButton[][] = [
       ...(m.options && key ? m.options.items.map((i) => [{ text: `${i.id}. ${i.label}`.slice(0, 60), callback_data: `op:${key}:${i.id}` }]) : []),
-      ...(full.cut ? [[{ text: "📄 Xem đầy đủ", callback_data: `fx:${this.rememberFull(redactSecrets(m.text))}` }]] : []),
+      ...(full.cut ? [[{ text: tr("📄 Xem đầy đủ"), callback_data: `fx:${this.rememberFull(redactSecrets(m.text))}` }]] : []),
     ];
     const text = `${this.header(m)}\n${full.text}${footer}`;
     const id = await this.tell(p.chat, text, { quiet: quiet || !wantsYou, buttons: rows.length ? rows : undefined });
@@ -253,7 +254,7 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     this.questions.delete(key);
     this.questionOf.delete(msgId);
     const label = q.items.find((i) => i.id === optionId)?.label ?? optionId;
-    await this.d.bot.edit(q.chat, q.tg, `${q.text}\n✔ Đã chọn ${optionId}. ${label} (${where})`);
+    await this.d.bot.edit(q.chat, q.tg, `${q.text}\n` + tr("✔ Đã chọn {optionId}. {label} ({where})", { optionId, label, where }));
   }
 
   async sendApproval(req: ApprovalRequest) {
@@ -262,17 +263,17 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     const verdict = phoneApprovalVerdict(req);
     const mayApprove = verdict.safe && this.d.settings().approveFromPhone === "safe";
     const buttons: InlineButton[] = [
-      ...(mayApprove ? [{ text: "✅ Cho phép", callback_data: `ap:y:${req.id}` }] : []),
-      { text: "❌ Từ chối", callback_data: `ap:n:${req.id}` },
+      ...(mayApprove ? [{ text: tr("✅ Cho phép"), callback_data: `ap:y:${req.id}` }] : []),
+      { text: tr("❌ Từ chối"), callback_data: `ap:n:${req.id}` },
     ];
     const text = describeApproval(req, this.workerName(req.workerId))
       + (req.reason ? `\n${req.reason}` : "")
-      + (mayApprove ? (this.d.stores.pin.get() ? "\n(cần PIN để cho phép)" : "") : `\n⚠️ Chỉ duyệt được ở máy tính: ${this.d.settings().approveFromPhone === "none" ? "đã tắt duyệt từ điện thoại" : verdict.reason}`);
+      + (mayApprove ? (this.d.stores.pin.get() ? "\n" + tr("(cần PIN để cho phép)") : "") : "\n" + tr("⚠️ Chỉ duyệt được ở máy tính: {why}", { why: this.d.settings().approveFromPhone === "none" ? tr("đã tắt duyệt từ điện thoại") : verdict.reason }));
     const id = await this.tell(p.chat, text, { quiet: this.quietNow(), buttons: [buttons] });
     if (this.phoneHandled.delete(req.id)) return;
     if (!this.d.room.snapshot().approvals.some((a) => a.id === req.id)) {
       // answered while the message was in flight
-      await this.d.bot.edit(p.chat, id, `${text}\n✔ Đã xử lý ở máy tính`);
+      await this.d.bot.edit(p.chat, id, `${text}\n` + tr("✔ Đã xử lý ở máy tính"));
       return;
     }
     this.approvalMsgs.set(req.id, { chat: p.chat, id, text });
@@ -282,7 +283,7 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     const m = this.approvalMsgs.get(id);
     if (!m) return;
     this.approvalMsgs.delete(id);
-    await this.d.bot.edit(m.chat, m.id, `${m.text}\n✔ Đã xử lý ở máy tính`);
+    await this.d.bot.edit(m.chat, m.id, `${m.text}\n` + tr("✔ Đã xử lý ở máy tính"));
   }
 
   // ---------- phone → room ----------
@@ -290,7 +291,7 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
   private async onBacklog(updates: TgUpdate[]) {
     const p = this.paired();
     const n = updates.filter((u) => u.message?.from?.id === p?.id && u.message?.chat.type === "private").length;
-    if (p && n) await this.tell(p.chat, `ℹ️ Có ${n} tin bạn gửi lúc AgentRoom đang tắt đã bị bỏ qua (để không chạy lại lệnh cũ). Nhắn lại nếu cần.`, { quiet: true });
+    if (p && n) await this.tell(p.chat, tr("ℹ️ Có {n} tin bạn gửi lúc AgentRoom đang tắt đã bị bỏ qua (để không chạy lại lệnh cũ). Nhắn lại nếu cần.", { n }), { quiet: true });
   }
 
   private async onMessage(m: TgMessage) {
@@ -302,14 +303,14 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     if (cmd?.[1].toLowerCase() === "pair") return this.onPair(m, cmd[2].trim());
 
     const p = this.paired();
-    if (!p || p.id !== from.id || p.chat !== m.chat.id) { this.log(`bỏ qua tin từ người chưa ghép cặp (id ${from.id})`); return; }
-    if (m.forward_origin || m.forward_date) return void (await this.tell(p.chat, "Không nhận tin chuyển tiếp (có thể chứa nội dung lạ). Hãy gõ lại.", { quiet: true }));
-    if (!text) return void (await this.tell(p.chat, "Chỉ nhận tin nhắn văn bản.", { quiet: true }));
+    if (!p || p.id !== from.id || p.chat !== m.chat.id) { this.log(trVi("bỏ qua tin từ người chưa ghép cặp (id {id})", { id: from.id })); return; }
+    if (m.forward_origin || m.forward_date) return void (await this.tell(p.chat, tr("Không nhận tin chuyển tiếp (có thể chứa nội dung lạ). Hãy gõ lại."), { quiet: true }));
+    if (!text) return void (await this.tell(p.chat, tr("Chỉ nhận tin nhắn văn bản."), { quiet: true }));
 
     if (this.pendingPin?.user === from.id) {
       if (PIN_FORMAT.test(text)) return this.onPin(m, text);
       this.pendingPin = undefined;
-      await this.tell(p.chat, "Đã huỷ yêu cầu nhập PIN.", { quiet: true });
+      await this.tell(p.chat, tr("Đã huỷ yêu cầu nhập PIN."), { quiet: true });
     }
 
     if (cmd) return this.onCommand(p, cmd[1].toLowerCase(), cmd[2].trim());
@@ -317,38 +318,38 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     // A bare number that looks like the PIN, typed with no prompt waiting, must not end up in the chat log or the agents' context.
     if (this.d.stores.pin.get() && PIN_FORMAT.test(text)) {
       void this.d.bot.remove(m.chat.id, m.message_id);
-      return void (await this.tell(p.chat, "Không có yêu cầu nào đang chờ PIN nên tin này không được gửi đi (và đã bị xoá). Muốn gửi số này cho worker, hãy thêm chữ vào cùng tin.", { quiet: true }));
+      return void (await this.tell(p.chat, tr("Không có yêu cầu nào đang chờ PIN nên tin này không được gửi đi (và đã bị xoá). Muốn gửi số này cho worker, hãy thêm chữ vào cùng tin."), { quiet: true }));
     }
 
     // Telegram's own "reply" on one of the bot's messages answers that worker message.
     const repliedTo = (m.reply_to_message as { message_id?: number } | undefined)?.message_id;
     const replyTo = repliedTo !== undefined ? this.sentRoom.get(repliedTo) : undefined;
     const posted = this.d.room.post("user", text.slice(0, MAX_INBOUND), { source: "telegram", ...(replyTo ? { replyTo } : {}) });
-    if (!posted.to.length) await this.tell(p.chat, "Chưa có worker nào nhận tin này (không có worker điều phối). Hãy @id để gọi một worker.", { quiet: true });
+    if (!posted.to.length) await this.tell(p.chat, tr("Chưa có worker nào nhận tin này (không có worker điều phối). Hãy @id để gọi một worker."), { quiet: true });
   }
 
   private async onPair(m: TgMessage, arg: string) {
     const from = m.from!;
     const already = this.paired();
-    if (already && already.id === from.id) return void (await this.tell(m.chat.id, "Đã ghép cặp rồi. /help để xem lệnh.", { quiet: true }));
+    if (already && already.id === from.id) return void (await this.tell(m.chat.id, tr("Đã ghép cặp rồi. /help để xem lệnh."), { quiet: true }));
     const pr = this.pairing;
-    if (!pr || pr.expiresAt < this.now()) return void this.log("có người gõ /pair nhưng không có mã đang chờ");
+    if (!pr || pr.expiresAt < this.now()) return void this.log(trVi("có người gõ /pair nhưng không có mã đang chờ"));
     pr.tries++;
     const a = Buffer.from(arg.padEnd(32)), b = Buffer.from(pr.code.padEnd(32));
-    if (pr.tries > 5) { this.pairing = undefined; this.log("quá 5 lần thử ghép cặp: huỷ mã"); this.emit("change"); return; }
-    if (arg.length !== pr.code.length || !timingSafeEqual(a, b)) return void (await this.tell(m.chat.id, "Mã không đúng.", { quiet: true }));
+    if (pr.tries > 5) { this.pairing = undefined; this.log(trVi("quá 5 lần thử ghép cặp: huỷ mã")); this.emit("change"); return; }
+    if (arg.length !== pr.code.length || !timingSafeEqual(a, b)) return void (await this.tell(m.chat.id, tr("Mã không đúng."), { quiet: true }));
     this.pairing = undefined;
     const name = [from.first_name, from.last_name].filter(Boolean).join(" ") || from.username || String(from.id);
     await this.d.stores.paired.set({ id: from.id, chat: m.chat.id, name, since: this.now() });
     this.emit("change");
-    await this.tell(m.chat.id, `✅ Đã ghép cặp với ${name}.\n\n${HELP}`, { quiet: true });
+    await this.tell(m.chat.id, tr("✅ Đã ghép cặp với {name}.", { name }) + `\n\n${help()}`, { quiet: true });
   }
 
   private async onCommand(p: PairedUser, cmd: string, arg: string) {
     const room = this.d.room;
     const say = (t: string, buttons?: InlineButton[][]) => this.tell(p.chat, t, { quiet: true, buttons });
     switch (cmd) {
-      case "start": case "help": return void (await say(HELP));
+      case "start": case "help": return void (await say(help()));
       case "status": {
         const s = room.snapshot();
         const icon = (st: string) => ({ idle: "⚪", queued: "🔵", working: "🟢", waiting_approval: "🟡", rate_limited: "🟠", over_budget: "🟠", error: "🔴" }[st] ?? "⚪");
@@ -358,86 +359,86 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
           return `${icon(st?.state ?? "idle")} ${w.name} (@${w.id})${w.host ? ` ⇄ ${w.host}` : ""} — ${st?.state ?? "idle"}${st?.activity ? `: ${st.activity}` : ""}${cost ? ` · ${usd(cost)}` : ""}`;
         });
         const open = s.tasks.filter((t) => t.status !== "done").length;
-        return void (await say(`📊 ${this.d.workspaceName ?? "AgentRoom"}\n${lines.join("\n")}\nTask mở: ${open}${s.approvals.length ? ` · đang chờ duyệt: ${s.approvals.length}` : ""}`));
+        return void (await say(`📊 ${this.d.workspaceName ?? "AgentRoom"}\n${lines.join("\n")}\n` + tr("Task mở: {open}", { open }) + (s.approvals.length ? " · " + tr("đang chờ duyệt: {n}", { n: s.approvals.length }) : "")));
       }
       case "tasks": {
         const open = room.snapshot().tasks.filter((t) => t.status !== "done");
-        return void (await say(open.length ? open.slice(0, 15).map((t) => `[${t.id}] (${t.status}) ${t.title}${t.assignee ? ` — @${t.assignee}` : ""}`).join("\n") + (open.length > 15 ? `\n… và ${open.length - 15} task nữa` : "") : "Không có task nào đang mở."));
+        return void (await say(open.length ? open.slice(0, 15).map((t) => `[${t.id}] (${t.status}) ${t.title}${t.assignee ? ` — @${t.assignee}` : ""}`).join("\n") + (open.length > 15 ? "\n" + tr("… và {n} task nữa", { n: open.length - 15 }) : "") : tr("Không có task nào đang mở.")));
       }
       case "cost": {
         const t = this.d.usage.summarize("today").totals;
         const accs = room.snapshot().accounts.filter((a) => a.budgetUsdPerDay).map((a) => `${a.id}: ${usd(a.spentToday)} / ${usd(a.budgetUsdPerDay!)}${a.paused ? " ⛔" : ""}`);
-        return void (await say(`💰 Hôm nay: ${t.estimated ? "≈ " : ""}${usd(t.costUsd)} · ${t.turns} lượt · ${t.errors} lỗi${accs.length ? "\n" + accs.join("\n") : ""}`));
+        return void (await say(tr("💰 Hôm nay: {p}{p1} · {turns} lượt · {errors} lỗi{p2}", { p: t.estimated ? "≈ " : "", p1: usd(t.costUsd), turns: t.turns, errors: t.errors, p2: accs.length ? "\n" + accs.join("\n") : "" })));
       }
       case "mode": {
         const ws = room.snapshot().workers;
         const icon = { manual: "🛡", auto: "🤖", full: "⚡" } as const;
         const [id, want] = arg.split(/\s+/);
-        if (!id) return void (await say(`Mức tự chủ:\n${ws.map((w) => `${icon[w.autonomy]} ${w.name} (@${w.id}): ${w.autonomy}`).join("\n")}\n\nChỉ HẠ được từ điện thoại: /mode <id> manual|auto. Nâng lên (Auto, Full) phải làm ở máy tính.`));
+        if (!id) return void (await say(tr("Mức tự chủ:") + `\n${ws.map((w) => `${icon[w.autonomy]} ${w.name} (@${w.id}): ${w.autonomy}`).join("\n")}\n\n` + tr("Chỉ HẠ được từ điện thoại: /mode <id> manual|auto. Nâng lên (Auto, Full) phải làm ở máy tính.")));
         const w = ws.find((x) => x.id === id);
-        if (!w || !isAutonomy(want)) return void (await say(`Dùng: /mode <${ws.map((x) => x.id).join("|")}> manual|auto`));
+        if (!w || !isAutonomy(want)) return void (await say(tr("Dùng: /mode <{p}> manual|auto", { p: ws.map((x) => x.id).join("|") })));
         const rank = { manual: 0, auto: 1, full: 2 } as const;
-        if (rank[want] >= rank[w.autonomy]) return void (await say(w.autonomy === want ? `@${id} đã ở chế độ ${want}.` : `⛔ Không nâng mức tự chủ từ điện thoại (${w.autonomy} → ${want}). Làm ở máy tính.`));
+        if (rank[want] >= rank[w.autonomy]) return void (await say(w.autonomy === want ? tr("@{id} đã ở chế độ {want}.", { id, want }) : tr("⛔ Không nâng mức tự chủ từ điện thoại ({autonomy} → {want}). Làm ở máy tính.", { autonomy: w.autonomy, want })));
         room.setAutonomy(id, want, "Telegram");
         return void (await say(`${icon[want]} @${id}: ${w.autonomy} → ${want}.`));
       }
       case "plan": {
-        if (!room.plan) return void (await say("Chưa bật theo dõi hạn mức gói."));
+        if (!room.plan) return void (await say(tr("Chưa bật theo dõi hạn mức gói.")));
         if (arg === "refresh") await room.plan.refresh(undefined, true);
         return void (await say(planText(room.plan.list(), this.now())));
       }
       case "issue": {
-        if (!arg) return void (await say("Dùng: /issue <mô tả vấn đề>. Lưu cục bộ để bạn xem/sửa sau; không gửi đi đâu."));
+        if (!arg) return void (await say(tr("Dùng: /issue <mô tả vấn đề>. Lưu cục bộ để bạn xem/sửa sau; không gửi đi đâu.")));
         const it = room.reportIssue(arg);
-        return void (await say(it ? `⚑ Đã ghi vấn đề ${it.id}.` : "Chưa bật bộ gom lỗi."));
+        return void (await say(it ? tr("⚑ Đã ghi vấn đề {id}.", { id: it.id }) : tr("Chưa bật bộ gom lỗi.")));
       }
       case "issues": {
         const open = room.issues?.list("open").sort((a, b) => b.count - a.count).slice(0, 8);
-        if (!open) return void (await say("Chưa bật bộ gom lỗi."));
-        return void (await say(open.length ? ["⚑ Vấn đề đang mở (nhiều nhất trước):", ...open.map((i) => `• ${i.title.slice(0, 90)} ×${i.count} [${i.source}]`)].join("\n") : "Không có vấn đề nào đang mở."));
+        if (!open) return void (await say(tr("Chưa bật bộ gom lỗi.")));
+        return void (await say(open.length ? [tr("⚑ Vấn đề đang mở (nhiều nhất trước):"), ...open.map((i) => `• ${i.title.slice(0, 90)} ×${i.count} [${i.source}]`)].join("\n") : tr("Không có vấn đề nào đang mở.")));
       }
       case "stop": {
         const ids = room.snapshot().workers.map((w) => w.id);
-        if (arg === "all") { room.stopAll(); return void (await say("⏹ Đã dừng tất cả worker.")); }
-        if (!ids.includes(arg)) return void (await say(`Dùng: /stop <${ids.join("|")}|all>`));
+        if (arg === "all") { room.stopAll(); return void (await say(tr("⏹ Đã dừng tất cả worker."))); }
+        if (!ids.includes(arg)) return void (await say(tr("Dùng: /stop <{p}|all>", { p: ids.join("|") })));
         room.stop(arg);
-        return void (await say(`⏹ Đã dừng @${arg}.`));
+        return void (await say(tr("⏹ Đã dừng @{arg}.", { arg })));
       }
       case "mute": {
         const ms = arg ? parseDuration(arg) : 3600_000;
-        if (!ms) return void (await say("Dùng: /mute 30m (hoặc 2h, 1d)."));
+        if (!ms) return void (await say(tr("Dùng: /mute 30m (hoặc 2h, 1d).")));
         this.mutedUntil = this.now() + ms;
         this.emit("change");
-        return void (await say(`🔕 Tắt tin của worker trong ${arg || "1h"} (cảnh báo và thẻ duyệt vẫn gửi). /unmute để bật lại.`));
+        return void (await say(tr("🔕 Tắt tin của worker trong {p} (cảnh báo và thẻ duyệt vẫn gửi). /unmute để bật lại.", { p: arg || "1h" })));
       }
-      case "unmute": this.mutedUntil = 0; this.emit("change"); return void (await say("🔔 Đã bật lại."));
+      case "unmute": this.mutedUntil = 0; this.emit("change"); return void (await say(tr("🔔 Đã bật lại.")));
       case "detail": {
-        if (!arg) return void (await say(`Mức chi tiết hiện tại: ${this.detail()}. Dùng /detail summary|full|alerts`));
-        if (!["summary", "full", "alerts"].includes(arg)) return void (await say("Dùng: /detail summary|full|alerts"));
+        if (!arg) return void (await say(tr("Mức chi tiết hiện tại: {p}. Dùng /detail summary|full|alerts", { p: this.detail() })));
+        if (!["summary", "full", "alerts"].includes(arg)) return void (await say(tr("Dùng: /detail summary|full|alerts")));
         this.detailOverride = arg as Detail;
         this.emit("change");
-        return void (await say(`Mức chi tiết: ${arg}${arg === "full" ? "\n⚠️ Toàn văn trả lời của worker (có thể gồm mã) sẽ đi qua máy chủ Telegram, không mã hoá đầu cuối." : ""}`));
+        return void (await say(tr("Mức chi tiết: {arg}{p}", { arg, p: arg === "full" ? "\n" + tr("⚠️ Toàn văn trả lời của worker (có thể gồm mã) sẽ đi qua máy chủ Telegram, không mã hoá đầu cuối.") : "" })));
       }
       case "budget": {
         const paused = room.snapshot().accounts.filter((a) => a.paused);
-        if (!paused.length) return void (await say("Không có account nào đang bị dừng vì ngân sách."));
-        return void (await say("Account đang bị dừng vì ngân sách:", paused.map((a) => [{ text: `▶️ Cho ${a.id} chạy tiếp hôm nay (${usd(a.spentToday)} / ${usd(a.budgetUsdPerDay ?? 0)})`, callback_data: `bg:${a.id}` }])));
+        if (!paused.length) return void (await say(tr("Không có account nào đang bị dừng vì ngân sách.")));
+        return void (await say(tr("Account đang bị dừng vì ngân sách:"), paused.map((a) => [{ text: tr("▶️ Cho {id} chạy tiếp hôm nay ({p} / {p1})", { id: a.id, p: usd(a.spentToday), p1: usd(a.budgetUsdPerDay ?? 0) }), callback_data: `bg:${a.id}` }])));
       }
-      case "unpair": await this.unpair(); return void (await this.tell(p.chat, "Đã ngắt ghép cặp. AgentRoom sẽ không gửi gì nữa cho chat này.", { quiet: true }));
-      default: return void (await say("Không hiểu lệnh. /help"));
+      case "unpair": await this.unpair(); return void (await this.tell(p.chat, tr("Đã ngắt ghép cặp. AgentRoom sẽ không gửi gì nữa cho chat này."), { quiet: true }));
+      default: return void (await say(tr("Không hiểu lệnh. /help")));
     }
   }
 
   private async onCallback(c: TgCallback) {
     const p = this.paired();
     const msg = c.message;
-    if (!p || c.from.id !== p.id || !msg || msg.chat.id !== p.chat || msg.chat.type !== "private") { this.log(`bỏ qua nút bấm từ id ${c.from.id}`); return; }
+    if (!p || c.from.id !== p.id || !msg || msg.chat.id !== p.chat || msg.chat.type !== "private") { this.log(trVi("bỏ qua nút bấm từ id {id}", { id: c.from.id })); return; }
     const data = c.data ?? "";
     const bot = this.d.bot;
 
     if (data.startsWith("fx:")) {
       const t = this.full.get(data.slice(3));
-      await bot.answer(c.id, t ? undefined : "Tin này đã quá cũ");
+      await bot.answer(c.id, t ? undefined : tr("Tin này đã quá cũ"));
       if (t) await this.tell(p.chat, t, { quiet: true });
       return;
     }
@@ -446,45 +447,45 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
       const [, key, optionId] = data.split(":");
       const q = this.questions.get(key);
       if (!q) {
-        await bot.answer(c.id, "Câu hỏi đã được trả lời hoặc đã quá cũ");
-        return void (await bot.edit(msg.chat.id, msg.message_id, `${msg.text ?? ""}\n⌛ Hết hạn`));
+        await bot.answer(c.id, tr("Câu hỏi đã được trả lời hoặc đã quá cũ"));
+        return void (await bot.edit(msg.chat.id, msg.message_id, `${msg.text ?? ""}\n` + tr("⌛ Hết hạn")));
       }
       try {
         this.d.room.answerOption(q.msg, optionId, "telegram");
       } catch (e) {
-        await bot.answer(c.id, e instanceof Error ? e.message.slice(0, 150) : "Không gửi được");
-        return void (await this.closeQuestion(q.msg, optionId, "đã có người trả lời"));
+        await bot.answer(c.id, e instanceof Error ? e.message.slice(0, 150) : tr("Không gửi được"));
+        return void (await this.closeQuestion(q.msg, optionId, tr("đã có người trả lời")));
       }
-      await bot.answer(c.id, "Đã gửi cho worker");
-      return void (await this.closeQuestion(q.msg, optionId, "từ điện thoại"));
+      await bot.answer(c.id, tr("Đã gửi cho worker"));
+      return void (await this.closeQuestion(q.msg, optionId, tr("từ điện thoại")));
     }
 
     if (data.startsWith("ap:")) {
       const [, verb, id] = data.split(":");
       const req = this.d.room.snapshot().approvals.find((a) => a.id === id);
       if (!req) {
-        await bot.answer(c.id, "Yêu cầu đã hết hạn hoặc được xử lý rồi");
-        return void (await bot.edit(msg.chat.id, msg.message_id, `${msg.text ?? ""}\n⌛ Đã hết hạn`));
+        await bot.answer(c.id, tr("Yêu cầu đã hết hạn hoặc được xử lý rồi"));
+        return void (await bot.edit(msg.chat.id, msg.message_id, `${msg.text ?? ""}\n` + tr("⌛ Đã hết hạn")));
       }
       if (verb === "n") {
         this.phoneHandled.add(id);
         this.approvalMsgs.delete(id);
         this.d.room.respondApproval(id, false);
-        await bot.answer(c.id, "Đã từ chối");
-        return void (await bot.edit(msg.chat.id, msg.message_id, `${describeApproval(req, this.workerName(req.workerId))}\n❌ Đã từ chối (từ điện thoại)`));
+        await bot.answer(c.id, tr("Đã từ chối"));
+        return void (await bot.edit(msg.chat.id, msg.message_id, `${describeApproval(req, this.workerName(req.workerId))}\n` + tr("❌ Đã từ chối (từ điện thoại)")));
       }
       if (verb !== "y") return;
       // never trust the button: the rules are applied again here
       const verdict = phoneApprovalVerdict(req);
       if (!verdict.safe || this.d.settings().approveFromPhone !== "safe") {
-        return void (await bot.answer(c.id, `Chỉ duyệt ở máy tính: ${verdict.reason || "đã tắt"}`));
+        return void (await bot.answer(c.id, tr("Chỉ duyệt ở máy tính: {p}", { p: verdict.reason || tr("đã tắt") })));
       }
       return this.confirmWithPin(p, { kind: "approve", id }, c.id);
     }
 
     if (data.startsWith("bg:")) {
       const account = data.slice(3);
-      if (!this.d.room.snapshot().accounts.some((a) => a.id === account && a.paused)) return void (await bot.answer(c.id, "Account này không còn bị dừng"));
+      if (!this.d.room.snapshot().accounts.some((a) => a.id === account && a.paused)) return void (await bot.answer(c.id, tr("Account này không còn bị dừng")));
       return this.confirmWithPin(p, { kind: "budget", account }, c.id);
     }
   }
@@ -493,9 +494,9 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
   private async confirmWithPin(p: PairedUser, action: PinAction, callbackId: string) {
     if (!this.d.stores.pin.get()) { await this.d.bot.answer(callbackId); return this.perform(p, action); }
     const wait = this.guard.locked(p.id);
-    if (wait) return void (await this.d.bot.answer(callbackId, `Đang khoá, thử lại sau ${Math.ceil(wait / 60000)} phút`));
-    await this.d.bot.answer(callbackId, "Nhập PIN để xác nhận");
-    const prompt = await this.tell(p.chat, `🔑 Nhập PIN để ${action.kind === "approve" ? "cho phép" : "cho account chạy tiếp"} (trong ${PIN_TTL / 1000}s). Tin chứa PIN sẽ bị xoá.`);
+    if (wait) return void (await this.d.bot.answer(callbackId, tr("Đang khoá, thử lại sau {p} phút", { p: Math.ceil(wait / 60000) })));
+    await this.d.bot.answer(callbackId, tr("Nhập PIN để xác nhận"));
+    const prompt = await this.tell(p.chat, tr("🔑 Nhập PIN để {p} (trong {p1}s). Tin chứa PIN sẽ bị xoá.", { p: action.kind === "approve" ? tr("cho phép") : tr("cho account chạy tiếp"), p1: PIN_TTL / 1000 }));
     this.pendingPin = { user: p.id, action, expiresAt: this.now() + PIN_TTL, prompt };
   }
 
@@ -504,39 +505,39 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     const pending = this.pendingPin!;
     void this.d.bot.remove(m.chat.id, m.message_id);   // do not leave the PIN in the chat
     const stored = this.d.stores.pin.get();
-    if (pending.expiresAt < this.now()) { this.pendingPin = undefined; return void (await this.tell(p.chat, "PIN quá hạn, hãy bấm lại nút.", { quiet: true })); }
+    if (pending.expiresAt < this.now()) { this.pendingPin = undefined; return void (await this.tell(p.chat, tr("PIN quá hạn, hãy bấm lại nút."), { quiet: true })); }
     const r = stored ? this.guard.check(p.id, pin, stored) : "ok";
     if (r === "ok") { this.pendingPin = undefined; return this.perform(p, pending.action); }
-    if (r === "locked") { this.pendingPin = undefined; return void (await this.tell(p.chat, "🔒 Sai PIN quá nhiều lần: khoá duyệt từ điện thoại 10 phút.")); }
-    await this.tell(p.chat, "PIN sai. Thử lại hoặc nhắn tin khác để huỷ.", { quiet: true });
+    if (r === "locked") { this.pendingPin = undefined; return void (await this.tell(p.chat, tr("🔒 Sai PIN quá nhiều lần: khoá duyệt từ điện thoại 10 phút."))); }
+    await this.tell(p.chat, tr("PIN sai. Thử lại hoặc nhắn tin khác để huỷ."), { quiet: true });
   }
 
   private async perform(p: PairedUser, action: PinAction) {
     const { room, bot } = this.d;
     if (action.kind === "budget") {
       room.allowBudgetToday(action.account);
-      return void (await this.tell(p.chat, `▶️ ${action.account} chạy tiếp đến hết hôm nay.`, { quiet: true }));
+      return void (await this.tell(p.chat, tr("▶️ {account} chạy tiếp đến hết hôm nay.", { account: action.account }), { quiet: true }));
     }
     const req = room.snapshot().approvals.find((a) => a.id === action.id);
-    if (!req) return void (await this.tell(p.chat, "Yêu cầu đã được xử lý rồi.", { quiet: true }));
+    if (!req) return void (await this.tell(p.chat, tr("Yêu cầu đã được xử lý rồi."), { quiet: true }));
     const verdict = phoneApprovalVerdict(req);
-    if (!verdict.safe) return void (await this.tell(p.chat, `Chỉ duyệt ở máy tính: ${verdict.reason}`, { quiet: true }));
+    if (!verdict.safe) return void (await this.tell(p.chat, tr("Chỉ duyệt ở máy tính: {reason}", { reason: verdict.reason }), { quiet: true }));
     this.phoneHandled.add(action.id);
     const shown = this.approvalMsgs.get(action.id);
     this.approvalMsgs.delete(action.id);
     room.respondApproval(action.id, true);
-    if (shown) await bot.edit(shown.chat, shown.id, `${describeApproval(req, this.workerName(req.workerId))}\n✅ Đã cho phép (từ điện thoại)`);
+    if (shown) await bot.edit(shown.chat, shown.id, `${describeApproval(req, this.workerName(req.workerId))}\n` + tr("✅ Đã cho phép (từ điện thoại)"));
   }
 }
 
 /** Plain text for /plan: one block per account, remaining share and reset time per window. */
 export function planText(plans: PlanUsage[], now: number): string {
-  if (!plans.length) return "Chưa có account nào.";
+  if (!plans.length) return tr("Chưa có account nào.");
   const icon = { ok: "🟢", warning: "🟡", limited: "🔴", unavailable: "⚪", error: "⚠️" } as const;
   return plans.map((p) => {
-    const head = `${icon[p.state]} ${p.account} (${p.provider}${p.plan ? ", gói " + p.plan : ""})`;
-    const rows = p.windows.map((w) => `  ${w.label}: còn ${Math.max(0, 100 - w.usedPercent).toFixed(0)}%${w.resetsAt ? ` · reset sau ${untilText(w.resetsAt, now)}` : ""}`);
-    const age = p.fetchedAt && now - p.fetchedAt > 30 * 60_000 ? `\n  (số liệu cũ: ${Math.round((now - p.fetchedAt) / 60_000)} phút trước)` : "";
+    const head = `${icon[p.state]} ${p.account} (${p.provider}${p.plan ? tr(", gói {plan}", { plan: p.plan }) : ""})`;
+    const rows = p.windows.map((w) => `  ${w.label}: ` + tr("còn {n}%", { n: Math.max(0, 100 - w.usedPercent).toFixed(0) }) + (w.resetsAt ? " · " + tr("reset sau {t}", { t: untilText(w.resetsAt, now) }) : ""));
+    const age = p.fetchedAt && now - p.fetchedAt > 30 * 60_000 ? "\n  " + tr("(số liệu cũ: {n} phút trước)", { n: Math.round((now - p.fetchedAt) / 60_000) }) : "";
     return [head, ...rows, p.note ? `  ${p.note}` : ""].filter(Boolean).join("\n") + age;
   }).join("\n\n");
 }

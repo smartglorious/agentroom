@@ -1,3 +1,5 @@
+import { EN } from "../core/i18n-en";
+import { getLang, tr } from "../core/i18n";
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import type { CronEngine } from "../core/cron";
@@ -12,6 +14,7 @@ import type { TelegramPanel } from "./telegramPanel";
 /** Messages the webview sends to the extension. */
 type FromWebview =
   | { type: "ready" }
+  | { type: "reportIssue" }
   | { type: "send"; text: string; replyTo?: string }
   | { type: "answerOption"; messageId: string; optionId: string }
   | { type: "approve"; id: string; allow: boolean }
@@ -134,10 +137,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       hooks: defs.map((d) => ({
         id: d.id, worker: d.worker, readOnly: d.readOnly, maxPerHour: d.maxPerHour,
         url: c.hookPort ? `http://127.0.0.1:${c.hookPort}/hook/${d.id}` : undefined,
-        status: !c.hookPort ? "cổng không mở được" : d.secretEnv ? (process.env[d.secretEnv] ? "bật (HMAC)" : `tắt: chưa đặt biến ${d.secretEnv}`) : "bật (không ký, chỉ để thử)",
+        status: !c.hookPort ? tr("cổng không mở được") : d.secretEnv ? (process.env[d.secretEnv] ? tr("bật (HMAC)") : tr("tắt: chưa đặt biến {env}", { env: d.secretEnv })) : tr("bật (không ký, chỉ để thử)"),
       })),
       calls: c.hooks?.history() ?? [],
     };
+  }
+
+  /** After the display language changed: rebuild the page (it asks for its state again with "ready"). */
+  reloadHtml() {
+    if (this.view) this.view.webview.html = this.html(this.view.webview, vscode.Uri.joinPath(this.extensionUri, "media"));
   }
 
   resolveWebviewView(view: vscode.WebviewView) {
@@ -167,6 +175,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case "approve": room.respondApproval(String(m.id), !!m.allow); break;
       case "stop": room.stop(String(m.workerId)); break;
+      case "reportIssue": void vscode.commands.executeCommand("agentroom.reportIssue"); break;
       case "inspect": void this.handlers?.inspect(String(m.turnId)); break;
       case "getProfile": { const profile = room.profile(String(m.workerId)); if (profile) this.post({ type: "profile", profile }); break; }
       case "openFile": if ((FILE_KINDS as readonly string[]).includes(m.kind)) void this.handlers?.openFile(String(m.workerId), m.kind as (typeof FILE_KINDS)[number]); break;
@@ -174,7 +183,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "runSchedule": {
         try {
           const ok = c.cron.runNow(String(m.id));
-          if (!ok) vscode.window.showInformationMessage(`Lịch "${m.id}" vẫn đang chạy lần trước nên chưa chạy thêm.`);
+          if (!ok) vscode.window.showInformationMessage(tr("Lịch \"{id}\" vẫn đang chạy lần trước nên chưa chạy thêm.", { id: String(m.id) }));
         } catch (e) { vscode.window.showWarningMessage(String(e instanceof Error ? e.message : e)); }
         break;
       }
@@ -202,13 +211,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const nonce = randomBytes(16).toString("base64");
     const css = webview.asWebviewUri(vscode.Uri.joinPath(media, "main.css"));
     const js = webview.asWebviewUri(vscode.Uri.joinPath(media, "main.js"));
-    return `<!doctype html><html lang="vi"><head><meta charset="utf-8">
+    return `<!doctype html><html lang="${getLang()}"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${css}"></head>
 <body>
   <header id="team"></header>
   <nav>
-    <button data-tab="chat" class="on">Chat</button><button data-tab="tasks">Tasks</button><button data-tab="cost">Chi phí</button><button data-tab="sched">Lịch</button><button data-tab="hosts">Máy</button><button data-tab="profile">Hồ sơ<span id="draftBadge" hidden></span></button>
+    <button data-tab="chat" class="on">Chat</button><button data-tab="tasks">Tasks</button><button data-tab="cost">${tr("Chi phí")}</button><button data-tab="sched">${tr("Lịch")}</button><button data-tab="hosts">${tr("Máy")}</button><button data-tab="profile">${tr("Hồ sơ")}<span id="draftBadge" hidden></span></button><button id="flag" class="flag" title="${tr("Ghi một vấn đề / lỗi")}">⚑</button>
   </nav>
   <main id="chat" class="tab"></main>
   <section id="tasks" class="tab" hidden></section>
@@ -218,7 +227,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <section id="profile" class="tab" hidden></section>
   <div id="approvals"></div>
   <div id="replybar" hidden></div>
-  <form id="composer"><textarea id="input" rows="2" placeholder="Nhắn cả nhóm… dùng @id để gọi ai đó (Enter để gửi)"></textarea></form>
+  <form id="composer"><textarea id="input" rows="2" placeholder="${tr("Nhắn cả nhóm… dùng @id để gọi ai đó (Enter để gửi)")}"></textarea></form>
+  <script nonce="${nonce}">window.__AR_LANG=${JSON.stringify(getLang())};window.__AR_EN=${getLang() === "en" ? JSON.stringify(EN).replace(/</g, "\\u003c") : "null"};</script>
   <script nonce="${nonce}" src="${js}"></script>
 </body></html>`;
   }

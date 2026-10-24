@@ -1,8 +1,8 @@
 {
   "name": "agentroom",
   "displayName": "AgentRoom — AI team group chat",
-  "description": "Nhiều AI worker (Claude Code / Codex) với vai trò riêng cùng làm việc trong một group chat ngay trong VS Code.",
-  "version": "0.10.0",
+  "description": "%description%",
+  "version": "0.11.0",
   "publisher": "agentroom",
   "license": "MIT",
   "engines": {
@@ -38,67 +38,67 @@
     "commands": [
       {
         "command": "agentroom.init",
-        "title": "AgentRoom: Tạo cấu hình workers mẫu"
+        "title": "%cmd.init%"
       },
       {
         "command": "agentroom.reload",
-        "title": "AgentRoom: Nạp lại workers.yaml"
+        "title": "%cmd.reload%"
       },
       {
         "command": "agentroom.stopAll",
-        "title": "AgentRoom: Dừng tất cả worker"
+        "title": "%cmd.stopAll%"
       },
       {
         "command": "agentroom.reportIssue",
-        "title": "AgentRoom: Ghi một vấn đề / lỗi"
+        "title": "%cmd.reportIssue%"
       },
       {
         "command": "agentroom.exportIssues",
-        "title": "AgentRoom: Xuất báo cáo lỗi (Markdown)"
+        "title": "%cmd.exportIssues%"
       },
       {
         "command": "agentroom.cleanup",
-        "title": "AgentRoom: Dọn dẹp file rác/tạm/cache (gom, không xóa)"
+        "title": "%cmd.cleanup%"
       },
       {
         "command": "agentroom.cleanup.restore",
-        "title": "AgentRoom: Khôi phục mục đã dọn"
+        "title": "%cmd.cleanup.restore%"
       },
       {
         "command": "agentroom.consolidateMemory",
-        "title": "AgentRoom: Gom trí nhớ worker"
+        "title": "%cmd.consolidateMemory%"
       },
       {
         "command": "agentroom.newSkill",
-        "title": "AgentRoom: Tạo skill mới"
+        "title": "%cmd.newSkill%"
       },
       {
         "command": "agentroom.takeOver",
-        "title": "AgentRoom: Chiếm quyền điều phối (khi cửa sổ khác đang chạy)"
+        "title": "%cmd.takeOver%"
       },
       {
         "command": "agentroom.checkHosts",
-        "title": "AgentRoom: Kiểm tra kết nối các máy (hosts)"
+        "title": "%cmd.checkHosts%"
       },
       {
         "command": "agentroom.telegram.setup",
-        "title": "AgentRoom: Telegram — thiết lập (token bot, ghép cặp)"
+        "title": "%cmd.telegram.setup%"
       },
       {
         "command": "agentroom.telegram.pair",
-        "title": "AgentRoom: Telegram — tạo mã ghép cặp"
+        "title": "%cmd.telegram.pair%"
       },
       {
         "command": "agentroom.telegram.unpair",
-        "title": "AgentRoom: Telegram — ngắt ghép cặp"
+        "title": "%cmd.telegram.unpair%"
       },
       {
         "command": "agentroom.telegram.setPin",
-        "title": "AgentRoom: Telegram — đặt PIN duyệt quyền"
+        "title": "%cmd.telegram.setPin%"
       },
       {
         "command": "agentroom.telegram.disable",
-        "title": "AgentRoom: Telegram — tắt"
+        "title": "%cmd.telegram.disable%"
       }
     ],
     "configuration": {
@@ -107,48 +107,48 @@
         "agentroom.maxAgentHops": {
           "type": "number",
           "default": 6,
-          "description": "Số lượt agent→agent tối đa tính từ một tin nhắn của người dùng (chống vòng lặp)."
+          "description": "%cfg.maxAgentHops%"
         },
         "agentroom.claudePath": {
           "type": "string",
           "default": "",
-          "description": "Đường dẫn tới CLI claude (bỏ trống = tìm trong PATH)."
+          "description": "%cfg.claudePath%"
         },
         "agentroom.codexPath": {
           "type": "string",
           "default": "",
-          "description": "Đường dẫn tới CLI codex (bỏ trống = tìm trong PATH)."
+          "description": "%cfg.codexPath%"
         },
         "agentroom.contextMessages": {
           "type": "number",
           "default": 30,
-          "description": "Số tin nhắn gần nhất đưa vào prompt mỗi lượt."
+          "description": "%cfg.contextMessages%"
         },
         "agentroom.memoryBudgetChars": {
           "type": "number",
           "default": 12000,
-          "description": "Số ký tự tối đa của SOUL + trí nhớ + nhật ký đưa vào persona mỗi lượt."
+          "description": "%cfg.memoryBudgetChars%"
         },
         "agentroom.inspector.keepTurns": {
           "type": "number",
           "default": 300,
-          "description": "Số lượt gần nhất lưu cho Context Inspector (0 = tắt). Thư mục lưu chứa code nên bị git ignore."
+          "description": "%cfg.inspector.keepTurns%"
         },
         "agentroom.pricing": {
           "type": "object",
           "default": {},
-          "description": "Bảng giá để ước tính chi phí Codex, USD cho 1 triệu token. Ví dụ: {\"gpt-5.4\": {\"input\": 2.5, \"cachedInput\": 0.25, \"output\": 10}}. Model không có trong bảng sẽ không có chi phí."
+          "description": "%cfg.pricing%"
         },
         "agentroom.hookPort": {
           "type": "number",
           "default": 47321,
-          "description": "Cổng webhook (chỉ nghe trên 127.0.0.1)."
+          "description": "%cfg.hookPort%"
         },
         "agentroom.telegram.enabled": {
           "type": "boolean",
           "default": false,
           "scope": "machine",
-          "description": "Bật kênh Telegram (điều khiển và nhận thông báo từ điện thoại). Chỉ đặt được trong cài đặt người dùng, không đặt được trong workspace. Token bot lưu trong kho bí mật của VS Code."
+          "description": "%cfg.telegram.enabled%"
         },
         "agentroom.telegram.detail": {
           "type": "string",
@@ -159,7 +159,7 @@
           ],
           "default": "summary",
           "scope": "machine",
-          "description": "summary: tóm tắt trả lời (mã được rút gọn). full: toàn văn (đi qua máy chủ Telegram, không mã hoá đầu cuối). alerts: chỉ cảnh báo, thẻ duyệt và tin có @user."
+          "description": "%cfg.telegram.detail%"
         },
         "agentroom.telegram.approveFromPhone": {
           "type": "string",
@@ -169,7 +169,7 @@
           ],
           "default": "safe",
           "scope": "machine",
-          "description": "safe: chỉ duyệt từ điện thoại việc sửa file nằm trong thư mục làm việc của worker (không phải .env, .git, CI, khoá…). none: chỉ từ chối được từ điện thoại."
+          "description": "%cfg.telegram.approveFromPhone%"
         },
         "agentroom.telegram.summaryChars": {
           "type": "number",
@@ -177,33 +177,43 @@
           "minimum": 100,
           "maximum": 3000,
           "scope": "machine",
-          "description": "Số ký tự tối đa của bản tóm tắt gửi về điện thoại."
+          "description": "%cfg.telegram.summaryChars%"
         },
         "agentroom.telegram.quietHours": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "description": "Khung giờ yên lặng, ví dụ 22:00-07:00: tin vẫn gửi nhưng không rung/chuông."
+          "description": "%cfg.telegram.quietHours%"
         },
         "agentroom.cleanup.turnsOlderThanDays": {
           "type": "number",
           "default": 0,
           "minimum": 0,
-          "description": "Khi chạy lệnh dọn dẹp, đề xuất cả bản ghi lượt (Context Inspector) cũ hơn N ngày. 0 = không đề xuất. Chỉ là đề xuất; không có gì tự động bị xóa."
+          "description": "%cfg.cleanup.turnsOlderThanDays%"
         },
         "agentroom.planUsage.pollMinutes": {
           "type": "number",
           "default": 10,
           "minimum": 0,
           "maximum": 1440,
-          "description": "Cứ bao nhiêu phút đọc lại hạn mức gói đăng ký (Claude/Codex) của từng account. 0 = chỉ đọc khi bấm Làm mới hoặc sau mỗi lượt chạy. Mỗi lần đọc không tốn token."
+          "description": "%cfg.planUsage.pollMinutes%"
         },
         "agentroom.agentDebounceMs": {
           "type": "number",
           "default": 1500,
           "minimum": 0,
           "maximum": 60000,
-          "description": "Chờ bấy nhiêu mili-giây trước khi đánh thức một worker vì tin của worker khác, để các tin đến cùng lúc được trả lời trong MỘT lượt (tiết kiệm token). 0 = đánh thức ngay."
+          "description": "%cfg.agentDebounceMs%"
+        },
+        "agentroom.language": {
+          "type": "string",
+          "enum": [
+            "vi",
+            "en",
+            "auto"
+          ],
+          "default": "vi",
+          "description": "%cfg.language%"
         }
       }
     }
@@ -238,7 +248,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "AgentRoom chạy agent, lệnh và kết nối SSH theo cấu hình nằm trong repo, nên chỉ hoạt động trong workspace bạn tin tưởng."
+      "description": "%untrusted%"
     }
   },
   "bin": {

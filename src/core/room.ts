@@ -1,3 +1,4 @@
+import { tr, trVi } from "./i18n";
 import { EventEmitter } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
 import { AgentAdapter, ApprovalResult } from "../adapters/types";
@@ -147,7 +148,7 @@ export class Room extends EventEmitter<RoomEvents> {
       const stored = deps.autonomyStore?.get(w.id);
       // `full` written in workers.yaml is only a request: a repository cannot grant itself full access.
       this.modes.set(w.id, stored ?? (w.autonomy === "full" ? "auto" : w.autonomy));
-      if (w.autonomy === "full" && stored !== "full") this.post(SYSTEM, `⚠️ workers.yaml đặt autonomy: full cho ${w.name} (${w.id}) nhưng Full Access chỉ do người dùng bật trên máy của mình (nút ở thẻ worker). Đang chạy ở chế độ Auto.`, { alert: true });
+      if (w.autonomy === "full" && stored !== "full") this.post(SYSTEM, tr("⚠️ workers.yaml đặt autonomy: full cho {name} ({id}) nhưng Full Access chỉ do người dùng bật trên máy của mình (nút ở thẻ worker). Đang chạy ở chế độ Auto.", { name: w.name, id: w.id }), { alert: true });
     }
     for (const a of deps.config.accounts) this.checkBudget(a.id, false);
     if (deps.planProbe) {
@@ -173,16 +174,16 @@ export class Room extends EventEmitter<RoomEvents> {
   autonomyOf(workerId: string): Autonomy { return this.deps.autonomyStore?.get(workerId) ?? this.modes.get(workerId) ?? "manual"; }
 
   /** The caller (UI, Telegram, CLI) is responsible for confirming `full` with the user first. */
-  setAutonomy(workerId: string, mode: Autonomy, by = "người dùng") {
+  setAutonomy(workerId: string, mode: Autonomy, by = tr("người dùng")) {
     const w = this.workers.find((x) => x.id === workerId);
-    if (!w) throw new Error(`Không có worker "${workerId}"`);
+    if (!w) throw new Error(tr("Không có worker \"{workerId}\"", { workerId }));
     const was = this.autonomyOf(workerId);
     if (was === mode) return;
     this.modes.set(workerId, mode);
     this.deps.autonomyStore?.set(workerId, mode);
     this.deps.store.appendAudit({ ts: this.now(), worker: workerId, event: "mode", from: was, to: mode, by });
-    const label = { manual: "Manual (hỏi mọi thao tác)", auto: "Auto (tự duyệt việc an toàn trong thư mục của worker)", full: "FULL ACCESS (không hỏi gì, trừ vài hành động có thể phá máy)" }[mode];
-    this.post(SYSTEM, `${mode === "full" ? "⚡" : "🛡"} ${w.name} (${workerId}): chế độ ${was} → ${mode}. ${label}. Đổi bởi ${by}.`, { alert: true });
+    const label = { manual: tr("Manual (hỏi mọi thao tác)"), auto: tr("Auto (tự duyệt việc an toàn trong thư mục của worker)"), full: tr("FULL ACCESS (không hỏi gì, trừ vài hành động có thể phá máy)") }[mode];
+    this.post(SYSTEM, tr("{p} {name} ({workerId}): chế độ {was} → {mode}. {label}. Đổi bởi {by}.", { p: mode === "full" ? "⚡" : "🛡", name: w.name, workerId, was, mode, label, by }), { alert: true });
     this.emit("autonomy");
     this.emit("status", this.statuses.get(workerId) ?? { id: workerId, state: "idle" });
   }
@@ -274,24 +275,24 @@ export class Room extends EventEmitter<RoomEvents> {
   askUser(me: string, args: { question: string; options: { label: string; description?: string }[] }, taskId?: string): ChatMessage {
     const tidy = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
     const question = tidy(args.question, 500);
-    if (!question) throw new Error("Thiếu câu hỏi");
+    if (!question) throw new Error(tr("Thiếu câu hỏi"));
     const items = args.options.map((o, i) => ({ id: String(i + 1), label: tidy(o.label, 80), ...(o.description ? { description: tidy(o.description, 200) } : {}) }));
-    if (items.length < 2 || items.length > 8) throw new Error("Cần 2 đến 8 lựa chọn");
-    if (items.some((i) => !i.label)) throw new Error("Mỗi lựa chọn cần có nhãn");
-    if (new Set(items.map((i) => i.label.toLowerCase())).size !== items.length) throw new Error("Các lựa chọn bị trùng nhãn");
+    if (items.length < 2 || items.length > 8) throw new Error(tr("Cần 2 đến 8 lựa chọn"));
+    if (items.some((i) => !i.label)) throw new Error(tr("Mỗi lựa chọn cần có nhãn"));
+    if (new Set(items.map((i) => i.label.toLowerCase())).size !== items.length) throw new Error(tr("Các lựa chọn bị trùng nhãn"));
     const lines = items.map((i) => `${i.id}. ${i.label}${i.description ? ` — ${i.description}` : ""}`);
-    return this.post(me, `${question}\n${lines.join("\n")}\n@user hãy chọn một phương án (bấm nút) hoặc trả lời bằng chữ.`, { to: [], options: { question, items }, taskId: taskId ?? this.currentTask(me) });
+    return this.post(me, `${question}\n${lines.join("\n")}\n` + tr("@user hãy chọn một phương án (bấm nút) hoặc trả lời bằng chữ."), { to: [], options: { question, items }, taskId: taskId ?? this.currentTask(me) });
   }
 
   /** The user picks option `optionId` of message `messageId`; once per question. */
   answerOption(messageId: string, optionId: string, via?: string): ChatMessage {
     const m = this.messages.find((x) => x.id === messageId);
-    if (!m?.options) throw new Error("Tin nhắn này không có lựa chọn");
-    if (!this.hasWorker(m.from)) throw new Error("Chỉ trả lời được lựa chọn của worker");
-    if (this.messages.some((x) => x.choice?.message === messageId)) throw new Error("Câu hỏi này đã được trả lời");
+    if (!m?.options) throw new Error(tr("Tin nhắn này không có lựa chọn"));
+    if (!this.hasWorker(m.from)) throw new Error(tr("Chỉ trả lời được lựa chọn của worker"));
+    if (this.messages.some((x) => x.choice?.message === messageId)) throw new Error(tr("Câu hỏi này đã được trả lời"));
     const item = m.options.items.find((i) => i.id === optionId);
-    if (!item) throw new Error("Không có lựa chọn này");
-    return this.post(HUMAN, `Tôi chọn ${item.id}: ${item.label}`, { replyTo: m.id, choice: { message: m.id, option: item.id }, to: [m.from], taskId: m.taskId, source: via });
+    if (!item) throw new Error(tr("Không có lựa chọn này"));
+    return this.post(HUMAN, tr("Tôi chọn {id}: {label}", { id: item.id, label: item.label }), { replyTo: m.id, choice: { message: m.id, option: item.id }, to: [m.from], taskId: m.taskId, source: via });
   }
 
   /** A short quote of a message, for the prompt of whoever is being replied to. */
@@ -307,7 +308,7 @@ export class Room extends EventEmitter<RoomEvents> {
   }
 
   createTask(me: string, args: { title: string; description?: string; assignee?: string; dependsOn?: string[] }): Task {
-    if (args.assignee && !this.hasWorker(args.assignee)) throw new Error(`Không có worker "${args.assignee}"`);
+    if (args.assignee && !this.hasWorker(args.assignee)) throw new Error(tr("Không có worker \"{assignee}\"", { assignee: args.assignee }));
     const t = this.tasks.create({ ...args, createdBy: me });
     this.saveTasks();
     if (t.assignee && t.status === "todo" && t.assignee !== me) this.notifyAssignee(t, this.isReadOnlyRunning(me), this.chainOf(me));
@@ -327,7 +328,7 @@ export class Room extends EventEmitter<RoomEvents> {
     const ro = this.isReadOnlyRunning(me);
     // No "@" in front of the finisher: it must not be woken by its own report.
     if (t.createdBy !== me && this.hasWorker(t.createdBy)) {
-      this.post(SYSTEM, `@${t.createdBy} task [${t.id}] "${t.title}" đã xong bởi ${me}: ${result}`, { readOnly: ro || undefined, chain: this.chainOf(me) });
+      this.post(SYSTEM, tr("@{createdBy} task [{id}] \"{title}\" đã xong bởi {me}: {result}", { createdBy: t.createdBy, id: t.id, title: t.title, me, result }), { readOnly: ro || undefined, chain: this.chainOf(me) });
     }
     for (const u of change.unblocked) if (u.assignee) this.notifyAssignee(u, ro, this.chainOf(me));
     return change;
@@ -369,7 +370,7 @@ export class Room extends EventEmitter<RoomEvents> {
   proposeSkill(workerId: string, name: string, description: string, body: string): SkillDraft {
     const d = this.deps.skillDrafts.propose(workerId, name, description, body);
     this.emit("drafts", this.deps.skillDrafts.list());
-    this.post(SYSTEM, `📚 Worker ${workerId} đề xuất skill "${name}". Hãy duyệt hoặc bỏ trong tab Hồ sơ.`, { alert: true });
+    this.post(SYSTEM, tr("📚 Worker {workerId} đề xuất skill \"{name}\". Hãy duyệt hoặc bỏ trong tab Hồ sơ.", { workerId, name }), { alert: true });
     return d;
   }
 
@@ -378,7 +379,7 @@ export class Room extends EventEmitter<RoomEvents> {
     this.deps.skills.scan();
     this.rebuildSkills();
     this.emit("drafts", this.deps.skillDrafts.list());
-    this.post(SYSTEM, `✅ Đã duyệt skill "${name}". Thêm vào useSkills của worker để bật.`);
+    this.post(SYSTEM, tr("✅ Đã duyệt skill \"{name}\". Thêm vào useSkills của worker để bật.", { name }));
   }
 
   rejectSkill(name: string) {
@@ -419,14 +420,14 @@ export class Room extends EventEmitter<RoomEvents> {
     };
     if (pct >= 100) {
       this.budgetPaused.add(accountId);
-      if (announce) this.noteIssue({ kind: "friction", source: "budget", title: `Account ${accountId} chạm ngân sách ngày nên tạm dừng` });
+      if (announce) this.noteIssue({ kind: "friction", source: "budget", title: trVi("Account {accountId} chạm ngân sách ngày nên tạm dừng", { accountId }) });
       this.deps.scheduler.pauseUntil(accountId, nextMidnight(this.now()));
-      say("stop", `⛔ Account ${accountId} đã chạm ngân sách ngày ($${spent.toFixed(2)} / $${acc.budgetUsdPerDay}). Tạm dừng đến 0h; bấm "Cho chạy tiếp hôm nay" để tiếp tục.`);
+      say("stop", tr("⛔ Account {accountId} đã chạm ngân sách ngày (${p} / ${budgetUsdPerDay}). Tạm dừng đến 0h; bấm \"Cho chạy tiếp hôm nay\" để tiếp tục.", { accountId, p: spent.toFixed(2), budgetUsdPerDay: acc.budgetUsdPerDay }));
       for (const w of this.workers.filter((x) => x.account === accountId)) {
         if (this.statuses.get(w.id)?.state === "queued") this.setStatus(w.id, "over_budget");
       }
     } else if (pct >= acc.warnAtPercent) {
-      say("warn", `⚠️ Account ${accountId} đã dùng ${pct.toFixed(0)}% ngân sách ngày ($${spent.toFixed(2)} / $${acc.budgetUsdPerDay}).`);
+      say("warn", tr("⚠️ Account {accountId} đã dùng {p}% ngân sách ngày (${p1} / ${budgetUsdPerDay}).", { accountId, p: pct.toFixed(0), p1: spent.toFixed(2), budgetUsdPerDay: acc.budgetUsdPerDay }));
     }
   }
 
@@ -440,10 +441,10 @@ export class Room extends EventEmitter<RoomEvents> {
   private notifyAssignee(t: Task, readOnly?: boolean, chain?: string) {
     if (readOnly) {
       // Created during an untrusted-trigger turn: record it, but wait for a human to start the assignee.
-      this.post(SYSTEM, `Task [${t.id}] "${t.title}" đã được giao cho ${t.assignee} nhưng CHƯA kích hoạt vì tạo từ nguồn không tin cậy. Hãy xem lại rồi nhắn "@${t.assignee} làm task ${t.id}" để bắt đầu.`, { taskId: t.id, readOnly: true, alert: true, chain });
+      this.post(SYSTEM, tr("Task [{id}] \"{title}\" đã được giao cho {assignee} nhưng CHƯA kích hoạt vì tạo từ nguồn không tin cậy. Hãy xem lại rồi nhắn \"@{assignee} làm task {id}\" để bắt đầu.", { id: t.id, title: t.title, assignee: t.assignee }), { taskId: t.id, readOnly: true, alert: true, chain });
       return;
     }
-    this.post(SYSTEM, `@${t.assignee} bạn được giao task [${t.id}] "${t.title}". ${t.description}\nHãy claim_task rồi bắt đầu.`, { taskId: t.id, chain });
+    this.post(SYSTEM, tr("@{assignee} bạn được giao task [{id}] \"{title}\". {description}\nHãy claim_task rồi bắt đầu.", { assignee: t.assignee, id: t.id, title: t.title, description: t.description }), { taskId: t.id, chain });
   }
 
   private saveTasks() {
@@ -488,7 +489,7 @@ export class Room extends EventEmitter<RoomEvents> {
 
   private announceStop(key: string, text: string, chain?: string) {
     if (this.stopNotes.has(key)) return;
-    this.noteIssue({ kind: "friction", source: "limit", title: key.startsWith("task:") ? "Task chạm limits.usdPerTask nên các worker dừng" : "Chuỗi trao đổi chạm limits.chainTurns nên các worker dừng" });
+    this.noteIssue({ kind: "friction", source: "limit", title: key.startsWith("task:") ? tr("Task chạm limits.usdPerTask nên các worker dừng") : tr("Chuỗi trao đổi chạm limits.chainTurns nên các worker dừng") });
     this.stopNotes.add(key);
     if (this.stopNotes.size > 500) this.stopNotes.delete(this.stopNotes.values().next().value!);
     this.post(SYSTEM, text, { alert: true, to: [], chain });
@@ -498,11 +499,11 @@ export class Room extends EventEmitter<RoomEvents> {
   private overLimit(msg: ChatMessage): boolean {
     const lim = this.deps.config.limits;
     if (msg.chain && (this.chainTurns.get(msg.chain) ?? 0) >= lim.chainTurns) {
-      this.announceStop(`chain:${msg.chain}`, `🧯 Các worker đã trao đổi ${lim.chainTurns} lượt cho tin nhắn này của bạn nên tôi tạm dừng để tránh tốn token vô ích. Nhắn lại (hoặc @tên-worker …) để tiếp tục. Đổi giới hạn bằng limits.chainTurns trong workers.yaml.`, msg.chain);
+      this.announceStop(`chain:${msg.chain}`, tr("🧯 Các worker đã trao đổi {chainTurns} lượt cho tin nhắn này của bạn nên tôi tạm dừng để tránh tốn token vô ích. Nhắn lại (hoặc @tên-worker …) để tiếp tục. Đổi giới hạn bằng limits.chainTurns trong workers.yaml.", { chainTurns: lim.chainTurns }), msg.chain);
       return true;
     }
     if (lim.usdPerTask && msg.taskId && this.deps.usage.costOfTask(msg.taskId) >= lim.usdPerTask) {
-      this.announceStop(`task:${msg.taskId}`, `🧯 Task ${msg.taskId} đã tốn $${this.deps.usage.costOfTask(msg.taskId).toFixed(2)} (giới hạn limits.usdPerTask = $${lim.usdPerTask}), nên các worker tạm dừng làm tiếp việc này với nhau. Bạn nhắn vào task để tiếp tục.`, msg.chain);
+      this.announceStop(`task:${msg.taskId}`, tr("🧯 Task {taskId} đã tốn ${p} (giới hạn limits.usdPerTask = ${usdPerTask}), nên các worker tạm dừng làm tiếp việc này với nhau. Bạn nhắn vào task để tiếp tục.", { taskId: msg.taskId, p: this.deps.usage.costOfTask(msg.taskId).toFixed(2), usdPerTask: lim.usdPerTask }), msg.chain);
       return true;
     }
     return false;
@@ -544,14 +545,14 @@ export class Room extends EventEmitter<RoomEvents> {
     }
     this.deps.scheduler
       .submit(worker.account, key, () => this.runTurn(worker, key), (until) =>
-        { this.noteIssue({ kind: "friction", source: "rate-limit", title: `Account ${worker.account} bị rate limit`, worker: worker.id }); this.setStatus(worker.id, "rate_limited", `chờ đến ${new Date(until).toLocaleTimeString()}`); })
+        { this.noteIssue({ kind: "friction", source: "rate-limit", title: trVi("Account {account} bị rate limit", { account: worker.account }), worker: worker.id }); this.setStatus(worker.id, "rate_limited", tr("chờ đến {p}", { p: new Date(until).toLocaleTimeString() })); })
       .catch((err) => {
         if (err instanceof Error && err.message === "cancelled") return;
         const reason = err instanceof Error ? err.message : String(err);
         this.setStatus(worker.id, "error", reason);
-        this.noteIssue({ kind: "error", source: "turn", title: `Lượt của worker lỗi: ${reason}`, worker: worker.id });
+        this.noteIssue({ kind: "error", source: "turn", title: trVi("Lượt của worker lỗi: {reason}", { reason }), worker: worker.id });
         // Deliberately no "@id" here: a mention would route the error back to the failing worker.
-        this.post(SYSTEM, `⚠️ ${worker.name} (id: ${worker.id}) gặp lỗi: ${reason}`, { alert: true });
+        this.post(SYSTEM, tr("⚠️ {name} (id: {id}) gặp lỗi: {reason}", { name: worker.name, id: worker.id, reason }), { alert: true });
       })
       .finally(() => {
         this.scheduled.delete(key);
@@ -604,7 +605,7 @@ export class Room extends EventEmitter<RoomEvents> {
       const remote = host
         ? { host, base: worker.workdir ?? this.deps.config.hosts.find((h) => h.name === host)?.repo ?? "", skills: worker.useSkills.flatMap((n) => { const s = this.deps.skills.get(n); return s ? [{ name: s.name, dir: s.dir }] : []; }) }
         : undefined;
-      if (host && (!remote?.base || !this.deps.remote)) throw new Error(`Không chạy được worker ${worker.id} trên host "${host}": thiếu workdir/repo hoặc chưa cấu hình kết nối`);
+      if (host && (!remote?.base || !this.deps.remote)) throw new Error(tr("Không chạy được worker {id} trên host \"{host}\": thiếu workdir/repo hoặc chưa cấu hình kết nối", { id: worker.id, host }));
       // The runner on a remote host builds its own plugin and keeps its own copy of the skills.
       const claudeSkills = worker.provider === "claude" && !host ? claudeSkillOptions(worker, this.deps.pluginDir, this.deps.skills) : undefined;
       const skillsBlock = worker.provider === "codex"
@@ -631,7 +632,7 @@ export class Room extends EventEmitter<RoomEvents> {
       record = {
         turnId, ts: startedAt, worker: worker.id, account: account.id, model: worker.model, sessionKey: sessKey,
         resumed: !fresh, taskId, cwd, readOnly,
-        allowedTools: readOnly ? ["(chỉ đọc)"] : worker.allowedTools, useSkills: worker.useSkills,
+        allowedTools: readOnly ? [tr("(chỉ đọc)")] : worker.allowedTools, useSkills: worker.useSkills,
         systemSections: sectionInfo(persona.stable.sections), promptSections: sectionInfo(turn.sections),
         systemAppend: persona.stable.text, prompt: turn.text,
       };
@@ -736,26 +737,26 @@ export class Room extends EventEmitter<RoomEvents> {
       const v = decide(mode, tool, input, ctx);
       if (v.kind === "allow") {
         this.noteWritten(workerId, tool, input, ctx);
-        this.audit(workerId, mode, tool, input, "tự duyệt");
+        this.audit(workerId, mode, tool, input, tr("tự duyệt"));
         return true;
       }
       if (v.kind === "deny") {
-        this.audit(workerId, mode, tool, input, "chặn", v.reason);
+        this.audit(workerId, mode, tool, input, tr("chặn"), v.reason);
         const w = this.workers.find((x) => x.id === workerId);
-        this.post(SYSTEM, `🛡 Chế độ ${mode} đã chặn ${w?.name ?? workerId}: ${redactSecrets(describeCall(tool, input)).replace(/@/g, "(at)")} — ${v.reason.replace(/@/g, "(at)")}`, {});
-        return { allow: false, reason: `Bị chặn bởi chế độ ${mode}: ${v.reason}. Hãy dùng cách khác trong thư mục làm việc, hoặc hỏi người dùng (@user) nếu thật sự cần.` };
+        this.post(SYSTEM, tr("🛡 Chế độ {mode} đã chặn {p}: {p1} — {p2}", { mode, p: w?.name ?? workerId, p1: redactSecrets(describeCall(tool, input)).replace(/@/g, "(at)"), p2: v.reason.replace(/@/g, "(at)") }), {});
+        return { allow: false, reason: tr("Bị chặn bởi chế độ {mode}: {reason}. Hãy dùng cách khác trong thư mục làm việc, hoặc hỏi người dùng (@user) nếu thật sự cần.", { mode, reason: v.reason }) };
       }
       why = v.reason;
       authored = v.authored;
     }
-    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input, ...where, ...(why ? { reason: `Chế độ ${mode}: ${why}` } : {}) };
+    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input, ...where, ...(why ? { reason: tr("Chế độ {mode}: {why}", { mode, why }) } : {}) };
     const allowed = await new Promise<boolean>((resolve) => {
       this.approvals.set(req.id, { req, resolve, key });
       signal.addEventListener("abort", () => this.respondApproval(req.id, false), { once: true });
       this.setStatus(workerId, "waiting_approval", tool);
       this.emit("approval", req);
     });
-    if (mode !== "manual") this.audit(workerId, mode, tool, input, allowed ? "người dùng cho phép" : "người dùng từ chối", why);
+    if (mode !== "manual") this.audit(workerId, mode, tool, input, allowed ? tr("người dùng cho phép") : tr("người dùng từ chối"), why);
     if (allowed) {
       this.noteWritten(workerId, tool, input, ctx);
       // The human has now seen this script run; stop asking about it every time.

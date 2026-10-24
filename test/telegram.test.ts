@@ -242,7 +242,7 @@ test("pairing: a code shown on the computer binds one person; wrong, expired and
     r.tg.userSays(USER, "/pair 123456", { name: "Minh" });
     await until(() => !!r.paired(), 3000, "paired");
     assert.deepEqual([r.paired()!.id, r.paired()!.chat, r.paired()!.name], [USER, USER, "Minh"]);
-    assert.match(r.tg.last(USER)!.text, /Đã ghép cặp với Minh/);
+    await until(() => r.tg.texts(USER).some((t) => /Đã ghép cặp với Minh/.test(t)), 3000, "pairing confirmation");
     assert.equal(r.svc.status().pairing, undefined, "the code is single use");
 
     r.svc.createPairingCode();

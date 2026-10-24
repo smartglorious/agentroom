@@ -1,3 +1,4 @@
+import { tr } from "./i18n";
 import { EventEmitter } from "node:events";
 import type { Account, Provider } from "./types";
 
@@ -35,12 +36,15 @@ const isoMs = (s: string | null | undefined) => {
 };
 const secMs = (n: number | null | undefined) => (typeof n === "number" ? (n < 1e12 ? n * 1000 : n) : undefined);
 
-export const WINDOW_LABEL: Record<string, string> = {
-  five_hour: "5 giờ",
-  seven_day: "7 ngày",
-  seven_day_opus: "7 ngày · Opus",
-  seven_day_sonnet: "7 ngày · Sonnet",
-  seven_day_oauth_apps: "7 ngày · ứng dụng OAuth",
+export const windowLabel = (key: string): string => {
+  switch (key) {
+    case "five_hour": return tr("5 giờ");
+    case "seven_day": return tr("7 ngày");
+    case "seven_day_opus": return tr("7 ngày · Opus");
+    case "seven_day_sonnet": return tr("7 ngày · Sonnet");
+    case "seven_day_oauth_apps": return tr("7 ngày · ứng dụng OAuth");
+    default: return key;
+  }
 };
 
 /** Maps the Claude Agent SDK's usage response. Unknown windows that carry a utilization are kept, not dropped. */
@@ -48,31 +52,31 @@ export function fromClaudeUsage(account: string, r: unknown, now: number): PlanU
   const base = { account, provider: "claude" as const, fetchedAt: now };
   const u = r as { subscription_type?: string | null; rate_limits_available?: boolean; rate_limits?: Record<string, unknown> | null };
   if (!u?.rate_limits_available || !u.rate_limits) {
-    return { ...base, state: "unavailable", windows: [], note: "Đăng nhập bằng API key hoặc nhà cung cấp khác nên không có hạn mức gói. Chi phí thật xem ở tab Chi phí." };
+    return { ...base, state: "unavailable", windows: [], note: tr("Đăng nhập bằng API key hoặc nhà cung cấp khác nên không có hạn mức gói. Chi phí thật xem ở tab Chi phí.") };
   }
   const windows: PlanWindow[] = [];
   for (const [key, v] of Object.entries(u.rate_limits)) {
     if (key === "extra_usage" || key === "model_scoped" || !v || typeof v !== "object") continue;
     const w = v as { utilization?: number | null; resets_at?: string | null };
     if (typeof w.utilization !== "number") continue;
-    windows.push({ key, label: WINDOW_LABEL[key] ?? key, usedPercent: clampPct(w.utilization), resetsAt: isoMs(w.resets_at) });
+    windows.push({ key, label: windowLabel(key), usedPercent: clampPct(w.utilization), resetsAt: isoMs(w.resets_at) });
   }
   const scoped = u.rate_limits.model_scoped;
   if (Array.isArray(scoped)) {
     for (const s of scoped as { display_name?: string; utilization?: number | null; resets_at?: string | null }[]) {
-      if (typeof s?.utilization === "number") windows.push({ key: `model:${s.display_name}`, label: `7 ngày · ${s.display_name}`, usedPercent: clampPct(s.utilization), resetsAt: isoMs(s.resets_at) });
+      if (typeof s?.utilization === "number") windows.push({ key: `model:${s.display_name}`, label: tr("7 ngày · {display_name}", { display_name: s.display_name }), usedPercent: clampPct(s.utilization), resetsAt: isoMs(s.resets_at) });
     }
   }
   const extra = u.rate_limits.extra_usage as { is_enabled?: boolean; utilization?: number | null; used_credits?: number | null; monthly_limit?: number | null; currency?: string | null } | null | undefined;
   let note: string | undefined;
   if (extra?.is_enabled) {
-    if (typeof extra.utilization === "number") windows.push({ key: "extra_usage", label: "Credit bổ sung (tháng)", usedPercent: clampPct(extra.utilization) });
-    if (extra.used_credits != null) note = `Credit bổ sung đã dùng: ${extra.used_credits}${extra.monthly_limit != null ? ` / ${extra.monthly_limit}` : ""} ${extra.currency ?? ""}`.trim();
+    if (typeof extra.utilization === "number") windows.push({ key: "extra_usage", label: tr("Credit bổ sung (tháng)"), usedPercent: clampPct(extra.utilization) });
+    if (extra.used_credits != null) note = (tr("Credit bổ sung đã dùng: {used}", { used: extra.used_credits }) + (extra.monthly_limit != null ? ` / ${extra.monthly_limit}` : "") + ` ${extra.currency ?? ""}`).trim();
   }
   return { ...base, state: "ok", plan: u.subscription_type ?? undefined, windows, note };
 }
 
-const mins = (m: number | null | undefined) => (m == null ? undefined : m === 300 ? "5 giờ" : m === 10080 ? "7 ngày" : m % 1440 === 0 ? `${m / 1440} ngày` : m % 60 === 0 ? `${m / 60} giờ` : `${m} phút`);
+const mins = (m: number | null | undefined) => (m == null ? undefined : m === 300 ? tr("5 giờ") : m === 10080 ? tr("7 ngày") : m % 1440 === 0 ? tr("{p} ngày", { p: m / 1440 }) : m % 60 === 0 ? tr("{p} giờ", { p: m / 60 }) : tr("{m} phút", { m }));
 
 /** Maps the Codex app-server's `account/rateLimits/read` result. */
 export function fromCodexLimits(account: string, r: unknown, now: number): PlanUsage {
@@ -81,7 +85,7 @@ export function fromCodexLimits(account: string, r: unknown, now: number): PlanU
   type Win = { usedPercent: number; windowDurationMins?: number | null; resetsAt?: number | null };
   type Snapshot = { limitId?: string | null; limitName?: string | null; planType?: string | null; primary?: Win | null; secondary?: Win | null; rateLimitReachedType?: string | null; credits?: { hasCredits: boolean; unlimited: boolean; balance?: string | null } | null };
   const buckets = res?.rateLimitsByLimitId && Object.keys(res.rateLimitsByLimitId).length ? Object.values(res.rateLimitsByLimitId) : res?.rateLimits ? [res.rateLimits] : [];
-  if (!buckets.length) return { ...base, state: "unavailable", windows: [], note: "Codex không trả số liệu hạn mức cho tài khoản này." };
+  if (!buckets.length) return { ...base, state: "unavailable", windows: [], note: tr("Codex không trả số liệu hạn mức cho tài khoản này.") };
   const windows: PlanWindow[] = [];
   let plan: string | undefined, reached = false, note: string | undefined;
   for (const b of buckets) {
@@ -92,7 +96,7 @@ export function fromCodexLimits(account: string, r: unknown, now: number): PlanU
       if (!w) continue;
       windows.push({ key: `${b.limitId ?? "codex"}:${slot}`, label: [mins(w.windowDurationMins) ?? slot, name].filter(Boolean).join(" · "), usedPercent: clampPct(w.usedPercent), resetsAt: secMs(w.resetsAt) });
     }
-    if (b.credits && !b.credits.unlimited && b.credits.hasCredits && b.credits.balance) note = `Credit còn lại: ${b.credits.balance}`;
+    if (b.credits && !b.credits.unlimited && b.credits.hasCredits && b.credits.balance) note = tr("Credit còn lại: {balance}", { balance: b.credits.balance });
   }
   return { ...base, state: reached ? "limited" : "ok", plan, windows, note };
 }
@@ -136,7 +140,7 @@ export class PlanMonitor extends EventEmitter<{ change: [] }> {
   }
 
   list(): PlanUsage[] {
-    return this.d.accounts.map((a) => this.data.get(a.id) ?? { account: a.id, provider: a.provider, state: "unavailable" as const, windows: [], note: "Chưa đo.", fetchedAt: 0 });
+    return this.d.accounts.map((a) => this.data.get(a.id) ?? { account: a.id, provider: a.provider, state: "unavailable" as const, windows: [], note: tr("Chưa đo."), fetchedAt: 0 });
   }
 
   start() {
@@ -169,7 +173,7 @@ export class PlanMonitor extends EventEmitter<{ change: [] }> {
     const running = this.inflight.get(a.id);
     if (running) return running;
     if (a.host) {
-      this.set({ account: a.id, provider: a.provider, state: "unavailable", windows: [], fetchedAt: this.now(), note: `Tài khoản chạy trên máy "${a.host}": chưa đo được hạn mức gói từ xa. Chi phí xem ở tab Chi phí.` });
+      this.set({ account: a.id, provider: a.provider, state: "unavailable", windows: [], fetchedAt: this.now(), note: tr("Tài khoản chạy trên máy \"{host}\": chưa đo được hạn mức gói từ xa. Chi phí xem ở tab Chi phí.", { host: a.host }) });
       return Promise.resolve();
     }
     const gap = this.d.minGapMs ?? 120_000;
@@ -184,7 +188,7 @@ export class PlanMonitor extends EventEmitter<{ change: [] }> {
         const prev = this.data.get(a.id);
         const msg = e instanceof Error ? e.message : String(e);
         // Keep the last good numbers (their fetchedAt shows how old they are).
-        next = prev && prev.windows.length ? { ...prev, note: `Không cập nhật được: ${msg}` } : { account: a.id, provider: a.provider, state: "error", windows: [], fetchedAt: this.now(), note: msg };
+        next = prev && prev.windows.length ? { ...prev, note: tr("Không cập nhật được: {msg}", { msg }) } : { account: a.id, provider: a.provider, state: "error", windows: [], fetchedAt: this.now(), note: msg };
       }
       this.set(next);
       this.react(a, next);
@@ -208,12 +212,12 @@ export class PlanMonitor extends EventEmitter<{ change: [] }> {
       if (w.usedPercent >= 100) {
         if (this.announced.has(tag + ":full")) continue;
         this.announced.add(tag + ":full");
-        this.d.alert(`⛔ Gói của account ${a.id} (${w.label}) đã hết hạn mức.${left}${w.resetsAt ? " Hàng đợi của account tạm dừng tới lúc reset." : ""}`);
+        this.d.alert(tr("⛔ Gói của account {id} ({label}) đã hết hạn mức.{left}{p}", { id: a.id, label: w.label, left, p: w.resetsAt ? tr(" Hàng đợi của account tạm dừng tới lúc reset.") : "" }));
         if (w.resetsAt && w.resetsAt > this.now()) this.d.pause(a.id, w.resetsAt);
       } else if (w.usedPercent >= a.warnAtPercent) {
         if (this.announced.has(tag + ":warn") || this.announced.has(tag + ":full")) continue;
         this.announced.add(tag + ":warn");
-        this.d.alert(`⚠️ Gói của account ${a.id} (${w.label}) đã dùng ${Math.round(w.usedPercent)}%.${left}`);
+        this.d.alert(tr("⚠️ Gói của account {id} ({label}) đã dùng {p}%.{left}", { id: a.id, label: w.label, p: Math.round(w.usedPercent), left }));
       }
     }
   }
@@ -223,10 +227,10 @@ export class PlanMonitor extends EventEmitter<{ change: [] }> {
 export function untilText(resetsAt: number | undefined, now: number): string {
   if (!resetsAt) return "";
   const ms = resetsAt - now;
-  if (ms <= 0) return "đang reset";
+  if (ms <= 0) return tr("đang reset");
   const m = Math.round(ms / 60_000);
-  if (m < 60) return `${m} phút`;
+  if (m < 60) return tr("{m} phút", { m });
   const h = Math.floor(m / 60);
-  if (h < 48) return `${h} giờ${m % 60 ? ` ${m % 60} phút` : ""}`;
-  return `${Math.round(h / 24)} ngày`;
+  if (h < 48) return m % 60 ? tr("{h} giờ {m} phút", { h, m: m % 60 }) : tr("{h} giờ", { h });
+  return tr("{n} ngày", { n: Math.round(h / 24) });
 }

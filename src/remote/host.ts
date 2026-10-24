@@ -1,3 +1,4 @@
+import { tr } from "../core/i18n";
 import { EventEmitter } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn as nodeSpawn } from "node:child_process";
@@ -51,8 +52,8 @@ export function remoteCommand(script: string): string {
 }
 
 export function sshArgs(spec: HostDef, command: string): string[] {
-  if (!SSH_TARGET.test(spec.ssh)) throw new Error(`Địa chỉ ssh không hợp lệ: "${spec.ssh}"`);
-  if (spec.identityFile?.startsWith("-")) throw new Error(`identityFile không hợp lệ: "${spec.identityFile}"`);
+  if (!SSH_TARGET.test(spec.ssh)) throw new Error(tr("Địa chỉ ssh không hợp lệ: \"{ssh}\"", { ssh: spec.ssh }));
+  if (spec.identityFile?.startsWith("-")) throw new Error(tr("identityFile không hợp lệ: \"{identityFile}\"", { identityFile: spec.identityFile }));
   return [
     "-o", "BatchMode=yes",
     "-o", `ConnectTimeout=${spec.connectTimeoutSec}`,
@@ -69,13 +70,13 @@ export function sshArgs(spec: HostDef, command: string): string[] {
 export function explainFailure(spec: HostDef, stderr: string, code: number | null, oldNode: boolean): string {
   const t = stderr.trim();
   const tail = t.split("\n").slice(-4).join(" | ").slice(0, 400);
-  if (oldNode) return `Node trên máy "${spec.name}" quá cũ (cần ≥ ${MIN_NODE_MAJOR}). Cập nhật Node hoặc đặt hosts.${spec.name}.node.`;
-  if (/Permission denied/i.test(t)) return `SSH từ chối đăng nhập vào ${spec.ssh}. AgentRoom dùng BatchMode (không hỏi mật khẩu): hãy dùng khoá SSH/ssh-agent và thử \`ssh ${spec.ssh}\` trong terminal.`;
-  if (/Host key verification failed|REMOTE HOST IDENTIFICATION/i.test(t)) return `Chưa xác nhận host key của ${spec.ssh}. Chạy \`ssh ${spec.ssh}\` một lần trong terminal để xác nhận, rồi thử lại.`;
-  if (/Could not resolve hostname|Name or service not known/i.test(t)) return `Không phân giải được tên máy "${spec.ssh}". Kiểm tra lại hosts.${spec.name}.ssh.`;
-  if (/timed out|Connection refused|No route to host|Network is unreachable/i.test(t)) return `Không kết nối được tới ${spec.ssh}${spec.port ? ":" + spec.port : ""} (${tail}).`;
-  if (code === 127 || /: (command )?not found|No such file or directory/i.test(t)) return `Không tìm thấy node trên máy "${spec.name}" (cần Node ≥ ${MIN_NODE_MAJOR}). Cài Node hoặc đặt hosts.${spec.name}.node = đường dẫn đầy đủ tới node.`;
-  return `Không khởi động được runner trên "${spec.name}" (thoát mã ${code}): ${tail || "không có thông báo"}`;
+  if (oldNode) return tr("Node trên máy \"{name}\" quá cũ (cần ≥ {MIN_NODE_MAJOR}). Cập nhật Node hoặc đặt hosts.{name}.node.", { name: spec.name, MIN_NODE_MAJOR });
+  if (/Permission denied/i.test(t)) return tr("SSH từ chối đăng nhập vào {ssh}. AgentRoom dùng BatchMode (không hỏi mật khẩu): hãy dùng khoá SSH/ssh-agent và thử `ssh {ssh}` trong terminal.", { ssh: spec.ssh });
+  if (/Host key verification failed|REMOTE HOST IDENTIFICATION/i.test(t)) return tr("Chưa xác nhận host key của {ssh}. Chạy `ssh {ssh}` một lần trong terminal để xác nhận, rồi thử lại.", { ssh: spec.ssh });
+  if (/Could not resolve hostname|Name or service not known/i.test(t)) return tr("Không phân giải được tên máy \"{ssh}\". Kiểm tra lại hosts.{name}.ssh.", { ssh: spec.ssh, name: spec.name });
+  if (/timed out|Connection refused|No route to host|Network is unreachable/i.test(t)) return tr("Không kết nối được tới {ssh}{p} ({tail}).", { ssh: spec.ssh, p: spec.port ? ":" + spec.port : "", tail });
+  if (code === 127 || /: (command )?not found|No such file or directory/i.test(t)) return tr("Không tìm thấy node trên máy \"{name}\" (cần Node ≥ {MIN_NODE_MAJOR}). Cài Node hoặc đặt hosts.{name}.node = đường dẫn đầy đủ tới node.", { name: spec.name, MIN_NODE_MAJOR });
+  return tr("Không khởi động được runner trên \"{name}\" (thoát mã {code}): {p}", { name: spec.name, code, p: tail || tr("không có thông báo") });
 }
 
 export function sshSpawner(spec: HostDef, runner: Buffer): () => ProcessLike {
@@ -165,12 +166,12 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
       const p = proc;
       this.proc = p;
 
-      timer = setTimeout(() => fail(`Hết thời gian chờ runner trên "${this.name}". ${this.stderrTail.trim().split("\n").slice(-2).join(" | ")}`, ""), this.deps.readyTimeoutMs ?? 40_000);
+      timer = setTimeout(() => fail(tr("Hết thời gian chờ runner trên \"{name}\". {p}", { name: this.name, p: this.stderrTail.trim().split("\n").slice(-2).join(" | ") }), ""), this.deps.readyTimeoutMs ?? 40_000);
 
       const decoder = new LineDecoder(
         (m) => this.onMessage(m as RunnerToHub, () => { if (!settled) { settled = true; clearTimeout(timer); this.set("ready"); this.startHeartbeat(); resolve(); } }),
         (line) => {
-          if (line === NEED_RUNNER && this.deps.runner) { this.deps.log?.(`[${this.name}] cài runner (${(this.deps.runner.length / 1e6).toFixed(1)} MB)…`); this.deps.onRunnerUpload?.(); p.stdin.write(this.deps.runner); }
+          if (line === NEED_RUNNER && this.deps.runner) { this.deps.log?.(tr("[{name}] cài runner ({p} MB)…", { name: this.name, p: (this.deps.runner.length / 1e6).toFixed(1) })); this.deps.onRunnerUpload?.(); p.stdin.write(this.deps.runner); }
           else if (line === OLD_NODE) this.oldNode = true;
           else this.deps.log?.(`[${this.name}] ${line}`);
         },
@@ -179,12 +180,12 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
       p.stderr.on("data", (c: Buffer) => { this.stderrTail = (this.stderrTail + c.toString("utf8")).slice(-4000); });
       p.stdin.on("error", () => undefined);
       p.on("error", (e) => {
-        const msg = (e as NodeJS.ErrnoException).code === "ENOENT" ? "Không tìm thấy lệnh `ssh` trên máy này. Cài OpenSSH client." : `Lỗi khởi động ssh: ${e.message}`;
+        const msg = (e as NodeJS.ErrnoException).code === "ENOENT" ? tr("Không tìm thấy lệnh `ssh` trên máy này. Cài OpenSSH client.") : tr("Lỗi khởi động ssh: {message}", { message: e.message });
         fail(msg, msg);
       });
       p.on("exit", (code) => {
         const tail = this.stderrTail.trim().split("\n").slice(-3).join(" | ").slice(0, 300);
-        fail(explainFailure(this.deps.spec, this.stderrTail, code, this.oldNode), `kết nối SSH bị đóng (mã ${code})${tail ? `: ${tail}` : ""}`);
+        fail(explainFailure(this.deps.spec, this.stderrTail, code, this.oldNode), tr("kết nối SSH bị đóng (mã {code})", { code }) + (tail ? `: ${tail}` : ""));
       });
     });
   }
@@ -192,7 +193,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
   private startHeartbeat() {
     this.lastPong = Date.now();
     this.pingTimer = setInterval(() => {
-      if (Date.now() - this.lastPong > (this.deps.deadMs ?? 60_000)) return this.dropConnection(`Máy "${this.name}" không phản hồi (mất kết nối?).`, true);
+      if (Date.now() - this.lastPong > (this.deps.deadMs ?? 60_000)) return this.dropConnection(tr("Máy \"{name}\" không phản hồi (mất kết nối?).", { name: this.name }), true);
       this.send({ t: "ping", n: ++this.pingN });
     }, this.deps.pingMs ?? 20_000);
   }
@@ -205,7 +206,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
     const dead = this.proc;
     this.proc = undefined;
     if (kill) { try { dead?.kill(); } catch { /* already gone */ } }
-    const err = new HostConnectionError(`Mất kết nối tới "${this.name}": ${message}`);
+    const err = new HostConnectionError(tr("Mất kết nối tới \"{name}\": {message}", { name: this.name, message }));
     for (const p of [...this.pending.values()]) { p.cleanup(); p.reject(err); }
     this.pending.clear();
     this.set("error", message);
@@ -255,7 +256,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
   }
 
   async runTurn(req: TurnRequest): Promise<TurnResult> {
-    if (!req.remote) throw new Error("Thiếu thông tin remote cho lượt này");
+    if (!req.remote) throw new Error(tr("Thiếu thông tin remote cho lượt này"));
     const skills = packSkills(req.remote.skills);
     await this.connect();
     const id = randomUUID();
@@ -278,7 +279,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
   close() {
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = undefined;
-    const err = new HostConnectionError(`Đã đóng kết nối tới "${this.name}".`);
+    const err = new HostConnectionError(tr("Đã đóng kết nối tới \"{name}\".", { name: this.name }));
     for (const p of [...this.pending.values()]) { p.cleanup(); p.reject(err); }
     this.pending.clear();
     try { this.proc?.stdin.end(); } catch { /* ignore */ }
@@ -340,7 +341,7 @@ export class HostManager extends EventEmitter<{ change: [] }> implements AgentAd
     let c = this.conns.get(name);
     if (!c) {
       const spec = this.spec(name);
-      if (!spec) throw new Error(`Không có host "${name}" trong hosts:`);
+      if (!spec) throw new Error(tr("Không có host \"{name}\" trong hosts:", { name }));
       const t = this.deps.spawnerFor?.(spec) ?? { spawn: sshSpawner(spec, this.deps.runner ?? Buffer.alloc(0)), runner: this.deps.runner };
       c = new HostConnection({ spec, spawn: t.spawn, runner: t.runner, prices: this.deps.prices, log: this.deps.log, onRunnerUpload: () => this.deps.onRunnerUpload?.(name), ...this.deps.timeouts });
       c.on("change", () => this.emit("change"));
@@ -352,15 +353,15 @@ export class HostManager extends EventEmitter<{ change: [] }> implements AgentAd
   private async allow(spec: HostDef) {
     const fp = fingerprint(spec);
     if (this.allowed.has(fp)) return;
-    if (this.deps.confirm && !(await this.deps.confirm(spec))) throw new HostDeniedError(`Bạn chưa cho phép AgentRoom kết nối SSH tới "${spec.name}" (${spec.ssh}).`);
+    if (this.deps.confirm && !(await this.deps.confirm(spec))) throw new HostDeniedError(tr("Bạn chưa cho phép AgentRoom kết nối SSH tới \"{name}\" ({ssh}).", { name: spec.name, ssh: spec.ssh }));
     this.allowed.add(fp);
   }
 
   async runTurn(req: TurnRequest): Promise<TurnResult> {
     const name = req.remote?.host;
-    if (!name) throw new Error("Lượt này không có host");
+    if (!name) throw new Error(tr("Lượt này không có host"));
     const spec = this.spec(name);
-    if (!spec) throw new Error(`Không có host "${name}" trong hosts:`);
+    if (!spec) throw new Error(tr("Không có host \"{name}\" trong hosts:", { name }));
     await this.allow(spec);
     return this.connection(name).runTurn(req);
   }

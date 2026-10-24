@@ -17,7 +17,7 @@ Mục đích: trong lúc dùng AgentRoom có sẵn bằng chứng để sửa l�
 
 ## Cách dùng
 
-- VS Code: `AgentRoom: Ghi một vấn đề / lỗi`, `AgentRoom: Xuất báo cáo lỗi (Markdown)` (ghi `.agentroom/state/issues-report.md` rồi mở).
+- VS Code: nút ⚑ trên thanh tab của chat, hoặc `AgentRoom: Ghi một vấn đề / lỗi`, `AgentRoom: Xuất báo cáo lỗi (Markdown)` (ghi `.agentroom/state/issues-report.md` rồi mở).
 - Telegram: `/issue <mô tả>`, `/issues`.
 - Daemon: `agentroom-daemon issues [list|export|report <mô tả>|fix <id> [ghi chú]|wontfix <id>]`.
 
@@ -32,4 +32,4 @@ Khóa/token bị ẩn (cùng bộ lọc với trí nhớ), đường dẫn proje
 ## Không làm (cố ý)
 
 - Không có tool `report_issue` cho agent: mỗi tool MCP tốn token ở mọi lượt (xem CLAUDE.md, nguyên tắc 7). Lỗi của lượt tự được ghi; điều agent nhận thấy thì bạn ghi bằng `/issue`.
-- Chưa ghi lỗi của lệnh con (`ssh`, runner) ngoài những gì làm lượt thất bại; chưa có tab *Lỗi* trong giao diện chat (làm cùng đợt giao diện hai ngôn ngữ).
+- Chưa ghi lỗi của lệnh con (`ssh`, runner) ngoài những gì làm lượt thất bại; chưa có tab *Lỗi* trong giao diện chat (xem danh sách bằng `/issues`, `agentroom-daemon issues` hoặc báo cáo Markdown).

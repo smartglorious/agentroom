@@ -1,3 +1,4 @@
+import { tr, trVi } from "./i18n";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -102,7 +103,7 @@ export class IssueStore {
 
   record(input: IssueInput): Issue {
     const all = this.load();
-    const title = this.clean(input.title.replace(/\s+/g, " ").trim(), MAX_TITLE) || "(không có tiêu đề)";
+    const title = this.clean(input.title.replace(/\s+/g, " ").trim(), MAX_TITLE) || trVi("(không có tiêu đề)");
     const fp = fingerprintOf({ ...input, title });
     const at = this.now();
     let it = all.find((i) => i.fingerprint === fp);
@@ -151,24 +152,24 @@ export class IssueStore {
     const d = (t: number) => new Date(t).toISOString().slice(0, 16).replace("T", " ");
     const row = (i: Issue) => [
       `### ${i.title}`,
-      `- id \`${i.id}\` · ${i.kind} · nguồn \`${i.source}\`${i.worker ? ` · worker @${i.worker}` : ""} · **${i.count} lần** · ${d(i.firstSeen)} → ${d(i.lastSeen)} · bản ${i.versions.join(", ")}${i.reopened ? ` · mở lại ${i.reopened} lần` : ""}`,
-      i.status !== "open" ? `- ${i.status === "fixed" ? `đã sửa (ở bản ${i.fixedIn})` : "không sửa"}${i.note ? `: ${i.note}` : ""}` : "",
+      `- id \`${i.id}\` · ${i.kind} · ` + tr("nguồn") + ` \`${i.source}\`${i.worker ? ` · worker @${i.worker}` : ""} · ` + tr("**{n} lần**", { n: i.count }) + ` · ${d(i.firstSeen)} → ${d(i.lastSeen)} · ` + tr("bản {v}", { v: i.versions.join(", ") }) + (i.reopened ? " · " + tr("mở lại {n} lần", { n: i.reopened }) : ""),
+      i.status !== "open" ? `- ${i.status === "fixed" ? tr("đã sửa (ở bản {v})", { v: i.fixedIn ?? "?" }) : tr("không sửa")}${i.note ? `: ${i.note}` : ""}` : "",
       i.detail ? "```text\n" + i.detail.replace(/```/g, "'''") + "\n```" : "",
     ].filter(Boolean).join("\n");
     return [
-      "# Báo cáo lỗi / vấn đề của AgentRoom",
+      tr("# Báo cáo lỗi / vấn đề của AgentRoom"),
       "",
-      `AgentRoom ${this.ctx.version}${this.ctx.platform ? ` · ${this.ctx.platform}` : ""}${this.ctx.node ? ` · node ${this.ctx.node}` : ""} · tạo lúc ${d(this.now())}`,
+      `AgentRoom ${this.ctx.version}${this.ctx.platform ? ` · ${this.ctx.platform}` : ""}${this.ctx.node ? ` · node ${this.ctx.node}` : ""} · ` + tr("tạo lúc {t}", { t: d(this.now()) }),
       "",
-      "> Tự động ẩn khóa/token và đường dẫn máy bạn, nhưng hãy đọc lại trước khi gửi cho ai. Không có gì được tải lên tự động.",
+      tr("> Tự động ẩn khóa/token và đường dẫn máy bạn, nhưng hãy đọc lại trước khi gửi cho ai. Không có gì được tải lên tự động."),
       "",
-      `## Đang mở (${open.length})`,
+      tr("## Đang mở ({n})", { n: open.length }),
       "",
-      open.length ? open.map(row).join("\n\n") : "_Không có._",
+      open.length ? open.map(row).join("\n\n") : tr("_Không có._"),
       "",
-      `## Đã đóng (${closed.length})`,
+      tr("## Đã đóng ({n})", { n: closed.length }),
       "",
-      closed.length ? closed.map(row).join("\n\n") : "_Không có._",
+      closed.length ? closed.map(row).join("\n\n") : tr("_Không có._"),
       "",
     ].join("\n");
   }

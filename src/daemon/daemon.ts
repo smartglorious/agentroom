@@ -1,3 +1,4 @@
+import { tr } from "../core/i18n";
 import { IssueStore } from "../core/issues";
 import { VERSION } from "../core/version";
 import { createHash } from "node:crypto";
@@ -81,13 +82,13 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
   const home = o.home ?? homedir();
   const env = o.env ?? process.env;
   const file = join(o.root, ".agentroom", "workers.yaml");
-  if (!existsSync(file)) throw new DaemonError(EXIT.config, `Không thấy ${file}. Chạy với --root <thư mục project>.`);
+  if (!existsSync(file)) throw new DaemonError(EXIT.config, tr("Không thấy {file}. Chạy với --root <thư mục project>.", { file }));
 
   let config;
   try {
     config = parseConfig(readFileSync(file, "utf8"));
   } catch (e) {
-    throw new DaemonError(EXIT.config, `workers.yaml lỗi — ${e instanceof Error ? e.message : e}`);
+    throw new DaemonError(EXIT.config, tr("workers.yaml lỗi — {p}", { p: e instanceof Error ? e.message : e }));
   }
 
   const agentroomDir = join(o.root, ".agentroom");
@@ -98,7 +99,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     const got = lock.acquire();
     if (!got.ok) {
       const h = got.holder;
-      throw new DaemonError(EXIT.locked, `Phòng đang chạy ở ${h ? `${h.kind === "daemon" ? "một daemon khác" : "một cửa sổ VS Code"} (máy ${h.host}, pid ${h.pid})` : "một tiến trình khác"}. Dùng --take-over để chiếm quyền.`);
+      throw new DaemonError(EXIT.locked, tr("Phòng đang chạy ở {who}. Dùng --take-over để chiếm quyền.", { who: h ? tr("{kind} (máy {host}, pid {pid})", { kind: h.kind === "daemon" ? tr("một daemon khác") : tr("một cửa sổ VS Code"), host: h.host, pid: h.pid }) : tr("một tiến trình khác") }));
     }
   }
 
@@ -115,7 +116,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     for (const d of disposers.reverse()) { try { d(); } catch { /* shutting down */ } }
     lock.release();
   };
-  lock.on("lost", () => { log("Một tiến trình khác đã chiếm quyền điều phối; daemon dừng."); stop(); onLost(); });
+  lock.on("lost", () => { log(tr("Một tiến trình khác đã chiếm quyền điều phối; daemon dừng.")); stop(); onLost(); });
 
   try {
     const s0 = settings();
@@ -128,25 +129,25 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     let hosts: HostManager | undefined;
     if (config.hosts.length) {
       const runnerPath = o.runnerPath;
-      if (!runnerPath || !existsSync(runnerPath)) log("Thiếu dist/runner.mjs nên không chạy được worker trên máy khác.");
+      if (!runnerPath || !existsSync(runnerPath)) log(tr("Thiếu dist/runner.mjs nên không chạy được worker trên máy khác."));
       hosts = new HostManager(config.hosts, {
         runner: runnerPath && existsSync(runnerPath) ? readFileSync(runnerPath) : undefined,
         // Nobody is here to click "allow": hosts must have been approved with `trust-hosts`.
         confirm: async (spec) => {
           const ok = hostTrusted(store, o.root, spec);
-          if (!ok) log(`Host "${spec.name}" (${spec.ssh}) chưa được cho phép. Chạy: agentroom-daemon trust-hosts --root ${o.root}`);
+          if (!ok) log(tr("Host \"{name}\" ({ssh}) chưa được cho phép. Chạy: agentroom-daemon trust-hosts --root {root}", { name: spec.name, ssh: spec.ssh, root: o.root }));
           return ok;
         },
         prices: () => settings().pricing,
         log: (t) => log(t),
-        onRunnerUpload: (h) => log(`[${h}] đã cài runner mới`),
+        onRunnerUpload: (h) => log(tr("[{h}] đã cài runner mới", { h })),
       });
       disposers.push(() => hosts!.closeAll());
     }
 
     const cli = (name: "claude" | "codex") => () => {
       const found = findExecutable(name, settings()[`${name}Path` as "claudePath" | "codexPath"]);
-      if (!found) throw new Error(`Không tìm thấy CLI "${name}" (PATH của daemon: ${env.PATH ?? ""}). Cài nó hoặc chạy: agentroom-daemon set ${name}Path /đường/dẫn/${name}`);
+      if (!found) throw new Error(tr("Không tìm thấy CLI \"{name}\" (PATH của daemon: {p}). Cài nó hoặc chạy: agentroom-daemon set {name}Path /đường/dẫn/{name}", { name, p: env.PATH ?? "" }));
       return found;
     };
 
@@ -193,9 +194,9 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       save: (x) => roomStore.saveSchedules(x),
       isBusy: (w, prefix) => room.isActive(`${w}:${prefix}`),
       fire: (sch, workerId, taskId) => {
-        log(`lịch "${sch.id}" → ${workerId}`);
+        log(tr("lịch \"{id}\" → {workerId}", { id: sch.id, workerId }));
         if (sch.builtin === "consolidate-memory") room.consolidateMemory(workerId, taskId);
-        else room.post(SYSTEM, `@${workerId} [lịch ${sch.id}] ${sch.prompt}`, { taskId, to: [workerId] });
+        else room.post(SYSTEM, tr("@{workerId} [lịch {id}] {prompt}", { workerId, id: sch.id, prompt: sch.prompt }), { taskId, to: [workerId] });
       },
     });
     cron.start();
@@ -213,7 +214,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
         disposers.push(() => server.dispose());
         log(`webhook: http://127.0.0.1:${server.port}/hook/<id>`);
       } catch (e) {
-        log(`không mở được cổng webhook ${server.port} (${e instanceof Error ? e.message : e}); đổi bằng: agentroom-daemon set hookPort <cổng>`);
+        log(tr("không mở được cổng webhook {port} ({p}); đổi bằng: agentroom-daemon set hookPort <cổng>", { port: server.port, p: e instanceof Error ? e.message : e }));
       }
     }
 
@@ -242,9 +243,9 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
         workspaceName: o.root.split(/[\\/]/).pop(),
       });
       disposers.push(() => telegram!.stop());
-      void telegram.start().catch((e) => { const m = `không khởi động được: ${e instanceof Error ? e.message : e}`; log(`[telegram] ${m}`); room.noteIssue({ kind: "error", source: "telegram", title: m }); });
+      void telegram.start().catch((e) => { const m = tr("không khởi động được: {p}", { p: e instanceof Error ? e.message : e }); log(`[telegram] ${m}`); room.noteIssue({ kind: "error", source: "telegram", title: m }); });
     } else {
-      log("Telegram chưa thiết lập (chạy: agentroom-daemon setup-telegram).");
+      log(tr("Telegram chưa thiết lập (chạy: agentroom-daemon setup-telegram)."));
     }
 
     const pf = token ? pairingFile(home, tokenId(token)) : undefined;
@@ -254,12 +255,12 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       const c = telegram.createPairingCode();
       mkdirSync(join(pf, ".."), { recursive: true, mode: 0o700 });
       writeFileSync(pf, JSON.stringify(c), { mode: 0o600 });
-      log(`mã ghép cặp mới tạo (hết hạn sau 10 phút); xem bằng: agentroom-daemon pair`);
+      log(tr("mã ghép cặp mới tạo (hết hạn sau 10 phút); xem bằng: agentroom-daemon pair"));
       return c;
     };
     if (telegram && !telegram.status().paired) requestPairing();
 
-    log(`daemon đang điều phối ${o.root} (${config.workers.length} worker)`);
+    log(tr("daemon đang điều phối {root} ({n} worker)", { root: o.root, n: config.workers.length }));
     return { room, telegram, lost, requestPairing, stop };
   } catch (e) {
     stop();

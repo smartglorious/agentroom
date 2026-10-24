@@ -1,3 +1,4 @@
+import { tr } from "../core/i18n";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { PairedUser, TelegramSettings } from "../channels/telegram/service";
@@ -11,6 +12,8 @@ export interface DaemonSettings extends TelegramSettings {
   inspectorKeepTurns: number;
   agentDebounceMs: number;
   planPollMinutes: number;
+  /** vi | en | auto (auto follows $LANG). AGENTROOM_LANG overrides. */
+  language: string;
   claudePath: string;
   codexPath: string;
   pricing: Record<string, { input: number; output: number; cachedInput?: number }>;
@@ -28,14 +31,14 @@ export interface DaemonFile {
 export const DEFAULT_SETTINGS: DaemonSettings = {
   detail: "summary", approveFromPhone: "safe", summaryChars: 600, quietHours: "",
   hookPort: 47321, maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12000, inspectorKeepTurns: 300, agentDebounceMs: 1500, planPollMinutes: 10,
-  claudePath: "", codexPath: "", pricing: {},
+  language: "vi", claudePath: "", codexPath: "", pricing: {},
 };
 
 type Parse = (v: string) => unknown;
-const oneOf = (...ok: string[]): Parse => (v) => { if (!ok.includes(v)) throw new Error(`chỉ nhận: ${ok.join(" | ")}`); return v; };
+const oneOf = (...ok: string[]): Parse => (v) => { if (!ok.includes(v)) throw new Error(tr("chỉ nhận: {p}", { p: ok.join(" | ") })); return v; };
 const int = (min: number, max: number): Parse => (v) => {
   const n = Number(v);
-  if (!Number.isInteger(n) || n < min || n > max) throw new Error(`cần số nguyên từ ${min} đến ${max}`);
+  if (!Number.isInteger(n) || n < min || n > max) throw new Error(tr("cần số nguyên từ {min} đến {max}", { min, max }));
   return n;
 };
 
@@ -44,7 +47,7 @@ export const SETTING_PARSERS: Record<keyof DaemonSettings, Parse> = {
   detail: oneOf("summary", "full", "alerts"),
   approveFromPhone: oneOf("safe", "none"),
   summaryChars: int(100, 3000),
-  quietHours: (v) => { if (v && !/^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(v)) throw new Error("dạng 22:00-07:00, hoặc để trống"); return v; },
+  quietHours: (v) => { if (v && !/^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(v)) throw new Error(tr("dạng 22:00-07:00, hoặc để trống")); return v; },
   hookPort: int(1024, 65535),
   maxAgentHops: int(1, 50),
   contextMessages: int(1, 200),
@@ -52,9 +55,10 @@ export const SETTING_PARSERS: Record<keyof DaemonSettings, Parse> = {
   inspectorKeepTurns: int(0, 5000),
   agentDebounceMs: int(0, 60000),
   planPollMinutes: int(0, 1440),
+  language: oneOf("vi", "en", "auto"),
   claudePath: (v) => v,
   codexPath: (v) => v,
-  pricing: (v) => { const o = JSON.parse(v); if (!o || typeof o !== "object" || Array.isArray(o)) throw new Error("cần một object JSON"); return o; },
+  pricing: (v) => { const o = JSON.parse(v); if (!o || typeof o !== "object" || Array.isArray(o)) throw new Error(tr("cần một object JSON")); return o; },
 };
 
 export class DaemonStore {
@@ -85,7 +89,7 @@ export class DaemonStore {
   }
 
   set(key: string, value: string) {
-    if (!(key in SETTING_PARSERS)) throw new Error(`Không có cài đặt "${key}". Có: ${Object.keys(SETTING_PARSERS).join(", ")}`);
+    if (!(key in SETTING_PARSERS)) throw new Error(tr("Không có cài đặt \"{key}\". Có: {p}", { key, p: Object.keys(SETTING_PARSERS).join(", ") }));
     const parsed = SETTING_PARSERS[key as keyof DaemonSettings](value);
     this.update((f) => { f.settings = { ...f.settings, [key]: parsed }; });
   }

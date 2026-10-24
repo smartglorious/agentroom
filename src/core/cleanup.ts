@@ -1,3 +1,4 @@
+import { tr } from "./i18n";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -27,17 +28,17 @@ export interface ScanOptions {
   maxItems?: number;
 }
 
-const FILE_RULES: [RegExp, CleanupKind, string][] = [
-  [/^(\.DS_Store|Thumbs\.db|desktop\.ini)$/i, "junk", "file hệ thống do OS tạo"],
-  [/\.(tmp|temp|swp|swo)$/i, "temp", "file tạm"],
-  [/^\.#.+|~$/, "temp", "file tạm của trình soạn thảo"],
-  [/\.(orig|rej)$/i, "backup", "file còn lại sau khi merge/patch"],
-  [/\.bak$/i, "backup", "bản sao lưu .bak"],
-  [/\.pyc$/i, "cache", "bytecode Python"],
-  [/^\.eslintcache$|^\.stylelintcache$|\.tsbuildinfo$/i, "cache", "cache công cụ build/lint"],
+const FILE_RULES: [RegExp, CleanupKind, () => string][] = [
+  [/^(\.DS_Store|Thumbs\.db|desktop\.ini)$/i, "junk", () => tr("file hệ thống do OS tạo")],
+  [/\.(tmp|temp|swp|swo)$/i, "temp", () => tr("file tạm")],
+  [/^\.#.+|~$/, "temp", () => tr("file tạm của trình soạn thảo")],
+  [/\.(orig|rej)$/i, "backup", () => tr("file còn lại sau khi merge/patch")],
+  [/\.bak$/i, "backup", () => tr("bản sao lưu .bak")],
+  [/\.pyc$/i, "cache", () => tr("bytecode Python")],
+  [/^\.eslintcache$|^\.stylelintcache$|\.tsbuildinfo$/i, "cache", () => tr("cache công cụ build/lint")],
 ];
-const DIR_RULES: [RegExp, string][] = [
-  [/^(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.parcel-cache|\.turbo|\.nyc_output|\.sass-cache)$/, "thư mục cache"],
+const DIR_RULES: [RegExp, () => string][] = [
+  [/^(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.parcel-cache|\.turbo|\.nyc_output|\.sass-cache)$/, () => tr("thư mục cache")],
 ];
 /** Never entered or offered: the repo itself, dependencies, build outputs, our own data. */
 const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "venv", "dist", "build", "out", "target", ".agentroom"]);
@@ -85,13 +86,13 @@ export function scanCleanup(root: string, opt: ScanOptions = {}): CleanupItem[] 
         if (SKIP_DIRS.has(name)) continue;
         const rule = DIR_RULES.find(([re]) => re.test(name));
         if (rule) {
-          if (!isTracked(rel, true)) out.push({ rel, kind: "cache", dir: true, bytes: sizeOf(abs), mtime: st.mtimeMs, why: rule[1] });
+          if (!isTracked(rel, true)) out.push({ rel, kind: "cache", dir: true, bytes: sizeOf(abs), mtime: st.mtimeMs, why: rule[1]() });
           continue;
         }
         walk(abs, depth + 1);
       } else if (st.isFile()) {
         const rule = FILE_RULES.find(([re]) => re.test(name));
-        if (rule && !isTracked(rel, false)) out.push({ rel, kind: rule[1], dir: false, bytes: st.size, mtime: st.mtimeMs, why: rule[2] });
+        if (rule && !isTracked(rel, false)) out.push({ rel, kind: rule[1], dir: false, bytes: st.size, mtime: st.mtimeMs, why: rule[2]() });
       }
     }
   };
@@ -103,11 +104,11 @@ export function scanCleanup(root: string, opt: ScanOptions = {}): CleanupItem[] 
     for (const f of readdirSync(turns)) {
       const abs = join(turns, f);
       const st = lstatSync(abs);
-      if (st.isFile() && now - st.mtimeMs > days * 86_400_000 && out.length < max) out.push({ rel: posix(relative(root, abs)), kind: "agentroom", dir: false, bytes: st.size, mtime: st.mtimeMs, why: `bản ghi lượt cũ hơn ${days} ngày (Context Inspector)` });
+      if (st.isFile() && now - st.mtimeMs > days * 86_400_000 && out.length < max) out.push({ rel: posix(relative(root, abs)), kind: "agentroom", dir: false, bytes: st.size, mtime: st.mtimeMs, why: tr("bản ghi lượt cũ hơn {days} ngày (Context Inspector)", { days }) });
     }
   }
   const aud = join(root, ".agentroom", "audit.1.jsonl");
-  if (existsSync(aud)) out.push({ rel: posix(relative(root, aud)), kind: "agentroom", dir: false, bytes: lstatSync(aud).size, mtime: lstatSync(aud).mtimeMs, why: "audit đã xoay vòng" });
+  if (existsSync(aud)) out.push({ rel: posix(relative(root, aud)), kind: "agentroom", dir: false, bytes: lstatSync(aud).size, mtime: lstatSync(aud).mtimeMs, why: tr("audit đã xoay vòng") });
   return out.sort((a, b) => b.bytes - a.bytes);
 }
 
@@ -166,9 +167,9 @@ export function gatherCleanup(root: string, rels: string[], now = Date.now()): {
   for (const rel of [...new Set(rels)]) {
     const abs = resolve(root, rel);
     const top = posix(relative(root, abs)).split("/")[0];
-    if (!inside(root, abs)) { skipped.push({ rel, why: "ngoài thư mục project" }); continue; }
-    if (top === ".git" || top === "node_modules" || abs.startsWith(cleanupDir(root))) { skipped.push({ rel, why: "vùng được bảo vệ" }); continue; }
-    if (!existsSync(abs)) { skipped.push({ rel, why: "không còn tồn tại" }); continue; }
+    if (!inside(root, abs)) { skipped.push({ rel, why: tr("ngoài thư mục project") }); continue; }
+    if (top === ".git" || top === "node_modules" || abs.startsWith(cleanupDir(root))) { skipped.push({ rel, why: tr("vùng được bảo vệ") }); continue; }
+    if (!existsSync(abs)) { skipped.push({ rel, why: tr("không còn tồn tại") }); continue; }
     const st = lstatSync(abs);
     const bytes = sizeOf(abs);
     try {
@@ -182,7 +183,7 @@ export function gatherCleanup(root: string, rels: string[], now = Date.now()): {
   if (entries.length) {
     mkdirSync(base, { recursive: true });
     writeFileSync(join(base, "manifest.json"), JSON.stringify(manifest, null, 2));
-    writeFileSync(join(base, "README.txt"), `AgentRoom đã DỌN (di chuyển, không xóa) ${entries.length} mục vào đây lúc ${new Date(now).toISOString()}.\nXóa thư mục này khi bạn chắc chắn không cần; hoặc khôi phục bằng lệnh "AgentRoom: Khôi phục mục đã dọn".\n`);
+    writeFileSync(join(base, "README.txt"), tr("AgentRoom đã DỌN (di chuyển, không xóa) {n} mục vào đây lúc {t}.", { n: entries.length, t: new Date(now).toISOString() }) + "\n" + tr("Xóa thư mục này khi bạn chắc chắn không cần; hoặc khôi phục bằng lệnh \"AgentRoom: Khôi phục mục đã dọn\".") + "\n");
   }
   return { dir: base, manifest, skipped };
 }
@@ -200,7 +201,7 @@ export function listBatches(root: string): Manifest[] {
 
 /** Puts a batch back where it came from. Never overwrites something that has appeared there since. */
 export function restoreCleanup(root: string, stamp: string): { restored: string[]; skipped: { rel: string; why: string }[] } {
-  if (!/^[\w-]+$/.test(stamp)) throw new Error("tên lô không hợp lệ");
+  if (!/^[\w-]+$/.test(stamp)) throw new Error(tr("tên lô không hợp lệ"));
   const base = join(cleanupDir(root), stamp);
   const m: Manifest = JSON.parse(readFileSync(join(base, "manifest.json"), "utf8"));
   const restored: string[] = [];
@@ -208,9 +209,9 @@ export function restoreCleanup(root: string, stamp: string): { restored: string[
   for (const e of m.entries) {
     const src = join(base, "files", e.rel);
     const dst = resolve(root, e.rel);
-    if (!inside(root, dst)) { skipped.push({ rel: e.rel, why: "ngoài thư mục project" }); continue; }
-    if (!existsSync(src)) { skipped.push({ rel: e.rel, why: "không còn trong thư mục dọn" }); continue; }
-    if (existsSync(dst)) { skipped.push({ rel: e.rel, why: "đã có file mới ở chỗ cũ" }); continue; }
+    if (!inside(root, dst)) { skipped.push({ rel: e.rel, why: tr("ngoài thư mục project") }); continue; }
+    if (!existsSync(src)) { skipped.push({ rel: e.rel, why: tr("không còn trong thư mục dọn") }); continue; }
+    if (existsSync(dst)) { skipped.push({ rel: e.rel, why: tr("đã có file mới ở chỗ cũ") }); continue; }
     moveOne(src, dst);
     restored.push(e.rel);
   }
@@ -221,7 +222,7 @@ export function restoreCleanup(root: string, stamp: string): { restored: string[
 export const humanBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`);
 
 export function renderScan(items: CleanupItem[]): string {
-  if (!items.length) return "Không thấy file rác, tạm hay cache nào để dọn.";
+  if (!items.length) return tr("Không thấy file rác, tạm hay cache nào để dọn.");
   const total = items.reduce((a, i) => a + i.bytes, 0);
-  return [`Tìm thấy ${items.length} mục (${humanBytes(total)}). Chưa có gì bị đụng tới.`, ...items.slice(0, 40).map((i) => `- ${i.rel}${i.dir ? "/" : ""} · ${humanBytes(i.bytes)} · ${i.why}`), items.length > 40 ? `… và ${items.length - 40} mục nữa` : ""].filter(Boolean).join("\n");
+  return [tr("Tìm thấy {n} mục ({p}). Chưa có gì bị đụng tới.", { n: items.length, p: humanBytes(total) }), ...items.slice(0, 40).map((i) => `- ${i.rel}${i.dir ? "/" : ""} · ${humanBytes(i.bytes)} · ${i.why}`), items.length > 40 ? tr("… và {p} mục nữa", { p: items.length - 40 }) : ""].filter(Boolean).join("\n");
 }

@@ -22,6 +22,9 @@ node dist/daemon.mjs help                       # từ mã nguồn sau `npm run 
 | `trust-hosts` | Cho phép daemon ssh tới các `hosts:` của project (mục 4) |
 | `settings` · `set <khóa> <giá trị>` | Xem/đổi cài đặt (mục 3) |
 | `autonomy [<worker> <mức>]` | Xem/đổi mức tự chủ (manual/auto/full); Full yêu cầu gõ `FULL`, xem `AUTONOMY.md` |
+| `issues [list\|export\|report <mô tả>\|fix <id>\|wontfix <id>]` | Lỗi/vấn đề đã gom cục bộ, xem `ISSUES.md` |
+| `cleanup [scan\|gather\|list\|restore <lô>]` | Gom file rác/tạm/cache vào `.agentroom/cleanup/` (không xóa), xem `CLEANUP.md` |
+| `set language vi\|en\|auto` | Ngôn ngữ của CLI, tin hệ thống và Telegram (hoặc biến `AGENTROOM_LANG`), xem `I18N.md` |
 | `status` | Ai đang giữ phòng (daemon hay cửa sổ VS Code) |
 | `service` | In file systemd mẫu |
 

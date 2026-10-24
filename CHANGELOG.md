@@ -2,6 +2,13 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.11.0
+- Giao diện hai ngôn ngữ Việt/Anh (`agentroom.language`; mặc định `vi`), webview, hộp thoại, tin hệ thống, Telegram, CLI daemon; `package.nls*.json` cho Command Palette.
+- Bộ gom lỗi/vấn đề cục bộ (`issues`): tự ghi lỗi lượt/Telegram/rate limit/chạm giới hạn, gộp trùng, ẩn bí mật, xuất Markdown; nút ⚑, lệnh VS Code, Telegram `/issue` `/issues`, CLI daemon.
+- Bộ dọn dẹp **gom, không xóa**: file rác/tạm/cache được di chuyển vào `.agentroom/cleanup/<lô>/` khi chủ máy yêu cầu; có khôi phục.
+- Quy tắc: README + CHANGELOG cập nhật theo từng version (`test/readme.test.ts`).
+- Sửa một test Telegram không ổn định (đợi tin xác nhận ghép cặp).
+
 ## 0.10.0
 - Trả lời đúng tin (↩), lựa chọn bằng nút (`ask_user`), cả trên Telegram.
 - Bớt lượt vô ích: giới hạn lượt/task, `[NOOP]`, chống lặp, gom tin.

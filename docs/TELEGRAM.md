@@ -28,6 +28,7 @@ Trạng thái và các nút (Ghép cặp, PIN, Tắt) nằm ở đầu tab **Má
 | `/tasks` · `/cost` | Task đang mở · chi phí và ngân sách hôm nay |
 | `/mode` · `/mode <id> manual\|auto` | Mức tự chủ của từng worker; **chỉ hạ được** từ điện thoại, nâng (Auto/Full) phải ở máy tính |
 | `/plan` · `/plan refresh` | Hạn mức gói Claude/Codex còn lại và giờ reset (đọc lại ngay với `refresh`) |
+| `/issue <mô tả>` · `/issues` | Ghi một vấn đề (lưu cục bộ) · xem các vấn đề đang mở, xem `ISSUES.md` |
 | `/stop be` · `/stop all` | Dừng một worker · dừng tất cả |
 | `/mute 2h` · `/unmute` | Tắt/bật tin của worker (cảnh báo và thẻ duyệt vẫn gửi) |
 | `/detail summary\|full\|alerts` | Mức chi tiết gửi về (mục 5) |

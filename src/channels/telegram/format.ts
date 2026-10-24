@@ -1,3 +1,4 @@
+import { tr } from "../../core/i18n";
 import { isAbsolute, posix } from "node:path";
 import { redactSecrets } from "../../core/memory";
 import type { ApprovalRequest } from "../../core/types";
@@ -10,7 +11,7 @@ export function summarize(text: string, max: number): { text: string; cut: boole
   let cut = false;
   let t = redactSecrets(text).replace(/```[^\n]*\n([\s\S]*?)```/g, (_, code: string) => {
     cut = true;
-    return `[mã: ${code.trimEnd().split("\n").length} dòng]`;
+    return tr("[mã: {p} dòng]", { p: code.trimEnd().split("\n").length });
   });
   t = t.replace(/\n{3,}/g, "\n\n").trim();
   if (t.length > max) {
@@ -101,14 +102,14 @@ export interface Verdict { safe: boolean; reason: string }
  * Everything else (shell commands, network, other MCP servers) has to be approved at the computer.
  */
 export function phoneApprovalVerdict(req: Pick<ApprovalRequest, "tool" | "input" | "cwd">): Verdict {
-  if (!FILE_TOOLS.includes(req.tool)) return { safe: false, reason: `${req.tool} chỉ được duyệt ở máy tính` };
+  if (!FILE_TOOLS.includes(req.tool)) return { safe: false, reason: tr("{tool} chỉ được duyệt ở máy tính", { tool: req.tool }) };
   const file = pathOf(req.input);
-  if (!file) return { safe: false, reason: "không xác định được file" };
+  if (!file) return { safe: false, reason: tr("không xác định được file") };
   const rel = relativeInside(file, req.cwd);
-  if (!rel) return { safe: false, reason: "file nằm ngoài thư mục làm việc của worker" };
+  if (!rel) return { safe: false, reason: tr("file nằm ngoài thư mục làm việc của worker") };
   const parts = rel.split("/");
   if (parts.slice(0, -1).some((s) => SENSITIVE_SEGMENT.test(s)) || SENSITIVE_SEGMENT.test(parts[parts.length - 1]) || SENSITIVE_FILE.test(parts[parts.length - 1])) {
-    return { safe: false, reason: "file nhạy cảm (khoá, .env, .git, CI, cấu hình) chỉ duyệt ở máy tính" };
+    return { safe: false, reason: tr("file nhạy cảm (khoá, .env, .git, CI, cấu hình) chỉ duyệt ở máy tính") };
   }
   return { safe: true, reason: "" };
 }
@@ -117,7 +118,7 @@ export function phoneApprovalVerdict(req: Pick<ApprovalRequest, "tool" | "input"
 export function describeApproval(req: ApprovalRequest, workerName: string): string {
   const o = (req.input && typeof req.input === "object" ? req.input : {}) as Record<string, unknown>;
   const detail = pathOf(req.input) ?? (typeof o.command === "string" ? o.command : typeof o.url === "string" ? o.url : JSON.stringify(req.input));
-  const where = req.host ? ` trên máy ${req.host}` : "";
-  return redactSecrets(`🔐 ${workerName} (@${req.workerId})${where} xin quyền dùng ${req.tool}\n${String(detail).slice(0, 300)}`);
+  const where = req.host ? tr(" trên máy {host}", { host: req.host }) : "";
+  return redactSecrets(tr("🔐 {workerName} (@{workerId}){where} xin quyền dùng {tool}", { workerName, workerId: req.workerId, where, tool: req.tool }) + `\n${String(detail).slice(0, 300)}`);
 }
 

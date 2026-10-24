@@ -1,3 +1,4 @@
+import { tr, trVi } from "../../core/i18n";
 import { EventEmitter } from "node:events";
 import { BotApi, InlineButton, TelegramError, TgCallback, TgMessage, TgUpdate, TgUser } from "./api";
 import { CHUNK, splitMessage } from "./format";
@@ -67,8 +68,8 @@ export class TelegramBot extends EventEmitter<{ state: []; message: [TgMessage];
   }
 
   private fail(e: unknown) {
-    if (e instanceof TelegramError && e.code === 401) return this.set("error", "Token bot không hợp lệ (Telegram trả 401). Đặt lại token.");
-    if (e instanceof TelegramError && e.code === 409) return this.set("conflict", "Bot đang được một chương trình khác nhận tin (hoặc có webhook). Mỗi token chỉ có một nơi nhận tin: hãy dùng bot riêng cho AgentRoom.");
+    if (e instanceof TelegramError && e.code === 401) return this.set("error", tr("Token bot không hợp lệ (Telegram trả 401). Đặt lại token."));
+    if (e instanceof TelegramError && e.code === 409) return this.set("conflict", tr("Bot đang được một chương trình khác nhận tin (hoặc có webhook). Mỗi token chỉ có một nơi nhận tin: hãy dùng bot riêng cho AgentRoom."));
     return this.set("error", e instanceof Error ? e.message : String(e));
   }
 
@@ -97,7 +98,7 @@ export class TelegramBot extends EventEmitter<{ state: []; message: [TgMessage];
             if (u.message) this.emit("message", u.message);
             else if (u.callback_query) this.emit("callback", u.callback_query);
           } catch (e) {
-            this.deps.log?.(`lỗi khi xử lý update ${u.update_id}: ${e instanceof Error ? e.message : e}`);
+            this.deps.log?.(trVi("lỗi khi xử lý update {update_id}: {p}", { update_id: u.update_id, p: e instanceof Error ? e.message : e }));
           }
         }
       } catch (e) {
@@ -105,7 +106,7 @@ export class TelegramBot extends EventEmitter<{ state: []; message: [TgMessage];
         if (e instanceof TelegramError && e.code === 401) { this.running = false; return this.fail(e); }
         if (e instanceof TelegramError && e.code === 409) {
           if (++conflicts > (this.deps.conflictRetries ?? 4)) { this.running = false; return this.fail(e); }
-          this.set("conflict", "Có nơi khác đang nhận tin của bot này; đang thử lại…");
+          this.set("conflict", tr("Có nơi khác đang nhận tin của bot này; đang thử lại…"));
           await this.sleep(this.deps.conflictWaitMs ?? 15_000);
           continue;
         }
