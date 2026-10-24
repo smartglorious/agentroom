@@ -545,13 +545,112 @@
       case "hosts": state.hostList = data.hosts; renderHosts(); break;
       case "telegram": state.telegram = data.status || null; renderHosts(); break;
       case "panels": state.panels = data.panels || []; renderPanels(); break;
+      case "panelResult": panelResult(data); break;
       case "locked": renderLocked(data.holder); break;
       case "profile": state.profile = data.profile; renderProfile(); break;
     }
   });
 
   // Panels contributed by plugins: a tab each, made of titled sections of text rows. Plain text only (textContent).
-  function renderPanels() {
+  // Forms and buttons of plugin panels. Everything is built with textContent/value (no HTML from plugins), and what the
+  // person types is kept in `ui.drafts` so the periodic re-render (panels are refreshed when their data changes) never eats it.
+  const ui = { open: new Set(), drafts: new Map(), confirming: new Set(), pending: new Set(), status: new Map() };
+  const fkey = (panel, action, args) => panel + "|" + action + "|" + JSON.stringify(args || {});
+
+  function buildForm(panel, action, args, form, title, inline) {
+    const key = fkey(panel, action, args);
+    const draft = ui.drafts.get(key) || {};
+    const box = el("form", "pf");
+    if (title) box.append(el("div", "pf-title", String(title)));
+    const read = () => {
+      const v = {};
+      for (const f of form.fields || []) {
+        if (f.type === "multiselect") v[f.name] = [...box.querySelectorAll(`input[data-f="${CSS.escape(f.name)}"]:checked`)].map((i) => i.value);
+        else v[f.name] = box.querySelector(`[data-f="${CSS.escape(f.name)}"]`)?.value ?? "";
+      }
+      return v;
+    };
+    for (const f of form.fields || []) {
+      const wrap = el("div", "pf-field");
+      wrap.append(el("label", "pf-label", String(f.label) + (f.required ? " *" : "")));
+      const cur = draft[f.name] !== undefined ? draft[f.name] : f.value;
+      let ctl;
+      if (f.type === "select") {
+        ctl = el("select", "pf-ctl");
+        const none = el("option", null, "—"); none.value = ""; ctl.append(none);
+        for (const o of f.options || []) { const op = el("option", null, String(o.label || o.value)); op.value = String(o.value); ctl.append(op); }
+        ctl.value = cur === undefined ? "" : String(cur);
+      } else if (f.type === "multiselect") {
+        ctl = el("div", "pf-multi");
+        const picked = new Set(Array.isArray(cur) ? cur : []);
+        for (const o of f.options || []) {
+          const row = el("label", "pf-check");
+          const cb = el("input"); cb.type = "checkbox"; cb.value = String(o.value); cb.dataset.f = f.name; cb.checked = picked.has(o.value);
+          row.append(cb, " ", String(o.label || o.value));
+          ctl.append(row);
+        }
+        if (!(f.options || []).length) ctl.append(el("span", "meta", "—"));
+      } else {
+        ctl = el(f.type === "textarea" ? "textarea" : "input", "pf-ctl");
+        if (f.type === "textarea") ctl.rows = 3; else ctl.type = "text";
+        ctl.maxLength = f.max || (f.type === "textarea" ? 2000 : 200);
+        if (f.placeholder) ctl.placeholder = String(f.placeholder);
+        ctl.value = cur === undefined ? "" : String(cur);
+      }
+      if (f.type !== "multiselect") ctl.dataset.f = f.name;
+      wrap.append(ctl);
+      if (f.help) wrap.append(el("div", "meta", String(f.help)));
+      box.append(wrap);
+    }
+    box.addEventListener("input", () => ui.drafts.set(key, read()));
+    box.addEventListener("change", () => ui.drafts.set(key, read()));
+    const actions = el("div", "pf-actions");
+    const go = el("button", "small", String(form.submit));
+    go.type = "submit"; go.disabled = ui.pending.has(key);
+    actions.append(go);
+    if (inline) actions.append(btn(tr("Hủy"), () => { ui.open.delete(key); renderPanels(true); }));
+    box.append(actions);
+    box.addEventListener("submit", (e) => {
+      e.preventDefault();
+      ui.pending.add(key); go.disabled = true;
+      send({ type: "panelAction", panel, action, values: { ...read(), __args: args || {} } });
+    });
+    return box;
+  }
+
+  function actionButton(panel, a, host) {
+    const key = fkey(panel, a.id, a.args);
+    const cls = "small" + (a.danger ? " danger" : "");
+    if (a.form) return btn(String(a.label), () => { if (ui.open.has(key)) ui.open.delete(key); else ui.open.add(key); renderPanels(true); }, cls + (ui.open.has(key) ? " on" : ""));
+    if (a.confirm && ui.confirming.has(key)) {
+      const span = el("span", "pf-confirm", tr("Chắc chắn?") + " ");
+      span.append(btn(tr("Có"), () => { ui.confirming.delete(key); ui.pending.add(key); send({ type: "panelAction", panel, action: a.id, values: { __args: a.args || {} } }); renderPanels(true); }, "small danger"), " ", btn(tr("Không"), () => { ui.confirming.delete(key); renderPanels(true); }));
+      return span;
+    }
+    const b = btn(String(a.label), () => {
+      if (a.confirm) { ui.confirming.add(key); renderPanels(true); return; }
+      ui.pending.add(key); send({ type: "panelAction", panel, action: a.id, values: { __args: a.args || {} } }); renderPanels(true);
+    }, cls);
+    b.disabled = ui.pending.has(key);
+    return b;
+  }
+
+  function panelResult(d) {
+    for (const k of [...ui.pending]) if (k.startsWith(d.panel + "|" + d.action + "|")) ui.pending.delete(k);
+    if (d.ok) for (const k of [...ui.open, ...ui.drafts.keys()]) if (k.startsWith(d.panel + "|" + d.action + "|")) { ui.open.delete(k); ui.drafts.delete(k); }
+    ui.status.set(d.panel, { ok: !!d.ok, message: String(d.message || "") });
+    renderPanels(true);
+    setTimeout(() => { ui.status.delete(d.panel); renderPanels(); }, 8000);
+  }
+
+  document.addEventListener("focusout", () => { if (ui.deferred) setTimeout(() => { if (!document.activeElement?.closest?.(".pf")) renderPanels(); }, 60); });
+
+  // Panels contributed by plugins: a tab each, made of titled sections of text rows, buttons and forms.
+  function renderPanels(force) {
+    // Do not rebuild under the person's fingers: while they are typing in a form, wait until they leave it.
+    const ae = document.activeElement;
+    if (!force && ae && ae.closest && ae.closest("section[data-plugin] .pf")) { ui.deferred = true; return; }
+    ui.deferred = false;
     const nav = document.querySelector("nav");
     const keep = new Set(state.panels.map((p) => "panel-" + p.id));
     document.querySelectorAll("nav button[data-plugin], section[data-plugin]").forEach((n) => {
@@ -567,17 +666,37 @@
         b.addEventListener("click", () => showTab(key));
         nav.insertBefore(b, $("flag"));
       }
-      nav.querySelector(`button[data-plugin="${CSS.escape(key)}"]`).textContent = p.title;
+      const tabBtn = nav.querySelector(`button[data-plugin="${CSS.escape(key)}"]`);
+      tabBtn.textContent = p.title;
+      if (p.badge) tabBtn.append(" ", el("span", "badge", String(p.badge)));
+      // keep what the person is typing: scroll position survives, form values come from `ui.drafts`
+      const top = sec.scrollTop;
       sec.replaceChildren();
+      const st = ui.status.get(p.id);
+      if (st) sec.append(el("div", "pf-status " + (st.ok ? "ok" : "err"), st.message));
       for (const s of p.sections || []) {
         sec.append(el("h4", null, String(s.title)));
-        if (!(s.rows || []).length) sec.append(el("div", "meta", "—"));
+        if (!(s.rows || []).length && !s.form) sec.append(el("div", "meta", "—"));
         for (const r of s.rows || []) {
           const row = el("div", "meta" + (r.level === "error" ? " err" : r.level === "warn" ? " warn" : ""), String(r.text));
           if (r.tag) row.prepend(el("span", "tag", String(r.tag)), " ");
           sec.append(row);
+          if ((r.actions || []).length) {
+            const bar = el("div", "pf-actions");
+            for (const a of r.actions) bar.append(actionButton(p.id, a), " ");
+            sec.append(bar);
+            for (const a of r.actions) if (a.form && ui.open.has(fkey(p.id, a.id, a.args))) sec.append(buildForm(p.id, a.id, a.args, a.form, a.label, true));
+          }
         }
+        if ((s.actions || []).length) {
+          const bar = el("div", "pf-actions");
+          for (const a of s.actions) bar.append(actionButton(p.id, a), " ");
+          sec.append(bar);
+          for (const a of s.actions) if (a.form && ui.open.has(fkey(p.id, a.id, a.args))) sec.append(buildForm(p.id, a.id, a.args, a.form, a.label, true));
+        }
+        if (s.form) sec.append(buildForm(p.id, s.form.id, {}, s.form, s.form.title, false));
       }
+      sec.scrollTop = top;
     }
   }
 

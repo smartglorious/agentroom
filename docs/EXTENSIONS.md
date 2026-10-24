@@ -1,4 +1,4 @@
-# Điểm mở rộng (plugins) — v0.12–0.13
+# Điểm mở rộng (plugins) — v0.12–0.14
 
 AgentRoom có vài điểm mở rộng để thêm tính năng mà không sửa lõi. Một plugin là một module TypeScript được **gộp vào bản build** (không tải lúc chạy), nên nó chạy với cùng quyền như extension và phải được người build tin cậy.
 
@@ -27,6 +27,7 @@ export const plugin: AgentRoomPlugin = {
 |---|---|
 | **Guard** `registerGuard(fn)` | Chạy trước mỗi lần worker dùng tool. Trả `{action: "ask"\|"deny", reason}` hoặc `undefined`. Nhận `workerId`, `tool`, `input`, `paths` (đường dẫn tuyệt đối đã suy ra), `cwd`, `host`. |
 | **Panel** `registerPanel(def)` | Thêm một tab chỉ-xem vào chat: các mục có tiêu đề, mỗi mục là các dòng chữ (`text`, `tag?`, `level?`). Chỉ là văn bản thuần. Gọi `host.panelsChanged()` khi nội dung đổi. |
+| **Nút và form trong panel** (0.14) | Hàng và mục có thể kèm `actions` (nút, tùy chọn `form`, `confirm`, `args` cố định) và `form` cuối mục (trường `text`, `textarea`, `select`, `multiselect`). Người dùng bấm → `def.onAction(actionId, values)`; chuỗi trả về hiện ở dòng trạng thái, lỗi ném ra hiện màu đỏ. `badge()` hiện số trên tab. **Host kiểm tra hết**: UI chỉ gửi id hành động và giá trị; host tra hành động trong chính nội dung panel vừa render, kiểm từng giá trị theo form đã khai báo (độ dài, `select` phải thuộc `options`, bỏ ký tự điều khiển) và tự gắn `args`. Form đang gõ dở không bị vẽ lại khi dữ liệu panel đổi. |
 | **Lệnh chat** `registerChatCommand({name, help, run})` | Người dùng gõ `/name args` trong chat hoặc Telegram: lệnh chạy trong plugin và **không bao giờ** đến worker. `run` trả chuỗi → hiện như tin hệ thống (`@` thay bằng `(at)`, đã lọc bí mật). Lỗi trong `run` thành thông báo, không làm hỏng phòng. Tên: a-z, 0-9, '-'; trùng tên bị từ chối. `/help` trên Telegram liệt kê `help` của các lệnh. |
 | **Sau khi duyệt** `onApproved(fn)` | Gọi sau khi một lệnh gọi tool được cho phép (`by: "policy"` hoặc `"user"`), kèm `tool`, `paths`… Lỗi của listener bị bỏ qua. |
 | **Tên nhánh** `setBranchNamer(fn)` | Đặt tên nhánh git cho worktree **mới** của worker (mặc định `agentroom/<id>`). Tên không hợp lệ (có `..`, bắt đầu bằng `-`, ký tự lạ) bị bỏ qua. Worktree đã có thì giữ nguyên. |

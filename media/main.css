@@ -117,3 +117,19 @@ nav button.on { opacity: 1; border-bottom: 2px solid var(--vscode-focusBorder); 
 .options.answered button.opt.picked b::before { content: "✓ "; color: var(--vscode-charts-green); }
 #replybar { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 11px; border-top: 1px solid var(--vscode-panel-border); border-left: 3px solid var(--vscode-textLink-foreground); }
 #replybar .rb { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* plugin panels: forms, buttons, result line, tab badge */
+.pf { margin: 6px 0 10px; padding: 8px; border-radius: 6px; background: var(--vscode-editor-inactiveSelectionBackground); }
+.pf-title { font-weight: 600; margin-bottom: 6px; }
+.pf-field { margin: 0 0 8px; }
+.pf-label { display: block; font-size: 11px; opacity: .8; margin-bottom: 2px; }
+.pf-ctl { width: 100%; box-sizing: border-box; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 3px 6px; }
+textarea.pf-ctl { resize: vertical; }
+.pf-multi { display: flex; flex-direction: column; gap: 2px; max-height: 120px; overflow-y: auto; }
+.pf-check { font-size: 12px; }
+.pf-actions { margin: 3px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pf-status { margin: 4px 0 8px; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+.pf-status.ok { background: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb97f) 25%, transparent); }
+.pf-status.err { background: color-mix(in srgb, var(--vscode-errorForeground, #d9534f) 25%, transparent); }
+.tab button.small.danger { background: var(--vscode-errorForeground, #d9534f); color: #fff; }
+nav .badge { display: inline-block; min-width: 14px; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 10px; text-align: center; }

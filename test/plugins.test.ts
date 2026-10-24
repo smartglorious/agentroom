@@ -207,3 +207,66 @@ test("branch namer: used for a new worktree, validated, and ignored when it retu
   const dir2 = await ensureWorktree(repo, { id: "qa", worktree: true });
   assert.equal(execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir2, encoding: "utf8" }).trim(), "agentroom/qa");
 });
+
+import { validateForm } from "../src/core/plugins";
+
+const FORM = { submit: "Gửi", fields: [
+  { name: "team", label: "Đội", type: "select" as const, required: true, options: [{ value: "a" }, { value: "b" }] },
+  { name: "title", label: "Tiêu đề", type: "text" as const, required: true, max: 10 },
+  { name: "body", label: "Nội dung", type: "textarea" as const },
+  { name: "areas", label: "Vùng", type: "multiselect" as const, options: [{ value: "src/**" }, { value: "docs/**" }] },
+] };
+
+test("validateForm: cleans text, keeps newlines only in textarea, enforces options, required and length", () => {
+  const ok = validateForm(FORM, { team: "a", title: " hi\u0000 ", body: "l1\r\nl2\u0007", areas: ["src/**"] });
+  assert.deepEqual(ok, { values: { team: "a", title: "hi", body: "l1\nl2", areas: ["src/**"] } });
+  assert.ok("error" in validateForm(FORM, { team: "zzz", title: "x" }), "select outside options");
+  assert.ok("error" in validateForm(FORM, { team: "a", title: "" }), "required empty");
+  assert.ok("error" in validateForm(FORM, { team: "a", title: "x".repeat(11) }), "too long");
+  assert.ok("error" in validateForm(FORM, { team: "a", title: "x", areas: ["/etc/**"] }), "multiselect outside options");
+  assert.ok("error" in validateForm(FORM, { team: "a", title: { evil: 1 } }), "non-string value");
+  assert.deepEqual(validateForm(FORM, { team: "a", title: "x", areas: "docs/**" }), { values: { team: "a", title: "x", body: "", areas: ["docs/**"] } });
+});
+
+function panelRig() {
+  const calls: [string, unknown][] = [];
+  let boom = false;
+  const m = new PluginManager([{ id: "demo", activate: (h) => h.registerPanel({
+    id: "main", title: () => "Demo", badge: () => 120,
+    sections: () => [
+      { title: "Items", rows: [
+        { text: "one", actions: [{ id: "drop", label: "Drop", args: { item: "1" }, confirm: true }] },
+        { text: "two", actions: [{ id: "drop", label: "Drop", args: { item: "2" } }] },
+      ], form: { id: "send", submit: "Gửi", fields: FORM.fields } },
+    ],
+    onAction: (a, v) => { if (boom) throw new Error("hỏng rồi"); calls.push([a, v]); return a === "drop" ? undefined : "đã gửi"; },
+  }) }]);
+  m.activate({ room: undefined as never, config: undefined as never, root: "/x", log: () => {} });
+  return { m, calls, boom: () => { boom = true; } };
+}
+
+test("invokePanelAction: unknown panel/action refused; row args picked by echo and host-owned", async () => {
+  const { m, calls } = panelRig();
+  assert.equal((await m.invokePanelAction("demo-main", "nope", {})).ok, false);
+  assert.equal((await m.invokePanelAction("other", "drop", {})).ok, false);
+  const r = await m.invokePanelAction("demo-main", "drop", { __args: { item: "2" } });
+  assert.deepEqual(r, { ok: true, message: "Xong." });
+  assert.deepEqual(calls[0], ["drop", { item: "2" }]);
+  // The UI cannot inject args the panel did not declare.
+  await m.invokePanelAction("demo-main", "drop", { __args: { item: "1" }, item: "999", admin: "1" });
+  assert.deepEqual(calls[1], ["drop", { item: "1" }]);
+});
+
+test("invokePanelAction: form values validated before the plugin runs; plugin errors become a failed result; badge capped", async () => {
+  const { m, calls, boom } = panelRig();
+  const bad = await m.invokePanelAction("demo-main", "send", { team: "evil", title: "x" });
+  assert.equal(bad.ok, false);
+  assert.equal(calls.length, 0, "plugin not called with invalid values");
+  const good = await m.invokePanelAction("demo-main", "send", { team: "b", title: "t", body: "hello", areas: ["docs/**"] });
+  assert.deepEqual(good, { ok: true, message: "đã gửi" });
+  assert.deepEqual(calls[0], ["send", { team: "b", title: "t", body: "hello", areas: ["docs/**"] }]);
+  boom();
+  const failed = await m.invokePanelAction("demo-main", "send", { team: "b", title: "t" });
+  assert.deepEqual(failed, { ok: false, message: "hỏng rồi" });
+  assert.equal(m.panels()[0].badge, 99);
+});
