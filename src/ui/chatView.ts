@@ -9,6 +9,7 @@ import type { RoomConfig } from "../core/types";
 import type { UsageRange, UsageStore } from "../core/usage";
 import type { WebhookHandler } from "../core/webhooks";
 import type { HostManager } from "../remote/host";
+import type { PluginManager } from "../core/plugins";
 import type { TelegramPanel } from "./telegramPanel";
 
 /** Messages the webview sends to the extension. */
@@ -45,6 +46,7 @@ export interface ViewContext {
   config: RoomConfig;
   hosts?: HostManager;
   telegram?: TelegramPanel;
+  plugins?: PluginManager;
 }
 
 export interface ViewHandlers {
@@ -87,7 +89,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.ctx = ctx;
     this.locked = undefined;
     if (!ctx) return void this.post({ type: "init", state: null });
-    const { room, cron, hooks, hosts, telegram } = ctx;
+    const { room, cron, hooks, hosts, telegram, plugins } = ctx;
     const sub = <T extends unknown[]>(target: { on(e: never, h: never): unknown; off(e: never, h: never): unknown }, event: string, map: (...a: T) => unknown) => {
       const h = (...a: T) => this.post(map(...a));
       target.on(event as never, h as never);
@@ -106,12 +108,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (hooks) sub(hooks, "call", () => this.hooksPayload());
     if (hosts) sub(hosts, "change", () => this.hostsPayload());
     if (telegram) sub(telegram, "change", () => this.telegramPayload());
+    if (plugins) sub(plugins, "panels", () => ({ type: "panels", panels: plugins.panels() }));
     this.post(this.initPayload());
   }
 
   private initPayload() {
     const c = this.ctx!;
-    return { type: "init", state: c.room.snapshot(), usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload(), telegram: this.telegramPayload() };
+    return { type: "init", state: c.room.snapshot(), usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload(), telegram: this.telegramPayload(), panels: c.plugins?.panels() ?? [] };
   }
 
   private telegramPayload() {

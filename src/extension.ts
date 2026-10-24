@@ -12,7 +12,9 @@ import { PIN_FORMAT, hashPin } from "./channels/telegram/pin";
 import { PairedUser, TelegramService, TelegramSettings } from "./channels/telegram/service";
 import { findExecutable } from "./core/cli";
 import { resolveLang, setLang, tr, trVi } from "./core/i18n";
+import { plugins as bundledPlugins } from "agentroom:plugins";
 import { IssueStore } from "./core/issues";
+import { PluginManager } from "./core/plugins";
 import { VERSION } from "./core/version";
 
 const TELEGRAM_FAULT = /lỗi|không (gửi|khởi động)|failed|error/i;
@@ -64,6 +66,7 @@ interface Live {
   root: string;
   usage: UsageStore;
   config: RoomConfig;
+  plugins: PluginManager;
 }
 
 let live: Live | undefined;
@@ -72,6 +75,7 @@ function dispose() {
   if (!live) return;
   live.room.stopAll();
   live.room.plan?.stop();
+  live.plugins.dispose();
   live.cron.stop();
   live.hookServer?.dispose();
   live.telegram?.stop();
@@ -196,6 +200,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
       const usage = new UsageStore(stateDir);
       const issues = new IssueStore(join(stateDir, "issues.json"), { version: VERSION, platform: process.platform, node: process.version, scrub: [[ws, "<project>"], [homedir(), "~"]] });
 
+      const plugins = new PluginManager(bundledPlugins);
+
       let hosts: HostManager | undefined;
       if (config.hosts.length) {
         const runnerPath = join(ctx.extensionPath, "dist", "runner.mjs");
@@ -235,6 +241,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
         },
         home: homedir(),
         issues,
+        plugins,
         planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
         planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });
@@ -287,8 +294,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
         }
       }
 
-      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config };
-      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel };
+      plugins.activate({ room, config, root: ws, log: (t) => out.appendLine(`[plugin] ${t}`) });
+      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config, plugins };
+      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel, plugins };
       view.attach(vctx);
       void startTelegram().catch((e) => { const m = trVi("không khởi động được: {p}", { p: e instanceof Error ? e.message : e }); out.appendLine(`[telegram] ${m}`); live?.room.noteIssue({ kind: "error", source: "telegram", title: m }); });
     } catch (e) {

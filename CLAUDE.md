@@ -18,10 +18,10 @@ npm run bench:tokens   # đo token trước/sau mỗi thay đổi liên quan pro
 
 ## Bản đồ
 
-- `src/core/` lõi không phụ thuộc VS Code: `room.ts` (điều phối), `router.ts`, `scheduler.ts`, `tasks.ts`, `prompt.ts`, `memory.ts`, `skills.ts`, `usage.ts`, `plan.ts` (hạn mức gói), `autonomy.ts` (chính sách Manual/Auto/Full), `cron.ts`, `cleanup.ts`, `issues.ts` (gom lỗi cục bộ), `i18n.ts` + `i18n-en.ts` (hai ngôn ngữ), `webhooks.ts`, `lock.ts`, `config.ts`.
+- `src/core/` lõi không phụ thuộc VS Code: `room.ts` (điều phối), `router.ts`, `scheduler.ts`, `tasks.ts`, `prompt.ts`, `memory.ts`, `skills.ts`, `usage.ts`, `plan.ts` (hạn mức gói), `autonomy.ts` (chính sách Manual/Auto/Full), `cron.ts`, `cleanup.ts`, `issues.ts` (gom lỗi cục bộ), `i18n.ts` + `i18n-en.ts` (hai ngôn ngữ), `plugins.ts` (điểm mở rộng), `webhooks.ts`, `lock.ts`, `config.ts`.
 - `src/adapters/` Claude (Agent SDK), Codex, remote. `src/remote/` runner và SSH. `src/channels/telegram/`. `src/daemon/`. `src/mcp/` server MCP của phòng. `src/ui/` + `media/` giao diện.
 - `test/` test đơn vị; `scripts/live/` kịch bản thật; `scripts/validate-agentroom.mjs` (bản sao nằm ở Phụ lục A của `docs/SETUP-GUIDE.md`: sửa một nơi thì cập nhật nơi kia).
-- Tài liệu: `docs/DESIGN.md`, `SETUP-GUIDE.md`, `MULTI-MACHINE.md`, `TELEGRAM.md`, `DAEMON.md`, `PLAN-USAGE.md`, `AUTONOMY.md`, `PLAN-v0.8-tokens.md`, `CLEANUP.md`, `ISSUES.md`, `I18N.md`, `ROADMAP.md` (việc sẽ làm sau).
+- Tài liệu: `docs/DESIGN.md`, `SETUP-GUIDE.md`, `MULTI-MACHINE.md`, `TELEGRAM.md`, `DAEMON.md`, `PLAN-USAGE.md`, `AUTONOMY.md`, `PLAN-v0.8-tokens.md`, `CLEANUP.md`, `ISSUES.md`, `I18N.md`, `EXTENSIONS.md`, `ROADMAP.md` (việc sẽ làm sau).
 
 ## Quy tắc đã chốt (đừng phá)
 
@@ -37,6 +37,8 @@ npm run bench:tokens   # đo token trước/sau mỗi thay đổi liên quan pro
 10. **README theo version**: mỗi lần tăng `version` trong `package.json` phải cập nhật cùng commit: `CHANGELOG.md` (mục mới ở đầu), README (lệnh cài `.vsix`, bảng tính năng, danh sách tài liệu, settings) và `CLAUDE.md` nếu bản đồ/quy tắc đổi. `test/readme.test.ts` sẽ đỏ nếu quên.
 11. **Không tự xóa file của người dùng.** Dọn dẹp (`src/core/cleanup.ts`) chỉ *di chuyển* vào `.agentroom/cleanup/`, chỉ khi chủ máy yêu cầu (lệnh VS Code / CLI daemon); không có tool cho agent, không bỏ qua git-tracked, `.git`, `node_modules`.
 12. **Chuỗi hiển thị cho người dùng đi qua `tr("tiếng Việt")`** (`src/core/i18n.ts`, bản Anh ở `i18n-en.ts`), không gọi `tr` ở mức module. Prompt gửi cho worker, mô tả tool MCP và lý do chặn của `autonomy.ts` giữ tiếng Việt cố ý (tiền tố ổn định). Log và tiêu đề issue dùng `trVi`. `test/i18n.test.ts` bắt thiếu bản dịch.
+
+13. **Plugin chỉ được làm chặt hơn, không bao giờ nới quyền** (`src/core/plugins.ts`): guard biến allow thành ask/deny, không ngược lại; guard lỗi = hỏi. Mã của plugin riêng nằm ngoài repo công khai (`src/plugins/private.ts` không được theo dõi ở đây).
 
 ## Cách làm việc
 
