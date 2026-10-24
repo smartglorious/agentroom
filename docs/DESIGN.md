@@ -1,6 +1,6 @@
 # AgentRoom — Thiết kế & Kế hoạch triển khai
 
-> Phần bổ sung v0.2–v0.4 (trí nhớ, skills, chi phí, Inspector, cron, webhook) nằm ở `docs/PLAN-v0.2.md`. Nhiều máy qua SSH (v0.5) ở `docs/MULTI-MACHINE.md`.
+> Phần bổ sung v0.2–v0.4 (trí nhớ, skills, chi phí, Inspector, cron, webhook) nằm ở `docs/PLAN-v0.2.md`. Nhiều máy qua SSH (v0.5) ở `docs/MULTI-MACHINE.md`. Điều khiển từ điện thoại (v0.6) ở `docs/TELEGRAM.md`.
 
 > VS Code extension cho phép nhiều **AI worker** (mỗi worker là một persona: vai trò + kỹ năng + hướng dẫn riêng) chạy trên **Claude Code** hoặc **Codex**, dùng chung account, cùng làm việc trong **một group chat**.
 

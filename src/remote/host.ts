@@ -224,6 +224,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
     const p = this.pending.get(m.id);
     if (!p) return;
     switch (m.t) {
+      case "started": p.req.onCwd?.(m.cwd); break;
       case "activity": p.req.onActivity(m.text); break;
       case "approve":
         Promise.resolve(p.req.approve(m.tool, m.input)).then(

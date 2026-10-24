@@ -15,7 +15,7 @@
 5. **Sự thật lấy từ repo.** Lệnh build/test, cấu trúc thư mục, stack đều phải lấy từ file thật (package.json, Makefile, CI, …). Không đoán. Không tìm thấy thì ghi `TODO: xác nhận với người dùng`.
 6. Ghi lại mọi thứ đã làm để báo cáo ở Bước 9.
 
-## Kiến thức nền về AgentRoom v0.5 (để cấu hình đúng)
+## Kiến thức nền về AgentRoom v0.6 (để cấu hình đúng)
 
 - AgentRoom là VS Code extension. Nó đọc **`.agentroom/workers.yaml`** ở thư mục gốc workspace.
 - **Account** là một login Claude Code hoặc Codex dùng chung. **Worker** là một persona (vai trò, kỹ năng, hướng dẫn) chạy trên một account. Nhiều worker có thể dùng chung một account.
@@ -47,6 +47,7 @@
 - **Lịch chạy (`schedules`)**: cron 5 trường, chỉ chạy khi VS Code đang mở. Lịch bị lỡ khi VS Code đóng được chạy bù **một** lần nếu trễ không quá `catchUpHours` (mặc định 6). `builtin: consolidate-memory` bảo worker tự gom trí nhớ.
 - **Webhook (`webhooks`)**: máy chủ chỉ nghe `127.0.0.1:<agentroom.hookPort>` (mặc định 47321), đường dẫn `/hook/<id>`. **Bắt buộc ký HMAC SHA-256** (header `X-Hub-Signature-256`, tương thích GitHub) với secret lấy từ biến môi trường `secretEnv`. Muốn nhận từ Internet thì người dùng tự mở tunnel.
 - **Nhiều máy (`hosts`)**: worker có thể chạy trên máy khác qua SSH. Khai báo máy ở `hosts:`, rồi gán `host:` cho **account** (account = một đăng nhập Claude/Codex trên **một** máy). Worker dùng account đó sẽ chạy ở máy đó, trong clone `workdir` (hoặc `hosts.<tên>.repo`), tạo worktree/nhánh `agentroom/<id>` ngay trên máy đó. AgentRoom tự cài một "runner" (1 file ~2 MB) vào `~/.agentroom/runner/` của máy đó qua SSH; máy đó cần Node ≥ 20 và `claude`/`codex` đã đăng nhập. Không cần mở VS Code ở máy đó, không cần port forwarding. Chi tiết: `docs/MULTI-MACHINE.md`.
+- **Telegram (điều khiển từ điện thoại)** là cài đặt của **người dùng**, không nằm trong `workers.yaml`: token bot ở kho bí mật của VS Code, bật bằng lệnh "AgentRoom: Telegram — thiết lập", cần một bot **riêng** (không dùng chung bot đang gắn với chương trình khác). **Agent không được hỏi, nhận hay ghi token vào bất kỳ file nào.** Chi tiết: `docs/TELEGRAM.md`.
 - **Một cửa sổ cho mỗi thư mục `.agentroom/`**: cửa sổ thứ hai thấy thẻ "đang chạy ở cửa sổ khác" và không chạy room (file `.agentroom/state/room.lock`). Đừng mở nhiều cửa sổ để "mỗi cửa sổ một worker".
 - **Chuỗi chỉ-đọc (nguồn không tin cậy)**: webhook có `readOnly: true` chạy worker chỉ với tool đọc (tool ghi/Bash/web bị cấm hẳn). Câu trả lời và task tạo ra trong lượt đó **không tự đánh thức ai** qua `@mention`; người dùng đọc rồi tự nhắn `@<worker> ...` để tiếp tục. Nội dung payload luôn được bọc trong `<untrusted_payload>`.
 
@@ -537,6 +538,7 @@ Gửi người dùng báo cáo gồm:
    - Đọc và sửa các `SOUL.md` nháp.
    - Nếu có máy từ xa, với **mỗi máy** (agent không tự làm được các việc này): (1) `ssh <ssh>` vào được bằng khoá và đã xác nhận host key (chạy một lần trong terminal); (2) Node ≥ 20; (3) Claude Code/Codex đã cài và đăng nhập; (4) đã clone repo về đúng `repo`/`workdir` và `git pull` mới; (5) clone đó push được tới `origin`. Sau đó chạy lệnh **"AgentRoom: Kiểm tra kết nối các máy"** (hoặc tab *Máy* → *Kiểm tra tất cả*) và cho phép hộp thoại xác nhận host.
    - Chỉ mở **một** cửa sổ VS Code cho repo này (cửa sổ thứ hai sẽ bị chặn).
+   - (Tuỳ chọn) Muốn điều khiển từ điện thoại: tự tạo một bot Telegram **riêng** ở @BotFather rồi chạy lệnh **"AgentRoom: Telegram — thiết lập"** trong VS Code (xem `docs/TELEGRAM.md`). Đừng gửi token cho agent.
    - Nếu có webhook: đặt biến môi trường `secretEnv` (giá trị là một chuỗi ngẫu nhiên dài) **trước khi mở VS Code**, và dùng cùng giá trị đó làm secret khi cấu hình webhook ở bên gửi (GitHub: Settings → Webhooks → Secret). Muốn nhận từ GitHub thì tự mở tunnel tới cổng `agentroom.hookPort`.
    - Nếu dùng Codex và muốn thấy chi phí: điền `agentroom.pricing` trong Settings (USD / 1 triệu token). Bỏ trống thì Codex chỉ hiện token.
    - Cài extension AgentRoom (file `.vsix`: Extensions → `…` → Install from VSIX).
@@ -569,6 +571,7 @@ Gửi người dùng báo cáo gồm:
 | Webhook trả 503 | Biến môi trường `secretEnv` chưa được đặt cho VS Code | Đặt biến rồi khởi động lại VS Code |
 | Webhook chạy nhưng không ai làm tiếp | Chuỗi chỉ-đọc không tự gọi ai | Đúng thiết kế: đọc báo cáo rồi nhắn `@<worker> ...` để tiếp tục |
 | Cảnh báo "skills" khi nạp | `useSkills` trỏ tới skill không tồn tại, hoặc `SKILL.md` thiếu `description` | Chạy lại Bước 8, sửa theo thông báo |
+| Telegram báo "Bot đang được một chương trình khác nhận tin" | Bot đang dùng chung với chương trình khác (mỗi token một nơi nhận tin) | Tạo bot riêng cho AgentRoom (@BotFather → /newbot) |
 | Thẻ "Phòng này đang chạy ở một cửa sổ khác" | Có cửa sổ khác đang điều phối thư mục này | Dùng cửa sổ đó, hoặc bấm *Chiếm quyền điều phối* |
 | "Chưa xác nhận host key" / "SSH từ chối đăng nhập" / "Không tìm thấy node" / "Không tìm thấy CLI claude" | Chuẩn bị máy từ xa chưa đủ | Xem bảng xử lý sự cố ở `docs/MULTI-MACHINE.md` (mục 10) |
 | Worker từ xa làm xong nhưng code không thấy ở máy này | Thay đổi nằm trong clone của máy đó | Worker phải `git push origin agentroom/<id>`; rồi `git fetch` ở máy này |
@@ -579,7 +582,7 @@ Gửi người dùng báo cáo gồm:
 ## Phụ lục A: `validate-agentroom.mjs`
 
 ```js
-// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.5.
+// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.6.
 // Cách chạy: node validate-agentroom.mjs <đường-dẫn-repo>
 // Cần: npm i yaml croner (cài ở thư mục tạm, không cài vào repo).
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
@@ -599,6 +602,15 @@ const ID = /^[a-z][a-z0-9_-]*$/;
 const isStr = (v) => typeof v === "string" && v.length > 0;
 const isBool = (v) => typeof v === "boolean";
 const strList = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
+
+// ---- khóa cấp cao nhất ----
+for (const k of Object.keys(cfg)) {
+  if (["hosts", "accounts", "workers", "schedules", "webhooks"].includes(k)) continue;
+  warns.push(/telegram|channel|bot/i.test(k)
+    ? `Khóa "${k}" bị bỏ qua: Telegram được cấu hình trong cài đặt VS Code của người dùng (lệnh "AgentRoom: Telegram — thiết lập"), KHÔNG đặt token hay cấu hình bot trong file của repo`
+    : `Khóa cấp cao nhất "${k}" không được dùng (bị bỏ qua)`);
+}
+if (/\d{6,}:[A-Za-z0-9_-]{30,}/.test(readFileSync(file, "utf8"))) errors.push("workers.yaml có chuỗi giống TOKEN BOT TELEGRAM — xoá ngay và tạo token mới ở @BotFather (/revoke); token không được nằm trong repo");
 
 // ---- skills có sẵn (cùng thứ tự ưu tiên với extension) ----
 const skillDirs = [join(repo, ".agentroom", "skills"), join(repo, ".claude", "skills"), join(homedir(), ".claude", "skills")];

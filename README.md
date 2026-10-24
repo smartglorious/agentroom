@@ -2,7 +2,7 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, tính cách, trí nhớ riêng) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
+Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
 
 ## Tính năng
 
@@ -17,6 +17,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 | **Lịch chạy** | Cron có timezone, chạy bù khi VS Code vừa mở lại, nút *Chạy ngay*. |
 | **Webhook** | `127.0.0.1`, bắt buộc HMAC, chống trùng, giới hạn tần suất, payload coi như dữ liệu không tin cậy, chế độ chỉ-đọc. |
 | **Nhiều máy** | Worker chạy trên máy này **và** trên các máy khác qua SSH, cùng lúc, cùng một repo git. Tự cài runner, không cần port forwarding, duyệt quyền xuyên máy, tab *Máy*. |
+| **Điện thoại (Telegram)** | Nhắn cho đội, nhận tóm tắt, cảnh báo và thẻ xin quyền; duyệt việc sửa file *an toàn* bằng nút (PIN tuỳ chọn). Bot riêng, chỉ một người đã ghép cặp, tin tồn đọng không bị phát lại. |
 | **Một cửa sổ điều phối** | Khóa `.agentroom/state/room.lock`: cửa sổ thứ hai không chạy song song làm hỏng dữ liệu, có thể chiếm quyền. |
 | **An toàn** | Worktree riêng cho từng dev, thẻ duyệt quyền (Claude), sandbox (Codex), xác nhận trước khi ssh tới host trong cấu hình repo. |
 
@@ -29,7 +30,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 ## Cài từ file .vsix
 
 ```bash
-code --install-extension agentroom-0.5.0.vsix
+code --install-extension agentroom-0.6.0.vsix
 ```
 
 Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → chọn file.
@@ -39,7 +40,7 @@ Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → ch�
 ```bash
 npm install
 npm run build        # dist/extension.js + dist/runner.mjs (file được cài lên máy từ xa)
-npm test             # 96 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH
+npm test             # 127 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH, Telegram
 npm run test:live    # kịch bản thật với Claude (tốn vài cent, cần đã đăng nhập claude)
 npm run test:ssh     # nhiều máy qua sshd THẬT + Claude thật (cần openssh-server, root: scripts/live/ssh-sandbox.sh up)
 npm run package      # agentroom-<version>.vsix
@@ -92,11 +93,11 @@ Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1). Mỗi worker còn có 
 
 ### Settings
 
-`agentroom.maxAgentHops`, `agentroom.contextMessages`, `agentroom.memoryBudgetChars`, `agentroom.inspector.keepTurns` (0 = tắt), `agentroom.pricing` (giá Codex, USD/1M token; bỏ trống thì Codex chỉ có token), `agentroom.hookPort`, `agentroom.claudePath`, `agentroom.codexPath`.
+`agentroom.maxAgentHops`, `agentroom.contextMessages`, `agentroom.memoryBudgetChars`, `agentroom.inspector.keepTurns` (0 = tắt), `agentroom.pricing` (giá Codex, USD/1M token; bỏ trống thì Codex chỉ có token), `agentroom.hookPort`, `agentroom.claudePath`, `agentroom.codexPath`, và nhóm `agentroom.telegram.*` (chỉ đặt được trong cài đặt người dùng).
 
 ### Lệnh
 
-*Tạo cấu hình workers mẫu*, *Nạp lại workers.yaml*, *Dừng tất cả worker*, *Gom trí nhớ worker*, *Tạo skill mới*, *Kiểm tra kết nối các máy (hosts)*, *Chiếm quyền điều phối*.
+*Tạo cấu hình workers mẫu*, *Nạp lại workers.yaml*, *Dừng tất cả worker*, *Gom trí nhớ worker*, *Tạo skill mới*, *Kiểm tra kết nối các máy (hosts)*, *Chiếm quyền điều phối*, *Telegram — thiết lập / tạo mã ghép cặp / ngắt ghép cặp / đặt PIN / tắt*.
 
 ## Tool agent dùng để phối hợp (MCP `agentroom`)
 

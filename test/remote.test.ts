@@ -515,3 +515,30 @@ test("room: when the connection to a host dies while an approval is pending, the
     assert.deepEqual(errs[0].to, []);
   } finally { manager.closeAll(); }
 });
+
+test("remote: the runner reports the real folder, so approvals are judged against it (not against a name pattern)", async () => {
+  const base = repo();
+  const sp = inProcess(tmp());
+  const c = new HostConnection({ spec: spec(), spawn: sp.spawn });
+  const seen: string[] = [];
+  const { req } = request({ prompt: "[ACT]", onCwd: (d) => seen.push(d) }, { base });
+  await c.runTurn(req);
+  assert.deepEqual(seen, [join(base, ".agentroom", "worktrees", "be")]);
+  c.close();
+
+  const config = remoteCfg();
+  config.hosts[0].repo = base;
+  const manager = new HostManager(config.hosts, { spawnerFor: () => ({ spawn: inProcess(tmp()).spawn }) });
+  const { room } = makeRoom(new Fake(() => "ok"), { config, remote: new RemoteAdapter(manager) });
+  try {
+    room.post("user", "@be [APPROVE] xin quyền");
+    await until2(() => room.snapshot().approvals.length === 1);
+    const a = room.snapshot().approvals[0];
+    assert.equal(a.host, "box");
+    assert.equal(a.cwd, join(base, ".agentroom", "worktrees", "be"), "the approval carries the real worktree path");
+    room.respondApproval(a.id, false);
+    await idle(room);
+  } finally { manager.closeAll(); }
+});
+
+const until2 = async (pred: () => boolean, ms = 3000) => { const t = Date.now(); while (!pred()) { if (Date.now() - t > ms) throw new Error("timeout"); await new Promise((r) => setTimeout(r, 10)); } };

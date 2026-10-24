@@ -19,6 +19,8 @@ export interface TurnRequest {
   /** Set when the account lives on another machine: where and with which skills to run. */
   remote?: { host: string; base: string; skills: { name: string; dir: string }[] };
   signal: AbortSignal;
+  /** The remote runner reports the folder the turn really runs in (after any worktree was made). */
+  onCwd?(cwd: string): void;
   /** Short progress lines ("Edit src/a.ts", "Bash npm test") for the UI. */
   onActivity(text: string): void;
   /** Asks the human; resolves true to allow the tool call. */

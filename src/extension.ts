@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { ClaudeAdapter } from "./adapters/claude";
 import { CodexAdapter, PriceTable } from "./adapters/codex";
 import { RemoteAdapter } from "./adapters/remote";
+import { BotApi } from "./channels/telegram/api";
+import { TelegramBot } from "./channels/telegram/bot";
+import { PIN_FORMAT, hashPin } from "./channels/telegram/pin";
+import { PairedUser, TelegramService, TelegramSettings } from "./channels/telegram/service";
 import { findExecutable } from "./core/cli";
 import { parseConfig, SAMPLE_CONFIG } from "./core/config";
 import { CronEngine } from "./core/cron";
@@ -17,15 +21,22 @@ import { SKILL_NAME, SKILL_TEMPLATE, SkillDrafts, SkillRegistry, checkWorkerSkil
 import { RoomStore } from "./core/store";
 import { SYSTEM } from "./core/types";
 import { UsageStore } from "./core/usage";
+import type { RoomConfig } from "./core/types";
 import { WebhookHandler, WebhookServer } from "./core/webhooks";
 import { HostManager, fingerprint } from "./remote/host";
 import { ensureWorktree, localBase } from "./core/worktree";
 import { AgentRoomMcp } from "./mcp/server";
 import { ChatViewProvider, ViewContext } from "./ui/chatView";
+import { TelegramPanel } from "./ui/telegramPanel";
+import { createHash } from "node:crypto";
+
+const TOKEN_KEY = "agentroom.telegram.token";
+const PIN_KEY = "agentroom.telegram.pin";
 
 interface Live {
   lock: RoomLock;
   hosts?: HostManager;
+  telegram?: TelegramService;
   room: Room;
   mcp: AgentRoomMcp;
   cron: CronEngine;
@@ -33,6 +44,8 @@ interface Live {
   hookServer?: WebhookServer;
   inspector: TurnInspector;
   root: string;
+  usage: UsageStore;
+  config: RoomConfig;
 }
 
 let live: Live | undefined;
@@ -42,6 +55,7 @@ function dispose() {
   live.room.stopAll();
   live.cron.stop();
   live.hookServer?.dispose();
+  live.telegram?.stop();
   live.hosts?.closeAll();
   live.mcp.dispose();
   live.lock.release();
@@ -66,6 +80,46 @@ export async function activate(ctx: vscode.ExtensionContext) {
   const out = vscode.window.createOutputChannel("AgentRoom");
   ctx.subscriptions.push(out);
   let forceTakeOver = false;
+  const panel = new TelegramPanel();
+  const pinHolder: { hash?: string } = {};
+
+  /** Starts (or restarts) the Telegram channel for the room that is running, if it is switched on and has a token. */
+  const startTelegram = async () => {
+    live?.telegram?.stop();
+    if (live) live.telegram = undefined;
+    panel.attach(undefined, "disabled");
+    const room = live?.room;
+    const tcfg = vscode.workspace.getConfiguration("agentroom.telegram");
+    if (!room || !tcfg.get<boolean>("enabled", false)) return;
+    const token = await ctx.secrets.get(TOKEN_KEY);
+    if (!token) return panel.attach(undefined, "no-token");
+    pinHolder.hash = await ctx.secrets.get(PIN_KEY);
+    const pairedKey = `agentroom.telegram.paired.${createHash("sha256").update(token).digest("hex").slice(0, 12)}`;
+    const svc = new TelegramService({
+      room, usage: live!.usage, config: live!.config,
+      bot: new TelegramBot(new BotApi(token), { log: (t) => out.appendLine(`[telegram] ${t}`) }),
+      settings: liveSettings,
+      stores: {
+        paired: { get: () => ctx.globalState.get<PairedUser>(pairedKey), set: async (u) => { await ctx.globalState.update(pairedKey, u); } },
+        pin: { get: () => pinHolder.hash },
+      },
+      log: (t) => out.appendLine(t),
+      workspaceName: root() ? root()!.split(/[\\/]/).pop() : undefined,
+    });
+    live!.telegram = svc;
+    panel.attach(svc);
+    await svc.start();
+  };
+  /** Settings are re-read on every use so changes apply without a restart. */
+  const liveSettings = (): TelegramSettings => {
+    const t = vscode.workspace.getConfiguration("agentroom.telegram");
+    return {
+      detail: t.get("detail", "summary") as TelegramSettings["detail"],
+      approveFromPhone: t.get("approveFromPhone", "safe") as TelegramSettings["approveFromPhone"],
+      summaryChars: Math.min(3000, Math.max(100, t.get<number>("summaryChars", 600))),
+      quietHours: t.get("quietHours", ""),
+    };
+  };
 
   /** Hosts are defined by the repo's workers.yaml, so the user approves each one before we ssh anywhere. */
   const confirmHost = (ws: string) => async (spec: import("./core/types").HostDef) => {
@@ -194,9 +248,10 @@ export async function activate(ctx: vscode.ExtensionContext) {
         }
       }
 
-      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir };
-      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts };
+      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config };
+      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel };
       view.attach(vctx);
+      void startTelegram().catch((e) => out.appendLine(`[telegram] không khởi động được: ${e instanceof Error ? e.message : e}`));
     } catch (e) {
       dispose();
       lock.release();
@@ -235,6 +290,54 @@ export async function activate(ctx: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("agentroom.reload", load),
     vscode.commands.registerCommand("agentroom.takeOver", async () => { forceTakeOver = true; await load(); }),
+    vscode.commands.registerCommand("agentroom.telegram.setup", async () => {
+      const token = await vscode.window.showInputBox({
+        title: "AgentRoom — Telegram",
+        prompt: "Dán token của bot (từ @BotFather). Hãy dùng một bot RIÊNG cho AgentRoom, không dùng chung với chương trình khác.",
+        password: true, ignoreFocusOut: true,
+        validateInput: (v) => (/^\d{5,}:[\w-]{20,}$/.test(v.trim()) ? undefined : "Token có dạng 123456789:AAxxxxxxxx…"),
+      });
+      if (!token) return;
+      try {
+        const me = await new BotApi(token.trim()).getMe();
+        await ctx.secrets.store(TOKEN_KEY, token.trim());
+        await vscode.workspace.getConfiguration("agentroom.telegram").update("enabled", true, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(`Đã kết nối bot @${me.username ?? me.first_name}.`);
+        await startTelegram();
+        await vscode.commands.executeCommand("agentroom.telegram.pair");
+      } catch (e) {
+        vscode.window.showErrorMessage(`Telegram: ${e instanceof Error ? e.message : e}`);
+      }
+    }),
+    vscode.commands.registerCommand("agentroom.telegram.pair", async () => {
+      const svc = live?.telegram;
+      if (!svc) return vscode.window.showWarningMessage("Telegram chưa chạy. Chạy “AgentRoom: Telegram — thiết lập” trước.");
+      const { code } = svc.createPairingCode();
+      const who = svc.status().bot ?? "bot của bạn";
+      out.appendLine(`[telegram] mã ghép cặp: ${code} (10 phút)`);
+      const pick = await vscode.window.showInformationMessage(`Mở Telegram, chat RIÊNG với ${who} và gửi:  /pair ${code}   (hết hạn sau 10 phút)`, "Sao chép lệnh");
+      if (pick) await vscode.env.clipboard.writeText(`/pair ${code}`);
+    }),
+    vscode.commands.registerCommand("agentroom.telegram.unpair", async () => {
+      await live?.telegram?.unpair();
+      vscode.window.showInformationMessage("Đã ngắt ghép cặp Telegram.");
+    }),
+    vscode.commands.registerCommand("agentroom.telegram.setPin", async () => {
+      const pin = await vscode.window.showInputBox({ title: "PIN duyệt quyền từ điện thoại", prompt: "4–8 chữ số. Để trống để bỏ PIN.", password: true, ignoreFocusOut: true, validateInput: (v) => (!v || PIN_FORMAT.test(v) ? undefined : "Chỉ 4–8 chữ số") });
+      if (pin === undefined) return;
+      if (!pin) { await ctx.secrets.delete(PIN_KEY); pinHolder.hash = undefined; panel.attach(panel.service); return void vscode.window.showInformationMessage("Đã bỏ PIN."); }
+      const again = await vscode.window.showInputBox({ title: "Nhập lại PIN", password: true, ignoreFocusOut: true });
+      if (again !== pin) return void vscode.window.showWarningMessage("Hai lần nhập PIN không khớp.");
+      const h = hashPin(pin);
+      await ctx.secrets.store(PIN_KEY, h);
+      pinHolder.hash = h;
+      panel.attach(panel.service);
+      vscode.window.showInformationMessage("Đã đặt PIN. Duyệt quyền và cho account chạy tiếp từ điện thoại sẽ cần PIN.");
+    }),
+    vscode.commands.registerCommand("agentroom.telegram.disable", async () => {
+      await vscode.workspace.getConfiguration("agentroom.telegram").update("enabled", false, vscode.ConfigurationTarget.Global);
+      await startTelegram();
+    }),
     vscode.commands.registerCommand("agentroom.checkHosts", async () => {
       if (!live?.hosts) return vscode.window.showInformationMessage("Chưa khai báo hosts: trong workers.yaml.");
       const st = await live.hosts.check();
@@ -263,6 +366,10 @@ export async function activate(ctx: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(`Đã tạo skill "${name}". Thêm vào useSkills của worker trong workers.yaml để bật.`);
     }),
   );
+
+  ctx.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration("agentroom.telegram.enabled")) void startTelegram().catch((err) => out.appendLine(`[telegram] ${err}`));
+  }));
 
   const watcher = vscode.workspace.createFileSystemWatcher("**/.agentroom/workers.yaml");
   watcher.onDidChange(load);

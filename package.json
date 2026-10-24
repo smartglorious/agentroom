@@ -2,7 +2,7 @@
   "name": "agentroom",
   "displayName": "AgentRoom — AI team group chat",
   "description": "Nhiều AI worker (Claude Code / Codex) với vai trò riêng cùng làm việc trong một group chat ngay trong VS Code.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "agentroom",
   "license": "MIT",
   "engines": {
@@ -63,6 +63,26 @@
       {
         "command": "agentroom.checkHosts",
         "title": "AgentRoom: Kiểm tra kết nối các máy (hosts)"
+      },
+      {
+        "command": "agentroom.telegram.setup",
+        "title": "AgentRoom: Telegram — thiết lập (token bot, ghép cặp)"
+      },
+      {
+        "command": "agentroom.telegram.pair",
+        "title": "AgentRoom: Telegram — tạo mã ghép cặp"
+      },
+      {
+        "command": "agentroom.telegram.unpair",
+        "title": "AgentRoom: Telegram — ngắt ghép cặp"
+      },
+      {
+        "command": "agentroom.telegram.setPin",
+        "title": "AgentRoom: Telegram — đặt PIN duyệt quyền"
+      },
+      {
+        "command": "agentroom.telegram.disable",
+        "title": "AgentRoom: Telegram — tắt"
       }
     ],
     "configuration": {
@@ -107,6 +127,47 @@
           "type": "number",
           "default": 47321,
           "description": "Cổng webhook (chỉ nghe trên 127.0.0.1)."
+        },
+        "agentroom.telegram.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Bật kênh Telegram (điều khiển và nhận thông báo từ điện thoại). Chỉ đặt được trong cài đặt người dùng, không đặt được trong workspace. Token bot lưu trong kho bí mật của VS Code."
+        },
+        "agentroom.telegram.detail": {
+          "type": "string",
+          "enum": [
+            "summary",
+            "full",
+            "alerts"
+          ],
+          "default": "summary",
+          "scope": "machine",
+          "description": "summary: tóm tắt trả lời (mã được rút gọn). full: toàn văn (đi qua máy chủ Telegram, không mã hoá đầu cuối). alerts: chỉ cảnh báo, thẻ duyệt và tin có @user."
+        },
+        "agentroom.telegram.approveFromPhone": {
+          "type": "string",
+          "enum": [
+            "safe",
+            "none"
+          ],
+          "default": "safe",
+          "scope": "machine",
+          "description": "safe: chỉ duyệt từ điện thoại việc sửa file nằm trong thư mục làm việc của worker (không phải .env, .git, CI, khoá…). none: chỉ từ chối được từ điện thoại."
+        },
+        "agentroom.telegram.summaryChars": {
+          "type": "number",
+          "default": 600,
+          "minimum": 100,
+          "maximum": 3000,
+          "scope": "machine",
+          "description": "Số ký tự tối đa của bản tóm tắt gửi về điện thoại."
+        },
+        "agentroom.telegram.quietHours": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Khung giờ yên lặng, ví dụ 22:00-07:00: tin vẫn gửi nhưng không rung/chuông."
         }
       }
     }

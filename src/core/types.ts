@@ -116,6 +116,10 @@ export interface ChatMessage {
   turnId?: string;
   /** Run the recipients' turn with read-only tools (untrusted triggers such as webhooks). */
   readOnly?: boolean;
+  /** Where a human message came from when it was not typed in VS Code (e.g. "telegram"). */
+  source?: string;
+  /** A system notice worth interrupting the user for: failures, budget stops, drafts waiting, tasks not started. */
+  alert?: boolean;
 }
 
 export type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
@@ -145,6 +149,9 @@ export interface ApprovalRequest {
   workerId: string;
   tool: string;
   input: unknown;
+  /** Folder the turn works in (on `host` when set); lets remote approvers check the path is inside it. */
+  cwd?: string;
+  host?: string;
 }
 
 /** Normalised token/cost numbers for one turn. */

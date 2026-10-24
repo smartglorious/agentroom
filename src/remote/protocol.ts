@@ -81,6 +81,7 @@ export interface ReadyInfo {
 
 export type RunnerToHub =
   | ({ t: "ready" } & ReadyInfo)
+  | { t: "started"; id: string; cwd: string }
   | { t: "activity"; id: string; text: string }
   | { t: "approve"; id: string; reqId: string; tool: string; input: unknown }
   | { t: "mcp"; id: string; reqId: string; method: string; headers: Record<string, string>; b64: string }

@@ -1,4 +1,4 @@
-// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.5.
+// Kiểm tra .agentroom/workers.yaml theo đúng luật của AgentRoom v0.6.
 // Cách chạy: node validate-agentroom.mjs <đường-dẫn-repo>
 // Cần: npm i yaml croner (cài ở thư mục tạm, không cài vào repo).
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
@@ -18,6 +18,15 @@ const ID = /^[a-z][a-z0-9_-]*$/;
 const isStr = (v) => typeof v === "string" && v.length > 0;
 const isBool = (v) => typeof v === "boolean";
 const strList = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
+
+// ---- khóa cấp cao nhất ----
+for (const k of Object.keys(cfg)) {
+  if (["hosts", "accounts", "workers", "schedules", "webhooks"].includes(k)) continue;
+  warns.push(/telegram|channel|bot/i.test(k)
+    ? `Khóa "${k}" bị bỏ qua: Telegram được cấu hình trong cài đặt VS Code của người dùng (lệnh "AgentRoom: Telegram — thiết lập"), KHÔNG đặt token hay cấu hình bot trong file của repo`
+    : `Khóa cấp cao nhất "${k}" không được dùng (bị bỏ qua)`);
+}
+if (/\d{6,}:[A-Za-z0-9_-]{30,}/.test(readFileSync(file, "utf8"))) errors.push("workers.yaml có chuỗi giống TOKEN BOT TELEGRAM — xoá ngay và tạo token mới ở @BotFather (/revoke); token không được nằm trong repo");
 
 // ---- skills có sẵn (cùng thứ tự ưu tiên với extension) ----
 const skillDirs = [join(repo, ".agentroom", "skills"), join(repo, ".claude", "skills"), join(homedir(), ".claude", "skills")];

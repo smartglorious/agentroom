@@ -77,3 +77,6 @@ nav button.on { opacity: 1; border-bottom: 2px solid var(--vscode-focusBorder); 
 .host-card.error { border-color: var(--vscode-charts-red); }
 .tab .meta.warn { color: var(--vscode-charts-yellow); opacity: 1; }
 .task.locked { border-color: var(--vscode-charts-yellow); margin: 8px; padding: 8px; }
+
+.task.tg.running { border-color: var(--vscode-charts-green); }
+.task.tg.error, .task.tg.conflict { border-color: var(--vscode-charts-red); }

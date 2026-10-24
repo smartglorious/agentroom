@@ -7,6 +7,7 @@ import type { RoomConfig } from "../core/types";
 import type { UsageRange, UsageStore } from "../core/usage";
 import type { WebhookHandler } from "../core/webhooks";
 import type { HostManager } from "../remote/host";
+import type { TelegramPanel } from "./telegramPanel";
 
 /** Messages the webview sends to the extension. */
 type FromWebview =
@@ -26,7 +27,8 @@ type FromWebview =
   | { type: "copyHook"; id: string }
   | { type: "newSkill" }
   | { type: "hostCheck"; name?: string }
-  | { type: "takeOver" };
+  | { type: "takeOver" }
+  | { type: "telegramAction"; action: string };
 
 export interface ViewContext {
   room: Room;
@@ -36,6 +38,7 @@ export interface ViewContext {
   usage: UsageStore;
   config: RoomConfig;
   hosts?: HostManager;
+  telegram?: TelegramPanel;
 }
 
 export interface ViewHandlers {
@@ -73,7 +76,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.ctx = ctx;
     this.locked = undefined;
     if (!ctx) return void this.post({ type: "init", state: null });
-    const { room, cron, hooks, hosts } = ctx;
+    const { room, cron, hooks, hosts, telegram } = ctx;
     const sub = <T extends unknown[]>(target: { on(e: never, h: never): unknown; off(e: never, h: never): unknown }, event: string, map: (...a: T) => unknown) => {
       const h = (...a: T) => this.post(map(...a));
       target.on(event as never, h as never);
@@ -89,12 +92,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     sub(cron, "change", () => ({ type: "schedules", schedules: cron.statuses() }));
     if (hooks) sub(hooks, "call", () => this.hooksPayload());
     if (hosts) sub(hosts, "change", () => this.hostsPayload());
+    if (telegram) sub(telegram, "change", () => this.telegramPayload());
     this.post(this.initPayload());
   }
 
   private initPayload() {
     const c = this.ctx!;
-    return { type: "init", state: c.room.snapshot(), usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload() };
+    return { type: "init", state: c.room.snapshot(), usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload(), telegram: this.telegramPayload() };
+  }
+
+  private telegramPayload() {
+    return { type: "telegram", status: this.ctx?.telegram?.status() };
   }
 
   private hostsPayload() {
@@ -160,6 +168,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "approveSkill": try { room.approveSkill(String(m.name)); } catch (e) { vscode.window.showWarningMessage(String(e instanceof Error ? e.message : e)); } break;
       case "rejectSkill": room.rejectSkill(String(m.name)); break;
       case "allowBudget": if (c.config.accounts.some((a) => a.id === m.account)) room.allowBudgetToday(m.account); break;
+      case "telegramAction": {
+        const cmd = { setup: "agentroom.telegram.setup", pair: "agentroom.telegram.pair", unpair: "agentroom.telegram.unpair", setPin: "agentroom.telegram.setPin", disable: "agentroom.telegram.disable" }[String(m.action)];
+        if (cmd) void vscode.commands.executeCommand(cmd);
+        break;
+      }
       case "hostCheck": void c.hosts?.check(typeof m.name === "string" ? m.name : undefined); break;
       case "copyHook": { const h = this.hooksPayload().hooks.find((x) => x.id === m.id); if (h?.url) this.handlers?.copy(h.url); break; }
     }

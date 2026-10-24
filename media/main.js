@@ -5,7 +5,7 @@
   const state = {
     workers: [], statuses: {}, tasks: [], drafts: [], accounts: [], todayByWorker: {},
     usage: null, range: "today", schedules: [], hooks: { port: null, hooks: [], calls: [] },
-    profile: null, profileWorker: null, hostList: [],
+    profile: null, profileWorker: null, hostList: [], telegram: null,
   };
 
   const STATE_LABEL = {
@@ -55,6 +55,7 @@
     head.append(el("b", null, nameOf(m.from)));
     if (m.taskId) head.append(el("span", "tag", m.taskId));
     if (m.readOnly) head.append(el("span", "tag ro", "chỉ đọc"));
+    if (m.source === "telegram") { const t = el("span", "tag", "📱"); t.title = "Gửi từ Telegram"; head.append(t); }
     if (m.to.length) head.append(el("span", "to", "→ " + m.to.map(nameOf).join(", ")));
     if (m.turnId) {
       const b = btn("🔍", () => send({ type: "inspect", turnId: m.turnId }), "stop");
@@ -264,9 +265,47 @@
   // ---------- hosts ----------
   const HOST_STATE = { idle: "chưa kết nối", connecting: "đang kết nối…", ready: "sẵn sàng", error: "lỗi" };
 
+  const PHASE = {
+    disabled: "chưa bật", "no-token": "chưa có token", starting: "đang kết nối…", running: "đang chạy", retrying: "mất mạng, đang thử lại…",
+    conflict: "xung đột: nơi khác đang nhận tin của bot", error: "lỗi", stopped: "đã dừng",
+  };
+  const DETAIL = { summary: "tóm tắt", full: "toàn văn", alerts: "chỉ cảnh báo" };
+
+  function renderTelegram(box) {
+    const t = state.telegram;
+    box.append(el("h4", null, "Điện thoại (Telegram)"));
+    if (!t) { box.append(el("p", "note", "Telegram chưa khả dụng.")); return; }
+    const card = el("div", "task tg " + t.phase);
+    const head = el("div", "row");
+    head.append(el("span", "dot " + (t.phase === "running" ? "ready" : t.phase === "error" || t.phase === "conflict" ? "error" : t.phase === "disabled" || t.phase === "no-token" ? "" : "connecting")), el("b", null, t.bot || "Bot Telegram"), el("span", "meta", PHASE[t.phase] || t.phase));
+    card.append(head);
+    if (t.phase === "disabled" || t.phase === "no-token") {
+      card.append(el("div", "meta", "Điều khiển và nhận thông báo từ điện thoại qua một bot Telegram RIÊNG (không dùng chung với chương trình khác). Token lưu trong kho bí mật của VS Code."));
+      card.append(btn(t.phase === "no-token" ? "Nhập token" : "Thiết lập", () => send({ type: "telegramAction", action: "setup" })));
+      box.append(card);
+      return;
+    }
+    if (t.error) card.append(el("div", "meta err", t.error));
+    card.append(el("div", "meta", t.paired ? `Đã ghép cặp: ${t.paired.name}` : "Chưa ghép cặp với điện thoại nào"));
+    if (t.pairing) {
+      const left = Math.max(0, Math.round((t.pairing.expiresAt - Date.now()) / 60000));
+      card.append(el("div", "meta mono", `Gửi cho bot trong chat riêng:  /pair ${t.pairing.code}   (còn ~${left} phút)`));
+    }
+    card.append(el("div", "meta", `Gửi về: ${DETAIL[t.detail] || t.detail} · PIN: ${t.pin ? "đã đặt" : "chưa"}${t.mutedUntil ? " · đang tắt tiếng" : ""}`));
+    const row = el("div", "row");
+    if (t.paired) row.append(btn("Ngắt ghép cặp", () => send({ type: "telegramAction", action: "unpair" })));
+    else row.append(btn("Tạo mã ghép cặp", () => send({ type: "telegramAction", action: "pair" })));
+    row.append(btn(t.pin ? "Đổi/bỏ PIN" : "Đặt PIN", () => send({ type: "telegramAction", action: "setPin" })));
+    if (t.phase === "error" || t.phase === "conflict") row.append(btn("Thiết lập lại", () => send({ type: "telegramAction", action: "setup" })));
+    row.append(btn("Tắt", () => send({ type: "telegramAction", action: "disable" })));
+    card.append(row);
+    box.append(card);
+  }
+
   function renderHosts() {
     const box = $("hosts");
     box.replaceChildren();
+    renderTelegram(box);
     const local = state.workers.filter((w) => !w.host);
     box.append(el("h4", null, "Máy này"));
     box.append(el("div", "meta", local.length ? local.map((w) => "@" + w.id).join(", ") : "(không có worker nào chạy ở máy này)"));
@@ -363,6 +402,7 @@
         state.schedules = data.schedules || [];
         state.hooks = data.hooks || state.hooks;
         state.hostList = data.hosts ? data.hosts.hosts : [];
+        state.telegram = data.telegram ? data.telegram.status : null;
         s.messages.forEach(renderMessage);
         s.approvals.forEach(renderApproval);
         renderTeam(); renderTasks(); renderCost(); renderSched(); renderHosts(); renderProfile(); badge();
@@ -378,6 +418,7 @@
       case "schedules": state.schedules = data.schedules; renderSched(); break;
       case "hooks": state.hooks = data; renderSched(); break;
       case "hosts": state.hostList = data.hosts; renderHosts(); break;
+      case "telegram": state.telegram = data.status || null; renderHosts(); break;
       case "locked": renderLocked(data.holder); break;
       case "profile": state.profile = data.profile; renderProfile(); break;
     }

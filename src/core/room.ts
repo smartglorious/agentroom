@@ -57,6 +57,8 @@ export interface PostOptions {
   readOnly?: boolean;
   /** Explicit recipients; skips @mention routing. Used for triggers whose text embeds untrusted data. */
   to?: string[];
+  source?: string;
+  alert?: boolean;
 }
 
 export interface WorkerProfile {
@@ -160,7 +162,7 @@ export class Room extends EventEmitter<RoomEvents> {
     // may quote attacker-controlled data, so a human decides who continues. Explicit `to` (the trigger
     // itself) is the only way in.
     const to = opts.to ? opts.to.filter((id) => this.hasWorker(id)) : readOnly ? [] : route({ from, text, depth }, this.workers, this.deps.options);
-    const msg: ChatMessage = { id: randomUUID(), ts: this.now(), from, text, to, depth, taskId: opts.taskId, turnId: opts.turnId, readOnly: readOnly || undefined };
+    const msg: ChatMessage = { id: randomUUID(), ts: this.now(), from, text, to, depth, taskId: opts.taskId, turnId: opts.turnId, readOnly: readOnly || undefined, source: opts.source, alert: opts.alert || undefined };
     this.messages.push(msg);
     this.deps.store.appendMessage(msg);
     this.emit("message", msg);
@@ -234,7 +236,7 @@ export class Room extends EventEmitter<RoomEvents> {
   proposeSkill(workerId: string, name: string, description: string, body: string): SkillDraft {
     const d = this.deps.skillDrafts.propose(workerId, name, description, body);
     this.emit("drafts", this.deps.skillDrafts.list());
-    this.post(SYSTEM, `📚 Worker ${workerId} đề xuất skill "${name}". Hãy duyệt hoặc bỏ trong tab Hồ sơ.`);
+    this.post(SYSTEM, `📚 Worker ${workerId} đề xuất skill "${name}". Hãy duyệt hoặc bỏ trong tab Hồ sơ.`, { alert: true });
     return d;
   }
 
@@ -280,7 +282,7 @@ export class Room extends EventEmitter<RoomEvents> {
     const pct = (spent / acc.budgetUsdPerDay) * 100;
     const say = (kind: string, text: string) => {
       const k = `${accountId}:${day}:${kind}`;
-      if (announce && !this.budgetNotes.has(k)) { this.budgetNotes.add(k); this.post(SYSTEM, text); }
+      if (announce && !this.budgetNotes.has(k)) { this.budgetNotes.add(k); this.post(SYSTEM, text, { alert: true }); }
     };
     if (pct >= 100) {
       this.budgetPaused.add(accountId);
@@ -304,7 +306,7 @@ export class Room extends EventEmitter<RoomEvents> {
   private notifyAssignee(t: Task, readOnly?: boolean) {
     if (readOnly) {
       // Created during an untrusted-trigger turn: record it, but wait for a human to start the assignee.
-      this.post(SYSTEM, `Task [${t.id}] "${t.title}" đã được giao cho ${t.assignee} nhưng CHƯA kích hoạt vì tạo từ nguồn không tin cậy. Hãy xem lại rồi nhắn "@${t.assignee} làm task ${t.id}" để bắt đầu.`, { taskId: t.id, readOnly: true });
+      this.post(SYSTEM, `Task [${t.id}] "${t.title}" đã được giao cho ${t.assignee} nhưng CHƯA kích hoạt vì tạo từ nguồn không tin cậy. Hãy xem lại rồi nhắn "@${t.assignee} làm task ${t.id}" để bắt đầu.`, { taskId: t.id, readOnly: true, alert: true });
       return;
     }
     this.post(SYSTEM, `@${t.assignee} bạn được giao task [${t.id}] "${t.title}". ${t.description}\nHãy claim_task rồi bắt đầu.`, { taskId: t.id });
@@ -345,7 +347,7 @@ export class Room extends EventEmitter<RoomEvents> {
         const reason = err instanceof Error ? err.message : String(err);
         this.setStatus(worker.id, "error", reason);
         // Deliberately no "@id" here: a mention would route the error back to the failing worker.
-        this.post(SYSTEM, `⚠️ ${worker.name} (id: ${worker.id}) gặp lỗi: ${reason}`);
+        this.post(SYSTEM, `⚠️ ${worker.name} (id: ${worker.id}) gặp lỗi: ${reason}`, { alert: true });
       })
       .finally(() => {
         this.scheduled.delete(key);
@@ -406,6 +408,8 @@ export class Room extends EventEmitter<RoomEvents> {
       const persona = buildPersona(worker, this.workers, memory, skillsBlock, host ? { host, base: remote!.base } : undefined);
       const turn = buildTurn(worker, this.workers, recent, batch, this.tasks.list());
       const cwd = host ? `${host}:${remote!.base}` : await this.deps.resolveCwd(worker);
+      // What approvals are judged against: this machine's folder, or what the remote runner reports (unexpanded until it does).
+      let approvalCwd = host ? remote!.base : cwd;
       record = {
         turnId, ts: startedAt, worker: worker.id, account: account.id, model: worker.model, sessionKey: sessKey,
         resumed: !!this.sessions[sessKey], taskId, cwd, readOnly,
@@ -428,13 +432,14 @@ export class Room extends EventEmitter<RoomEvents> {
         extraReadDirs: worker.provider === "codex" && !host ? codexSkillDirs(worker, this.deps.skills) : undefined,
         readOnly,
         signal: abort.signal,
+        onCwd: (c) => { approvalCwd = c; },
         onActivity: (a) => {
           const [tool, ...rest] = a.split(" ");
           tools[tool] = (tools[tool] ?? 0) + 1;
           if ((tool === "Edit" || tool === "Write") && rest.length) rest.join(" ").split(/,\s*/).forEach((f) => edited.add(f.split("/").slice(-2).join("/")));
           this.setStatus(worker.id, "working", a);
         },
-        approve: (tool, input) => this.requestApproval(worker.id, tool, input, abort.signal, key),
+        approve: (tool, input) => this.requestApproval(worker.id, tool, input, abort.signal, key, { cwd: approvalCwd, host }),
       });
 
       if (result.sessionId) {
@@ -471,8 +476,8 @@ export class Room extends EventEmitter<RoomEvents> {
     } catch { /* the journal is best effort */ }
   }
 
-  private requestApproval(workerId: string, tool: string, input: unknown, signal: AbortSignal, key: string): Promise<boolean> {
-    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input };
+  private requestApproval(workerId: string, tool: string, input: unknown, signal: AbortSignal, key: string, where: { cwd?: string; host?: string } = {}): Promise<boolean> {
+    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input, ...where };
     return new Promise((resolve) => {
       this.approvals.set(req.id, { req, resolve, key });
       signal.addEventListener("abort", () => this.respondApproval(req.id, false), { once: true });

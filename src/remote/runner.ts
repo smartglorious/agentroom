@@ -134,6 +134,7 @@ export class Runner {
       const base = expandHome(m.base, this.deps.home);
       if (!existsSync(base)) throw new Error(`Thư mục repo không tồn tại trên máy này: ${base}`);
       const cwd = await this.deps.ensureWorktree(base, m.worker);
+      this.send({ t: "started", id: m.id, cwd });     // the hub needs the real path to judge approvals
       const skills = this.materializeSkills(m.skills);
 
       const worker: Worker = {
