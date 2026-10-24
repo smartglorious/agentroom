@@ -158,3 +158,16 @@ Số liệu từ `usage.jsonl` của một dự án thật (187 lượt, ~6 gi�
 ## Bổ sung 0.14.5 — đo mức sàn không tốn hạn mức
 
 Lệnh "AgentRoom: Đo context cố định của session mới" (`agentroom.measureContext`) cho biết mỗi worker Claude mang bao nhiêu token trước khi làm gì (system prompt, tool, CLAUDE.md, skill, MCP), bằng `getContextUsage` của SDK trên một query có luồng input không bao giờ gửi tin. Lý do: trên log thật, session mới đã ~70–125 nghìn token trong khi file CLAUDE.md/skill của dự án đó chỉ vài nghìn, và mức sàn này bị đọc lại ở mọi lần gọi.
+
+
+## Bổ sung 0.14.9 — token nào làm tụt phần trăm gói 5 giờ (ước lượng thô)
+
+Từ ba khoảng đo trên log thật của một người dùng (gói Pro, account `claude-main` + `claude-remote` dùng chung hạn mức), đối chiếu mức tăng phần trăm của cửa sổ 5 giờ với token của các lượt trong khoảng đó:
+
+| Khoảng | Δ% | đọc cache | ghi cache | token ra |
+|---|---:|---:|---:|---:|
+| A | 5 | 4,28 M | 0,108 M | 23 K |
+| B | 6 | 2,02 M | 0,143 M | 15 K |
+| C | 17 | 2,10 M | 0,550 M | 15 K |
+
+B và C gần như cùng lượng đọc cache và token ra nhưng khác 11% ↔ chênh 0,41 M **ghi cache** (≈ 27% mỗi triệu token ghi cache), còn A so với B cho thấy đọc cache thêm 2,3 M gần như không đổi phần trăm. Ước lượng thô (3 điểm, có thể lẫn dùng Claude ở nơi khác): **ghi cache và token ra là thứ tiêu hạn mức; đọc cache gần như không**; một token ra ≈ 4–5 token ghi cache. Hệ quả: (1) rút ngắn context chỉ có ích nếu giảm lượng **ghi** (sau thời gian nghỉ vượt TTL cache, lượt đầu của mỗi session ghi lại toàn bộ context); (2) mỗi lần đổi session ghi lại cả phần cố định của session mới, nên đổi session sớm có thể **tốn hơn**; (3) đánh thức ít worker sau một khoảng nghỉ có ích hơn giảm số lượt đọc.
