@@ -139,6 +139,8 @@ export class Room extends EventEmitter<RoomEvents> {
   private budgetPaused = new Set<string>();
   /** Workers currently running on a fallback account (worker id → account id), to announce the switch and the return once. */
   private onFallback = new Map<string, string>();
+  /** Context size of the first turn of each running session (this run only): what a fresh session already weighs before it does anything. */
+  private freshCtx = new Map<string, number>();
   private budgetNotes = new Set<string>();
 
   constructor(private deps: RoomDeps) {
@@ -784,7 +786,7 @@ export class Room extends EventEmitter<RoomEvents> {
       this.cursors[key] = startedAt;
       this.deps.store.saveCursors(this.cursors);
       finish(result.usage, undefined, result.context);
-      this.rotateIfLarge(worker, key, sessKey, result.usage);
+      this.rotateIfLarge(worker, key, sessKey, result.usage, fresh);
       this.plan?.touch(account.id);
       // A reply to other workers that carries nothing new ("[NOOP]", or the same words as before in this conversation)
       // is not posted: it would only wake someone to answer it. A human's message is always answered.
@@ -840,12 +842,17 @@ export class Room extends EventEmitter<RoomEvents> {
    * turn expensive. Past the worker's limit the session is dropped: the next turn starts fresh and gets the team and
    * personal memory, the journal and the recent chat in its prompt, exactly as after a persona change.
    */
-  private rotateIfLarge(worker: Worker, key: string, sessKey: string, usage: TurnUsage | undefined) {
+  private rotateIfLarge(worker: Worker, key: string, sessKey: string, usage: TurnUsage | undefined, fresh: boolean) {
     const limit = worker.contextLimit ?? (worker.coordinator ? 0 : DEFAULT_CONTEXT_LIMIT);
     if (!usage || worker.provider !== "claude" || !limit || !this.sessions[sessKey]) return;
     // The totals add up every call of the turn, so the average per call is a lower bound of the context at its end.
     const ctx = Math.round((usage.input + usage.cacheRead + usage.cacheWrite) / Math.max(1, usage.numTurns ?? 1));
-    if (ctx <= limit) return;
+    if (fresh) this.freshCtx.set(sessKey, ctx);
+    // A new session already weighs `base` before it does anything. Replacing a session that is not clearly bigger than that only pays the
+    // whole base again (cache writes are what a plan limit counts), so it is kept until it has grown well past it.
+    const base = this.freshCtx.get(sessKey) ?? 0;
+    if (ctx <= limit || ctx <= base * 1.5) return;
+    this.freshCtx.delete(sessKey);
     delete this.sessions[sessKey];
     delete this.sessionMeta[sessKey];
     delete this.cursors[key];

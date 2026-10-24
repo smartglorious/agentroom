@@ -2,6 +2,10 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.9
+- **Sửa đổi session liên tục (0.13.2):** nếu một session mới đã nặng hơn `contextLimit` ngay từ lượt đầu (trên log thật ~85–95 nghìn token khi giới hạn là 80000) thì trước đây nó bị thay ở **mọi lượt** và mỗi lần ghi lại toàn bộ cache. Giờ session chỉ bị thay khi vượt `contextLimit` **và** đã lớn hơn 1,5 lần kích thước lượt đầu của chính nó (đo trong lần chạy hiện tại).
+- Ghi vào `docs/PLAN-v0.8-tokens.md` số đo đầu tiên nối token với phần trăm gói 5 giờ (xem mục "Bổ sung 0.14.9"). Ước lượng thô từ ba cửa sổ, chưa chắc.
+
 ## 0.14.8
 - **Account dự phòng (`fallback`)**: worker có thể khai báo `fallback: [claude-ds]`. Khi account của worker bị giới hạn (rate limit của lượt đang chạy, gói báo hết, hết ngân sách ngày), các tin đang chờ và tin mới chạy ngay trên account dự phòng đầu tiên còn dùng được; trong chat có dòng 🔀 báo một lần, và ↩️ khi quay về account chính (mỗi lượt đều ưu tiên account chính nếu nó dùng được). Dự phòng phải cùng provider và cùng host; mỗi account dự phòng có session riêng (worker nhận lại trí nhớ, nhật ký và chat gần đây); `model:` của worker không gửi sang account có `baseUrl`. Mặc định không có dự phòng. Một session mới (kể cả sau khi chuyển) luôn bắt đầu từ chat gần đây. **Chưa kiểm chứng với DeepSeek/gói thật**: chỉ có test với bộ điều khiển giả.
 
