@@ -42,6 +42,12 @@ holder.mcp = new AgentRoomMcp(room);
 await holder.mcp.start();
 
 // Nobody is here to approve anything: refuse every card so a worker that tries an unlisted tool (say Bash) cannot stall the run.
+if (process.env.BENCH_DEBUG) {
+  const t0 = Date.now();
+  const log = (m: string) => console.error(`[${((Date.now() - t0) / 1000).toFixed(0)}s] ${m}`);
+  room.on("status", (st) => log(`status ${st.id}=${st.state}${st.activity ? " " + st.activity.slice(0, 50) : ""}`));
+  room.on("message", (m) => log(`msg ${m.from} -> ${(m.to ?? []).join(",")}: ${m.text.slice(0, 60).replace(/\n/g, " ")}`));
+}
 let refused = 0;
 room.on("approval", (req) => { refused++; room.respondApproval(req.id, false); });
 const idle = () => new Promise<void>((res) => { const c = () => (room.snapshot().statuses.every((s) => s.state === "idle" || s.state === "error") ? res() : setTimeout(c, 500)); setTimeout(c, 2500); });
