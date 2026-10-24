@@ -1,6 +1,6 @@
 # Kế hoạch giảm token (bản 2, sau khi đo và tra cứu)
 
-Trạng thái: **S1 (bộ tool tường minh), S2 (prompt ổn định) và công cụ đo `bench:tokens` đã triển khai và đo (mục 0)**; các mục S3–S10 còn lại là kế hoạch. Bản 1 chỉ dựa vào đọc mã. Bản này thêm (a) **số đo thật** bằng Claude CLI và Agent SDK của chính dự án (mô hình `haiku`, SDK 0.3.309, mỗi phép đo là một lượt "Say OK." nên tổng token vào ≈ kích thước tiền tố cố định), và (b) tài liệu chính thức của Anthropic. Nguồn ở mục 8. Con số nào là đo thật, con số nào là từ tài liệu, con số nào là ước tính đều được ghi rõ.
+Trạng thái: **S1 (bộ tool tường minh), S2 (prompt ổn định), S8 (bớt số lượt giữa các worker) và công cụ đo `bench:tokens` đã triển khai và đo (mục 0)**; các mục S3–S7, S9–S10 còn lại là kế hoạch. Bản 1 chỉ dựa vào đọc mã. Bản này thêm (a) **số đo thật** bằng Claude CLI và Agent SDK của chính dự án (mô hình `haiku`, SDK 0.3.309, mỗi phép đo là một lượt "Say OK." nên tổng token vào ≈ kích thước tiền tố cố định), và (b) tài liệu chính thức của Anthropic. Nguồn ở mục 8. Con số nào là đo thật, con số nào là từ tài liệu, con số nào là ước tính đều được ghi rõ.
 
 ## 0. Kết quả đo sau khi triển khai S1 + S2
 
@@ -21,6 +21,26 @@ Cách đọc và giới hạn:
 - **Chỉ số "worker thêm được `sub()` vào file" không dùng được để so sánh chất lượng**: thành công 1/3 lần ở bản cũ và 0/3 lần ở bản mới, vì kịch bản có nhiều qua lại lộn xộn. Ở một lần chạy của bản mới, worker `be` từng trả lời "tôi là QA"; chưa có bằng chứng đó là lỗi do thay đổi này (bản cũ cũng thất bại 2/3 lần), nhưng cũng chưa loại trừ được. Cần một kịch bản chất lượng riêng (S10) trước khi kết luận về chất lượng.
 - Kiểm chứng chức năng với Claude thật trên bản mới: `memory-skills` (Skill vẫn chạy với bộ tool giới hạn; công cụ `remember` ghi qua MCP; trí nhớ sang session mới), `readonly` (lượt chỉ-đọc không bị nới), `webhook` (chặn chỉ dẫn trong payload). Cả ba đều qua.
 - Đo trên model `haiku`, một kịch bản nhỏ, `settingSources: []`. Dự án thật có `CLAUDE.md` và nhiều lịch sử hơn nên tỉ lệ phần trăm sẽ nhỏ hơn; mức tiết kiệm tuyệt đối từ S1 giữ nguyên.
+
+
+### 0.1. Thêm S8 (bớt số lượt giữa các worker)
+
+Cùng kịch bản, 3 lần chạy mỗi bản, từng lần một. "S1+S2" là các số ở bảng trên; "gốc" là bản trước mọi thay đổi.
+
+| | Gốc | S1 + S2 | **S1 + S2 + S8** | S8 so với S1+S2 | Tổng so với gốc |
+|---|---|---|---|---|---|
+| Số lượt (từng lần) | 23 · 17 · 29 | 26 · 26 · 24 | **17 · 15 · 16** | −37% | −30% |
+| Tin của worker đăng | 34 · 26 · 38 | 32 · 42 · 31 | **15 · 17 · 18** | −52% | −53% |
+| Token vào mỗi lượt, trung bình | ≈ 88 nghìn | ≈ 35,5 nghìn | **≈ 30 nghìn** | −15% | −66% |
+| Tổng token vào, trung bình | ≈ 2,04 triệu | ≈ 0,90 triệu | **≈ 0,48 triệu** | −47% | **−77%** |
+| Chi phí ước tính, trung bình | $0,182 | $0,093 | **$0,036** | −61% | **−80%** |
+| `[NOOP]` bị chặn không đăng (từng lần) | n/a | n/a | 8 · 2 · 5 | | |
+
+Cách đọc:
+- Mức giảm của S8 đến từ **ít lượt hơn** (16 so với ~25) và ít tin qua lại hơn; token mỗi lượt giảm thêm vì các lượt "xác nhận qua lại" bị cắt bớt. Model **có làm theo** quy tắc `[NOOP]` (2–8 câu trả lời mỗi lần chạy bị chặn không đăng).
+- Chất lượng: chỉ số "thêm được `sub()`" thành công 1/3 lần ở S8, như bản gốc (1/3) và không tệ hơn S1+S2 (0/3), nhưng vẫn là chỉ số nhiễu, không dùng để kết luận. Kiểm chứng chức năng với Claude thật trên bản S8: `memory-skills`, `reply` và `readonly` đều qua.
+- Chưa tìm cách đo "worker có hoàn thành đúng việc không" ngoài kịch bản nhỏ này; đó là việc của S10 (kịch bản chất lượng).
+- Giới hạn lượt cố ý nằm ở mức 10; chưa chạm trong 3 lần đo (số lượt tối đa 17 trên ba tin nhắn của người dùng).
 
 ## 1. Phát hiện quan trọng nhất (đã đo)
 

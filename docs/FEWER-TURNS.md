@@ -19,10 +19,12 @@ Lưu ý khi nâng cấp: thêm quy tắc `[NOOP]` vào persona làm đổi phầ
 
 ## Kết quả đo
 
-Xem mục 0 của `PLAN-v0.8-tokens.md` (cập nhật sau khi chạy `npm run bench:tokens`).
+Cùng kịch bản `npm run bench:tokens`, 3 lần chạy mỗi bản (Claude thật, `haiku`): số lượt **≈ 25 → 16** (−37%), tin worker đăng **≈ 35 → 17** (−52%), tổng token vào **≈ 0,90 → 0,48 triệu** (−47%), chi phí ước tính **$0,093 → $0,036** (−61%). Tính từ bản gốc trước mọi tối ưu: tổng token vào −77%, chi phí −80%. Model làm theo quy tắc `[NOOP]` (2–8 câu trả lời mỗi lần chạy bị chặn không đăng). Chi tiết và giới hạn của phép đo ở `PLAN-v0.8-tokens.md` mục 0.1.
 
 ## Đã kiểm chứng gì và chưa
 
 Đã kiểm chứng bằng test: giới hạn hội thoại (dừng đúng số lượt, báo một lần, không có `@` trong thông báo, người dùng bắt đầu hội thoại mới được; id hội thoại đi theo cả thông báo giao task), ngân sách task (chặn tin giữa worker, người dùng vẫn tiếp tục được), `[NOOP]` (không đăng, không đánh thức; vẫn đăng khi người dùng hỏi), chống lặp, gom tin (hai tin thành một lượt; tin người dùng không chờ; `stop` hủy lượt chờ), cấu hình và validator.
 
-**Chưa kiểm chứng:** model có thực sự tuân theo quy tắc `[NOOP]` hay không là câu hỏi thực nghiệm, xem số `replies suppressed noop/repeat` trong benchmark. Chưa thử trong VS Code thật.
+Đã kiểm chứng với Claude thật: model tuân theo quy tắc `[NOOP]` (xem số đo trên), và các kịch bản `memory-skills`, `reply`, `readonly` vẫn qua.
+
+**Chưa kiểm chứng:** chống lặp chưa từng kích hoạt trong 3 lần đo (0 lần, chỉ có test đơn vị); mức giảm chất lượng/độ hoàn thành việc chưa đo được bằng kịch bản này; chưa thử trong VS Code thật.
