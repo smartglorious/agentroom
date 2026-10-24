@@ -246,7 +246,9 @@ export class Room extends EventEmitter<RoomEvents> {
     // unless the text @mentions somebody, which is then taken as the user's own choice of who answers.
     const target = opts.replyTo ? this.messages.find((m) => m.id === opts.replyTo) : undefined;
     const replyBack = from === HUMAN && target && this.hasWorker(target.from) && !parseMentions(text, this.workers).length ? [target.from] : undefined;
-    const to = opts.to ? opts.to.filter((id) => this.hasWorker(id)) : replyBack ?? (readOnly ? [] : route({ from, text, depth }, this.workers, this.deps.options));
+    // A slash command registered by a plugin is for the plugin, not for the workers.
+    const command = from === HUMAN && !opts.to ? this.deps.plugins?.matchCommand(text) : undefined;
+    const to = command ? [] : opts.to ? opts.to.filter((id) => this.hasWorker(id)) : replyBack ?? (readOnly ? [] : route({ from, text, depth }, this.workers, this.deps.options));
     const taskId = opts.taskId ?? (from === HUMAN ? target?.taskId : undefined);
     const id = randomUUID();
     // A human or trigger message starts a conversation; a worker's messages belong to the one its running turn is part of.
@@ -259,7 +261,18 @@ export class Room extends EventEmitter<RoomEvents> {
     this.deps.store.appendMessage(msg);
     this.emit("message", msg);
     for (const id of to) this.deliver(id, msg);
+    if (command) void this.runChatCommand(command, msg.id);
     return msg;
+  }
+
+  /** Runs a plugin's chat command and shows its reply as a system notice (no @, so it wakes nobody). */
+  async runChatCommand(command: { def: { name: string; run(args: string): string | void | Promise<string | void> }; args: string }, chain?: string): Promise<string | undefined> {
+    let out: string | void;
+    try { out = await command.def.run(command.args); } catch (e) { out = tr("Lệnh /{name} lỗi: {msg}", { name: command.def.name, msg: e instanceof Error ? e.message : String(e) }); }
+    if (!out) return undefined;
+    const text = redactSecrets(String(out)).replace(/@/g, "(at)");
+    this.post(SYSTEM, text, { to: [], chain });
+    return text;
   }
 
   /** The task whose session `workerId` is working in right now, when that is unambiguous. */
@@ -729,6 +742,12 @@ export class Room extends EventEmitter<RoomEvents> {
     }
   }
 
+  private notifyApproved(workerId: string, tool: string, input: unknown, ctx: PolicyContext, where: { cwd?: string; host?: string }, by: "policy" | "user") {
+    if (!this.deps.plugins) return;
+    const paths = toolPaths(tool, input).flatMap((p) => { const a = absolutePath(p, ctx); return a ? [a] : []; });
+    this.deps.plugins.notifyApproved({ workerId, tool, input, paths, cwd: where.cwd, host: where.host, by });
+  }
+
   private pluginGuard(workerId: string, tool: string, input: unknown, ctx: PolicyContext, where: { cwd?: string; host?: string }): ReturnType<PluginManager["check"]> {
     if (!this.deps.plugins) return undefined;
     const paths = toolPaths(tool, input).flatMap((p) => { const a = absolutePath(p, ctx); return a ? [a] : []; });
@@ -756,6 +775,7 @@ export class Room extends EventEmitter<RoomEvents> {
       const v = decide(mode, tool, input, ctx);
       if (v.kind === "allow" && !guard) {
         this.noteWritten(workerId, tool, input, ctx);
+        this.notifyApproved(workerId, tool, input, ctx, where, "policy");
         this.audit(workerId, mode, tool, input, tr("tự duyệt"));
         return true;
       }
@@ -777,6 +797,7 @@ export class Room extends EventEmitter<RoomEvents> {
     if (mode !== "manual" || guard) this.audit(workerId, mode, tool, input, allowed ? tr("người dùng cho phép") : tr("người dùng từ chối"), why);
     if (allowed) {
       this.noteWritten(workerId, tool, input, ctx);
+      this.notifyApproved(workerId, tool, input, ctx, where, "user");
       // The human has now seen this script run; stop asking about it every time.
       for (const p of authored ?? []) this.written.get(workerId)?.delete(p);
     }

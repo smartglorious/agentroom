@@ -522,4 +522,5 @@ export const EN: Record<string, string> = {
   "{msg}. Kiểm tra agentroom.{name}Path hoặc PATH.": "{msg}. Check agentroom.{name}Path or PATH.",
   "🧩 Plugin {by} đã chặn {p}: {p1} — {p2}": "🧩 Plugin {by} blocked {p}: {p1} — {p2}",
   "Bị chặn bởi plugin {by}: {reason}. Hãy dùng cách khác hoặc hỏi người dùng (@user) nếu thật sự cần.": "Blocked by plugin {by}: {reason}. Use another way, or ask the user (@user) if it is really needed.",
+  "Lệnh /{name} lỗi: {msg}": "Command /{name} failed: {msg}",
 };

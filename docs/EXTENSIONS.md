@@ -1,4 +1,4 @@
-# Điểm mở rộng (plugins) — v0.12
+# Điểm mở rộng (plugins) — v0.12–0.13
 
 AgentRoom có vài điểm mở rộng để thêm tính năng mà không sửa lõi. Một plugin là một module TypeScript được **gộp vào bản build** (không tải lúc chạy), nên nó chạy với cùng quyền như extension và phải được người build tin cậy.
 
@@ -27,6 +27,9 @@ export const plugin: AgentRoomPlugin = {
 |---|---|
 | **Guard** `registerGuard(fn)` | Chạy trước mỗi lần worker dùng tool. Trả `{action: "ask"\|"deny", reason}` hoặc `undefined`. Nhận `workerId`, `tool`, `input`, `paths` (đường dẫn tuyệt đối đã suy ra), `cwd`, `host`. |
 | **Panel** `registerPanel(def)` | Thêm một tab chỉ-xem vào chat: các mục có tiêu đề, mỗi mục là các dòng chữ (`text`, `tag?`, `level?`). Chỉ là văn bản thuần. Gọi `host.panelsChanged()` khi nội dung đổi. |
+| **Lệnh chat** `registerChatCommand({name, help, run})` | Người dùng gõ `/name args` trong chat hoặc Telegram: lệnh chạy trong plugin và **không bao giờ** đến worker. `run` trả chuỗi → hiện như tin hệ thống (`@` thay bằng `(at)`, đã lọc bí mật). Lỗi trong `run` thành thông báo, không làm hỏng phòng. Tên: a-z, 0-9, '-'; trùng tên bị từ chối. `/help` trên Telegram liệt kê `help` của các lệnh. |
+| **Sau khi duyệt** `onApproved(fn)` | Gọi sau khi một lệnh gọi tool được cho phép (`by: "policy"` hoặc `"user"`), kèm `tool`, `paths`… Lỗi của listener bị bỏ qua. |
+| **Tên nhánh** `setBranchNamer(fn)` | Đặt tên nhánh git cho worktree **mới** của worker (mặc định `agentroom/<id>`). Tên không hợp lệ (có `..`, bắt đầu bằng `-`, ký tự lạ) bị bỏ qua. Worktree đã có thì giữ nguyên. |
 | **Cấu hình** `host.config.ext` | Phần `ext:` của `workers.yaml`, mỗi plugin một khóa (`ext: { demo: {…} }`). Lõi không kiểm tra nội dung. |
 | **Vòng đời** | `activate(host)` gọi khi phòng chạy (cả VS Code lẫn daemon); hàm trả về được gọi khi dừng. Lỗi ở plugin được ghi log và **không làm hỏng phòng**. |
 
@@ -52,4 +55,5 @@ TypeScript dùng cùng thứ tự (`paths` trong `tsconfig.json`). Không file n
 ## Đã kiểm chứng / chưa
 
 - Đã (test tự động, `test/plugins.test.ts`): guard ask/deny ở Manual/Auto/Full, không nới quyền, guard ném lỗi, `deny` thắng `ask`, vòng đời và lỗi kích hoạt, panel (cả render trong Chromium thật, kể cả chống chèn HTML), `ext:` trong cấu hình, hoán đổi `agentroom:plugins` khi có `private.ts`.
-- Chưa: panel trong VS Code thật; plugin chạy trong daemon trên máy thật.
+- Đã (0.13, cùng file test): lệnh chat không đánh thức worker, lỗi lệnh, onApproved (policy và user), tên nhánh thật trên một repo git tạm.
+- Chưa: lệnh chat trong Telegram thật; panel trong VS Code thật; plugin chạy trong daemon trên máy thật.

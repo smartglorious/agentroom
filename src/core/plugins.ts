@@ -28,6 +28,21 @@ export interface PanelSection { title: string; rows: PanelRow[] }
 export interface PanelDef { id: string; title: () => string; sections: () => PanelSection[] }
 export interface PanelData { id: string; title: string; sections: PanelSection[] }
 
+/** What a plugin sees after a tool call was approved (by the policy or by the user). */
+export interface ApprovedCall extends GuardContext {
+  /** "policy": the autonomy mode allowed it; "user": a person did. */
+  by: "policy" | "user";
+}
+
+export interface ChatCommandDef {
+  /** The word after the slash: `/name args`. a-z, 0-9, '-'. */
+  name: string;
+  /** One line shown by /help in Telegram and in the plugin listing. */
+  help: string;
+  /** Returns the reply shown in the chat (and on Telegram) as a system notice. `@` in it is replaced by `(at)`. */
+  run(args: string): string | void | Promise<string | void>;
+}
+
 export interface PluginHost {
   room: Room;
   config: RoomConfig;
@@ -36,6 +51,12 @@ export interface PluginHost {
   log(text: string): void;
   registerGuard(guard: Guard): () => void;
   registerPanel(panel: PanelDef): () => void;
+  /** Adds a slash command a person can type in the chat or on Telegram. It is never sent to a worker. */
+  registerChatCommand(cmd: ChatCommandDef): () => void;
+  /** Called after a tool call was allowed. Errors are swallowed. */
+  onApproved(fn: (call: ApprovedCall) => void): () => void;
+  /** Names the git branch of a worker's worktree (default `agentroom/<id>`). Only used when the worktree is first created. */
+  setBranchNamer(fn: (workerId: string) => string | undefined): () => void;
   /** Tells the UI that a panel's content changed. */
   panelsChanged(): void;
 }
@@ -52,6 +73,9 @@ const PLUGIN_ID = /^[a-z0-9-]{1,32}$/;
 export class PluginManager extends EventEmitter<{ panels: [] }> {
   private guards = new Map<symbol, { by: string; fn: Guard }>();
   private panelDefs = new Map<symbol, { by: string; def: PanelDef }>();
+  private commands = new Map<string, { by: string; def: ChatCommandDef }>();
+  private approvedFns = new Map<symbol, (c: ApprovedCall) => void>();
+  private branchNamers = new Map<symbol, (workerId: string) => string | undefined>();
   private cleanups: (() => void)[] = [];
   private active: string[] = [];
 
@@ -77,6 +101,21 @@ export class PluginManager extends EventEmitter<{ panels: [] }> {
           this.panelDefs.set(k, { by: p.id, def: { ...def, id: `${p.id}-${def.id}` } });
           this.emit("panels");
           return () => { this.panelDefs.delete(k); this.emit("panels"); };
+        },
+        registerChatCommand: (def) => {
+          if (!PLUGIN_ID.test(def.name) || this.commands.has(def.name)) throw new Error(`chat command "${def.name}": bad or duplicate name`);
+          this.commands.set(def.name, { by: p.id, def });
+          return () => void this.commands.delete(def.name);
+        },
+        onApproved: (fn) => {
+          const k = Symbol(p.id);
+          this.approvedFns.set(k, fn);
+          return () => void this.approvedFns.delete(k);
+        },
+        setBranchNamer: (fn) => {
+          const k = Symbol(p.id);
+          this.branchNamers.set(k, fn);
+          return () => void this.branchNamers.delete(k);
         },
         panelsChanged: () => void this.emit("panels"),
       };
@@ -106,6 +145,26 @@ export class PluginManager extends EventEmitter<{ panels: [] }> {
     return ask;
   }
 
+  /** `/name rest` → the command and its arguments, when a plugin registered that name. */
+  matchCommand(text: string): { def: ChatCommandDef; args: string } | undefined {
+    const m = /^\/([a-z0-9-]{1,32})(?:\s+([\s\S]*))?$/.exec(text.trim());
+    const c = m && this.commands.get(m[1]);
+    return c ? { def: c.def, args: (m![2] ?? "").trim() } : undefined;
+  }
+
+  commandHelp(): string[] { return [...this.commands.values()].map((c) => `/${c.def.name} — ${c.def.help}`); }
+
+  notifyApproved(call: ApprovedCall) {
+    for (const fn of this.approvedFns.values()) { try { fn(call); } catch { /* a plugin must not break a turn */ } }
+  }
+
+  branchName(workerId: string): string | undefined {
+    for (const fn of this.branchNamers.values()) {
+      try { const b = fn(workerId); if (b && /^[A-Za-z0-9._\/-]{1,120}$/.test(b) && !b.includes("..") && !b.startsWith("-")) return b; } catch { /* default name */ }
+    }
+    return undefined;
+  }
+
   panels(): PanelData[] {
     const out: PanelData[] = [];
     for (const { def } of this.panelDefs.values()) {
@@ -117,6 +176,9 @@ export class PluginManager extends EventEmitter<{ panels: [] }> {
   dispose() {
     for (const off of this.cleanups.splice(0).reverse()) { try { off(); } catch { /* shutting down */ } }
     this.guards.clear();
+    this.commands.clear();
+    this.approvedFns.clear();
+    this.branchNamers.clear();
     this.panelDefs.clear();
     this.active = [];
   }
