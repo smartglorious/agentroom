@@ -172,6 +172,10 @@ export class PlanMonitor extends EventEmitter<{ change: [] }> {
   private refreshOne(a: Account, force: boolean): Promise<void> {
     const running = this.inflight.get(a.id);
     if (running) return running;
+    if (a.baseUrl) {
+      this.set({ account: a.id, provider: a.provider, state: "unavailable", windows: [], fetchedAt: this.now(), note: tr("Account dùng endpoint riêng ({url}): không có gói đăng ký để đo. Chi phí xem ở tab Chi phí (số tiền do CLI ước tính theo giá Anthropic, có thể sai).", { url: new URL(a.baseUrl).host }) });
+      return Promise.resolve();
+    }
     if (a.host) {
       this.set({ account: a.id, provider: a.provider, state: "unavailable", windows: [], fetchedAt: this.now(), note: tr("Tài khoản chạy trên máy \"{host}\": chưa đo được hạn mức gói từ xa. Chi phí xem ở tab Chi phí.", { host: a.host }) });
       return Promise.resolve();

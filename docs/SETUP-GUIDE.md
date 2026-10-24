@@ -188,6 +188,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 - Mỗi login thật là **một** account trong YAML. Bỏ trống `home` để dùng login mặc định của máy.
   - Chỉ đặt `home` (giá trị `CLAUDE_CONFIG_DIR` / `CODEX_HOME`) khi người dùng có **nhiều** login và muốn tách riêng. Mỗi thư mục `home` cần đăng nhập riêng một lần.
 - Dùng API key: đặt `apiKeyEnv: <TÊN_BIẾN_MÔI_TRƯỜNG>`. Chỉ ghi **tên biến**, không bao giờ ghi giá trị key vào YAML.
+- **Model khác Claude qua Claude Code (0.14.6, chưa kiểm chứng với DeepSeek thật):** đặt `baseUrl` (endpoint tương thích API Anthropic, ví dụ `https://api.deepseek.com/anthropic`) và `authTokenEnv: <TÊN_BIẾN>` (biến môi trường chứa token của endpoint đó). Ví dụ: `claude-ds: { provider: claude, baseUrl: "https://api.deepseek.com/anthropic", authTokenEnv: DEEPSEEK_API_KEY, maxConcurrent: 2 }`. Worker dùng account này nên **bỏ trống `model:`** hoặc đặt đúng tên model theo tài liệu của nhà cung cấp (Claude Code có thể từ chối tên lạ). Giới hạn: không đo gói đăng ký, chi phí do CLI ước tính theo giá Anthropic nên sai, chất lượng dùng tool phụ thuộc model.
 - `maxConcurrent`: subscription Claude để **2** (tối đa 3), Codex ChatGPT login để **1**, API key thì tùy hạn mức.
 
 - **Account gắn với máy**: mỗi account là một đăng nhập trên một máy. Muốn worker chạy ở máy khác thì tạo account riêng có `host:`; cùng một gói subscription đăng nhập trên hai máy vẫn là **hai account** (giới hạn thật dùng chung phía nhà cung cấp, nên đặt `maxConcurrent` cẩn thận).
@@ -247,6 +248,8 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `provider` | ✔ | `claude` \| `codex` | | |
 | `home` | | chuỗi | login mặc định | `~` được mở rộng |
 | `apiKeyEnv` | | chuỗi | | tên biến môi trường chứa key |
+| `baseUrl` | | URL | Anthropic | Claude: gửi yêu cầu tới endpoint tương thích Anthropic khác (ví dụ DeepSeek `https://api.deepseek.com/anthropic`). Không đo gói đăng ký cho account này |
+| `authTokenEnv` | | chuỗi | | cùng với `baseUrl`: **tên** biến môi trường chứa token của endpoint đó (không ghi token vào YAML) |
 | `maxConcurrent` | | số nguyên ≥ 1 | `1` | |
 | `host` | | tên trong `hosts` | máy này | account là một đăng nhập **trên máy đó**; `home`/`apiKeyEnv` cũng là của máy đó |
 | `budgetUsdPerDay` | | số > 0 | không giới hạn | tạm dừng account khi chi phí trong ngày chạm mức này |
@@ -674,6 +677,9 @@ for (const [id, a] of Object.entries(accounts)) {
   if (a?.warnAtPercent !== undefined && !(typeof a.warnAtPercent === "number" && a.warnAtPercent >= 1 && a.warnAtPercent <= 100)) errors.push(`accounts.${id}.warnAtPercent phải nằm trong 1–100`);
   if (a?.host !== undefined && !hosts?.[a.host]) errors.push(`accounts.${id}.host "${a.host}" không có trong hosts`);
   if (a?.host && a?.home) warns.push(`accounts.${id}: home là đường dẫn TRÊN máy "${a.host}"`);
+  if (a?.baseUrl !== undefined && !/^https?:\/\/\S+$/.test(String(a.baseUrl))) errors.push(`accounts.${id}.baseUrl phải là URL http(s)`);
+  if (a?.authTokenEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(a.authTokenEnv))) errors.push(`accounts.${id}.authTokenEnv phải là TÊN biến môi trường, không phải token`);
+  if ((a?.baseUrl || a?.authTokenEnv) && a?.provider !== "claude") warns.push(`accounts.${id}: baseUrl/authTokenEnv chỉ dùng cho provider claude`);
   if (a?.provider === "claude" && (a?.maxConcurrent ?? 1) > 3) warns.push(`accounts.${id}: maxConcurrent > 3 dễ hết quota subscription`);
 }
 
@@ -681,7 +687,7 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "contextLimit", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
 const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;

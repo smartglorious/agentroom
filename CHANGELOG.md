@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.6
+- **Account Claude dùng endpoint khác** (`baseUrl` + `authTokenEnv`): chạy worker Claude Code với model khác qua cổng tương thích API Anthropic, ví dụ DeepSeek (`https://api.deepseek.com/anthropic`). Token ở biến môi trường (chỉ ghi tên biến vào YAML); khóa Anthropic không bao giờ bị gửi sang endpoint đó; không đo gói đăng ký cho account này. **Chưa kiểm chứng với DeepSeek thật** (chưa có khóa); chỉ test phần dựng biến môi trường và cấu hình. Cũng sửa `scripts/validate-agentroom.mjs`: `contextLimit` không còn bị báo là khóa lạ.
+
 ## 0.14.5
 - **Lệnh "AgentRoom: Đo context cố định của session mới (không tốn hạn mức)":** với mỗi worker Claude, khởi động CLI như một lượt thật nhưng luồng input không bao giờ gửi tin, nên **model không được gọi và không tốn hạn mức**; CLI chỉ báo cái gì sẽ chiếm cửa sổ (system prompt, tool, CLAUDE.md/memory, skill, MCP). Kết quả ở `.agentroom/state/context-report.md`. Đã kiểm chứng với CLI thật (khoảng 2 giây, không có tin nào của assistant). Không đo được worker Codex hoặc worker trên máy từ xa (nói rõ trong báo cáo). Dùng khi hạn mức đang cạn.
 

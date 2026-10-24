@@ -545,4 +545,5 @@ export const EN: Record<string, string> = {
   "Worker chạy trên máy từ xa ({host}): chạy lệnh này ngay trên máy đó.": "Worker runs on a remote machine ({host}): run this command on that machine.",
   "Không đo được: {msg}": "Could not be measured: {msg}",
   "Đang đo context cố định (không gửi tin nào cho model)…": "Measuring fixed context (no message is sent to the model)…",
+  "Account dùng endpoint riêng ({url}): không có gói đăng ký để đo. Chi phí xem ở tab Chi phí (số tiền do CLI ước tính theo giá Anthropic, có thể sai).": "Account uses its own endpoint ({url}): there is no subscription plan to measure. See the Cost tab for cost (the amount is the CLI's estimate at Anthropic prices and may be wrong).",
 };

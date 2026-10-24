@@ -63,6 +63,13 @@ export function accountEnv(account: Account, homeVar: string, keyVar: string): R
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   if (account.home) env[homeVar] = account.home;
   if (account.apiKeyEnv && process.env[account.apiKeyEnv]) env[keyVar] = process.env[account.apiKeyEnv]!;
+  if (account.provider === "claude" && account.baseUrl) {
+    // Another endpoint: its token replaces any Anthropic key that happens to be in the environment, so the key is never sent there.
+    env.ANTHROPIC_BASE_URL = account.baseUrl;
+    delete env.ANTHROPIC_API_KEY;
+    if (account.authTokenEnv && process.env[account.authTokenEnv]) env.ANTHROPIC_AUTH_TOKEN = process.env[account.authTokenEnv]!;
+    else delete env.ANTHROPIC_AUTH_TOKEN;
+  }
   return env;
 }
 

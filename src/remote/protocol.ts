@@ -31,6 +31,9 @@ export interface WireAccount {
   home?: string;
   /** Name of an environment variable *on the host* that holds an API key. */
   apiKeyEnv?: string;
+  baseUrl?: string;
+  /** Name of an environment variable *on the host* that holds the endpoint's token. */
+  authTokenEnv?: string;
 }
 
 export interface WireSkillFile {
