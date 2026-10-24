@@ -11,7 +11,7 @@
   const state = {
     workers: [], plans: [], byId: new Map(), answers: new Map(), replyTo: null, statuses: {}, tasks: [], drafts: [], accounts: [], todayByWorker: {},
     usage: null, range: "today", schedules: [], hooks: { port: null, hooks: [], calls: [] },
-    profile: null, profileWorker: null, hostList: [], telegram: null,
+    profile: null, profileWorker: null, hostList: [], telegram: null, panels: [],
   };
 
   const STATE_LABEL = {
@@ -487,10 +487,9 @@
   }
 
   // ---------- tabs ----------
-  const TABS = ["chat", "tasks", "cost", "sched", "hosts", "profile"];
   function showTab(name) {
     document.querySelectorAll("nav button[data-tab]").forEach((x) => x.classList.toggle("on", x.dataset.tab === name));
-    for (const t of TABS) $(t).hidden = t !== name;
+    document.querySelectorAll(".tab").forEach((t) => { t.hidden = t.id !== name; });
     if (name === "profile" && !state.profileWorker && state.workers.length) openProfile(state.workers[0].id);
   }
   document.querySelectorAll("nav button[data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
@@ -525,9 +524,10 @@
         state.hooks = data.hooks || state.hooks;
         state.hostList = data.hosts ? data.hosts.hosts : [];
         state.telegram = data.telegram ? data.telegram.status : null;
+        state.panels = data.panels || [];
         s.messages.forEach(renderMessage);
         s.approvals.forEach(renderApproval);
-        renderTeam(); renderTasks(); renderCost(); renderSched(); renderHosts(); renderProfile(); badge();
+        renderTeam(); renderTasks(); renderCost(); renderSched(); renderHosts(); renderProfile(); renderPanels(); badge();
         break;
       }
       case "message": renderMessage(data.msg); break;
@@ -544,10 +544,42 @@
       case "hooks": state.hooks = data; renderSched(); break;
       case "hosts": state.hostList = data.hosts; renderHosts(); break;
       case "telegram": state.telegram = data.status || null; renderHosts(); break;
+      case "panels": state.panels = data.panels || []; renderPanels(); break;
       case "locked": renderLocked(data.holder); break;
       case "profile": state.profile = data.profile; renderProfile(); break;
     }
   });
+
+  // Panels contributed by plugins: a tab each, made of titled sections of text rows. Plain text only (textContent).
+  function renderPanels() {
+    const nav = document.querySelector("nav");
+    const keep = new Set(state.panels.map((p) => "panel-" + p.id));
+    document.querySelectorAll("nav button[data-plugin], section[data-plugin]").forEach((n) => {
+      if (!keep.has(n.dataset.plugin)) n.remove();
+    });
+    for (const p of state.panels) {
+      const key = "panel-" + p.id;
+      let sec = document.querySelector(`section[data-plugin="${CSS.escape(key)}"]`);
+      if (!sec) {
+        sec = el("section", "tab"); sec.id = key; sec.dataset.plugin = key; sec.hidden = true;
+        $("profile").after(sec);
+        const b = el("button", null, p.title); b.dataset.tab = key; b.dataset.plugin = key;
+        b.addEventListener("click", () => showTab(key));
+        nav.insertBefore(b, $("flag"));
+      }
+      nav.querySelector(`button[data-plugin="${CSS.escape(key)}"]`).textContent = p.title;
+      sec.replaceChildren();
+      for (const s of p.sections || []) {
+        sec.append(el("h4", null, String(s.title)));
+        if (!(s.rows || []).length) sec.append(el("div", "meta", "—"));
+        for (const r of s.rows || []) {
+          const row = el("div", "meta" + (r.level === "error" ? " err" : r.level === "warn" ? " warn" : ""), String(r.text));
+          if (r.tag) row.prepend(el("span", "tag", String(r.tag)), " ");
+          sec.append(row);
+        }
+      }
+    }
+  }
 
   $("input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {

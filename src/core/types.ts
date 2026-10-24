@@ -103,6 +103,8 @@ export interface RoomConfig {
   schedules: ScheduleDef[];
   webhooks: WebhookDef[];
   limits: Limits;
+  /** Plugin sections of workers.yaml (`ext:`), keyed by plugin id. */
+  ext: Record<string, unknown>;
 }
 
 /** Guards against workers talking each other into expensive loops. */

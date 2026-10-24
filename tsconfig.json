@@ -13,7 +13,10 @@
       "node",
       "vscode"
     ],
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "agentroom:plugins": ["./src/plugins/private.ts", "./src/plugins/none.ts"]
+    }
   },
   "include": [
     "src",

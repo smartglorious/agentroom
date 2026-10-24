@@ -3,17 +3,26 @@
 // copied to remote hosts: one self-contained ESM file with both SDKs inlined (it uses the host's own
 // `claude` / `codex` CLIs, so no native binaries are needed).
 import * as esbuild from "esbuild";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const watch = process.argv.includes("--watch");
 const tests = process.argv.includes("--tests");
 
 const version = JSON.parse(readFileSync("package.json", "utf8")).version;
 const define = { __AR_VERSION__: JSON.stringify(version) };
+// `agentroom:plugins` is the list of plugins bundled into this build. The public tree has none (none.ts);
+// a build that has src/plugins/private.ts uses that file instead, without touching any tracked file.
+const pluginList = {
+  name: "agentroom-plugins",
+  setup(b) {
+    b.onResolve({ filter: /^agentroom:plugins$/ }, () => ({ path: resolve(existsSync("src/plugins/private.ts") ? "src/plugins/private.ts" : "src/plugins/none.ts") }));
+  },
+};
 const external = ["vscode", "@anthropic-ai/claude-agent-sdk", "@openai/codex-sdk", "@modelcontextprotocol/sdk", "zod"];
-const cjs = { define, bundle: true, platform: "node", target: "node20", format: "cjs", sourcemap: true, external };
+const cjs = { plugins: [pluginList], define, bundle: true, platform: "node", target: "node20", format: "cjs", sourcemap: true, external };
 const esm = {
-  define, bundle: true, platform: "node", target: "node20", format: "esm",
+  plugins: [pluginList], define, bundle: true, platform: "node", target: "node20", format: "esm",
   banner: { js: 'import{createRequire as __cr}from"module";const require=__cr(import.meta.url);' },
 };
 

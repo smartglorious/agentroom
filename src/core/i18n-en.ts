@@ -520,4 +520,6 @@ export const EN: Record<string, string> = {
   "Ghi một vấn đề / lỗi": "Report an issue / bug",
   "{msg}. Trên Windows hãy đặt agentroom.{name}Path = đường dẫn tới {name}.exe thật (thường trong node_modules\\@openai\\codex\\…\\vendor\\…\\codex\\codex.exe), không dùng file {name} hoặc {name}.cmd của npm.": "{msg}. On Windows set agentroom.{name}Path to the real {name}.exe (usually under node_modules\\@openai\\codex\\…\\vendor\\…\\codex\\codex.exe), not npm's {name} or {name}.cmd files.",
   "{msg}. Kiểm tra agentroom.{name}Path hoặc PATH.": "{msg}. Check agentroom.{name}Path or PATH.",
+  "🧩 Plugin {by} đã chặn {p}: {p1} — {p2}": "🧩 Plugin {by} blocked {p}: {p1} — {p2}",
+  "Bị chặn bởi plugin {by}: {reason}. Hãy dùng cách khác hoặc hỏi người dùng (@user) nếu thật sự cần.": "Blocked by plugin {by}: {reason}. Use another way, or ask the user (@user) if it is really needed.",
 };

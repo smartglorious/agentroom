@@ -11,6 +11,7 @@ import { REMOTE_SKILLS, SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, cla
 import { Autonomy, PolicyContext, absolutePath, decide, describeCall, toolPaths } from "./autonomy";
 import { PlanMonitor, PlanProbe } from "./plan";
 import type { IssueInput, IssueStore } from "./issues";
+import type { GuardVerdict, PluginManager } from "./plugins";
 import { RoomStore } from "./store";
 import { TaskBoard } from "./tasks";
 import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
@@ -54,6 +55,8 @@ export interface RoomDeps {
   home?: string;
   /** Local log of errors and friction, for fixing and upgrading AgentRoom. Optional. */
   issues?: IssueStore;
+  /** Extension points (guards, panels). Optional. */
+  plugins?: PluginManager;
 }
 
 export interface RoomEvents {
@@ -474,6 +477,7 @@ export class Room extends EventEmitter<RoomEvents> {
 
   /** Says once (per conversation or task) why work between workers stopped. */
   get issues() { return this.deps.issues; }
+  get plugins() { return this.deps.plugins; }
 
   /** Never throws: the issue log must not break a turn. Use `Room.reportIssue` for the owner's own notes. */
   noteIssue(i: IssueInput) {
@@ -725,6 +729,12 @@ export class Room extends EventEmitter<RoomEvents> {
     }
   }
 
+  private pluginGuard(workerId: string, tool: string, input: unknown, ctx: PolicyContext, where: { cwd?: string; host?: string }): ReturnType<PluginManager["check"]> {
+    if (!this.deps.plugins) return undefined;
+    const paths = toolPaths(tool, input).flatMap((p) => { const a = absolutePath(p, ctx); return a ? [a] : []; });
+    return this.deps.plugins.check({ workerId, tool, input, paths, cwd: where.cwd, host: where.host });
+  }
+
   private audit(workerId: string, mode: Autonomy, tool: string, input: unknown, outcome: string, reason?: string) {
     this.deps.store.appendAudit({ ts: this.now(), worker: workerId, mode, call: redactSecrets(describeCall(tool, input)), outcome, reason });
   }
@@ -733,30 +743,38 @@ export class Room extends EventEmitter<RoomEvents> {
     const mode = this.autonomyOf(workerId);
     const ctx = this.policyContext(workerId, where);
     let why: string | undefined, authored: string[] | undefined;
+    // A plugin guard can only tighten: it never turns a block or a question into an allow (see core/plugins.ts).
+    const guard = this.pluginGuard(workerId, tool, input, ctx, where);
+    const w = this.workers.find((x) => x.id === workerId);
+    const blocked = (by: string, reason: string, outcome: string): ApprovalResult => {
+      this.audit(workerId, mode, tool, input, outcome, reason);
+      this.post(SYSTEM, tr("🧩 Plugin {by} đã chặn {p}: {p1} — {p2}", { by, p: w?.name ?? workerId, p1: redactSecrets(describeCall(tool, input)).replace(/@/g, "(at)"), p2: reason.replace(/@/g, "(at)") }), {});
+      return { allow: false, reason: tr("Bị chặn bởi plugin {by}: {reason}. Hãy dùng cách khác hoặc hỏi người dùng (@user) nếu thật sự cần.", { by, reason }) };
+    };
+    if (guard?.action === "deny") return blocked(guard.by, guard.reason, tr("chặn"));
     if (mode !== "manual") {
       const v = decide(mode, tool, input, ctx);
-      if (v.kind === "allow") {
+      if (v.kind === "allow" && !guard) {
         this.noteWritten(workerId, tool, input, ctx);
         this.audit(workerId, mode, tool, input, tr("tự duyệt"));
         return true;
       }
       if (v.kind === "deny") {
         this.audit(workerId, mode, tool, input, tr("chặn"), v.reason);
-        const w = this.workers.find((x) => x.id === workerId);
         this.post(SYSTEM, tr("🛡 Chế độ {mode} đã chặn {p}: {p1} — {p2}", { mode, p: w?.name ?? workerId, p1: redactSecrets(describeCall(tool, input)).replace(/@/g, "(at)"), p2: v.reason.replace(/@/g, "(at)") }), {});
         return { allow: false, reason: tr("Bị chặn bởi chế độ {mode}: {reason}. Hãy dùng cách khác trong thư mục làm việc, hoặc hỏi người dùng (@user) nếu thật sự cần.", { mode, reason: v.reason }) };
       }
-      why = v.reason;
-      authored = v.authored;
+      if (v.kind === "ask") { why = tr("Chế độ {mode}: {why}", { mode, why: v.reason }); authored = v.authored; }
     }
-    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input, ...where, ...(why ? { reason: tr("Chế độ {mode}: {why}", { mode, why }) } : {}) };
+    if (guard) why = [why, tr("Plugin {by}: {reason}", { by: guard.by, reason: guard.reason })].filter(Boolean).join(" · ");
+    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input, ...where, ...(why ? { reason: why } : {}) };
     const allowed = await new Promise<boolean>((resolve) => {
       this.approvals.set(req.id, { req, resolve, key });
       signal.addEventListener("abort", () => this.respondApproval(req.id, false), { once: true });
       this.setStatus(workerId, "waiting_approval", tool);
       this.emit("approval", req);
     });
-    if (mode !== "manual") this.audit(workerId, mode, tool, input, allowed ? tr("người dùng cho phép") : tr("người dùng từ chối"), why);
+    if (mode !== "manual" || guard) this.audit(workerId, mode, tool, input, allowed ? tr("người dùng cho phép") : tr("người dùng từ chối"), why);
     if (allowed) {
       this.noteWritten(workerId, tool, input, ctx);
       // The human has now seen this script run; stop asking about it every time.

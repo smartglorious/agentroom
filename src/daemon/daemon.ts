@@ -1,5 +1,7 @@
 import { tr } from "../core/i18n";
+import { plugins as bundledPlugins } from "agentroom:plugins";
 import { IssueStore } from "../core/issues";
+import { PluginManager } from "../core/plugins";
 import { VERSION } from "../core/version";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -123,6 +125,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     const skills = new SkillRegistry(skillSources(o.root, home));
     const usage = new UsageStore(stateDir);
     const issues = new IssueStore(join(stateDir, "issues.json"), { version: VERSION, platform: process.platform, node: process.version, scrub: [[o.root, "<project>"], [home, "~"]] });
+    const plugins = new PluginManager(bundledPlugins);
     const roomStore = new RoomStore(stateDir);
     const server: { current?: AgentRoomMcp } = {};
 
@@ -168,6 +171,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       mcpUrl: (id) => server.current!.urlFor(id),
       home,
       issues,
+      plugins,
       autonomyStore: {
         get: (id) => store.read().autonomy?.[`${o.root}|${id}`],
         set: (id, m) => store.update((f) => { f.autonomy = { ...f.autonomy, [`${o.root}|${id}`]: m }; }),
@@ -176,6 +180,8 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       planPollMs: () => settings().planPollMinutes * 60_000,
     });
     room.plan?.start();
+    plugins.activate({ room, config, root: o.root, log: (t) => log(`[plugin] ${t}`) });
+    disposers.push(() => plugins.dispose());
     disposers.push(() => room.plan?.stop());
     disposers.push(() => room.stopAll());
 
