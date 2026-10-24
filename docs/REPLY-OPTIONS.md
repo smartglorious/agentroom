@@ -33,4 +33,6 @@ Câu hỏi tới điện thoại **có chuông** (như mọi tin cần bạn quy
 
 Đã kiểm chứng bằng test: định tuyến trả lời (tác giả, đúng task, `@mention` thắng, mục tiêu không tồn tại), `ask_user` qua MCP thật (kiểm tra đầu vào, không đánh thức ai, rơi vào đúng task đang chạy), `answerOption` (một lần, không giả mạo được, tin hệ thống không thành câu hỏi), lưu bền qua khởi động lại, đoạn trích trong prompt, và phía Telegram (nút, chuông, `/mute`, bấm nút, đóng câu hỏi từ hai phía, reply gốc của Telegram, nút quá cũ). Giao diện kiểm bằng Chromium (sáng/tối): nút ↩, thanh trả lời, gửi kèm `replyTo`, bấm lựa chọn rồi khóa và đánh dấu.
 
-**Chưa kiểm chứng:** Claude thật gọi `ask_user` rồi tiếp tục trong cùng session (kịch bản `npm run test:live -- reply` đã viết, chưa chạy được vì hạn mức Claude của môi trường đang bị giới hạn tạm thời); VS Code thật; Telegram thật.
+**Đã kiểm chứng với Claude thật** (`npm run test:live -- reply`, cả 7 mục qua): worker gọi `ask_user` với 3 phương án và không đánh thức ai; sau khi bạn chọn, worker trả lời **trong cùng session Claude** (`resumed`), prompt của lượt đó có trích câu hỏi và lựa chọn, và câu trả lời cho thấy nó biết đã chọn gì; một câu trả lời bằng chữ qua ↩ (không `@mention`) tới đúng worker đã viết tin. Chạy trên mã đã gộp với bộ tool tường minh, nên `ask_user` vẫn dùng được khi `tools:` bị giới hạn.
+
+**Chưa kiểm chứng:** VS Code thật và Telegram thật (phía Telegram chỉ kiểm bằng Bot API giả lập).
