@@ -221,7 +221,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
         remote: hosts ? new RemoteAdapter(hosts) : undefined,
         adapters: { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => cfg.get<PriceTable>("pricing", {})) },
         scheduler: new Scheduler(),
-        options: { maxAgentHops: cfg.get("maxAgentHops", 6), contextMessages: cfg.get("contextMessages", 30), memoryBudgetChars: cfg.get("memoryBudgetChars", 12000), agentDebounceMs: Math.max(0, cfg.get<number>("agentDebounceMs", 1500)) },
+        options: { maxAgentHops: cfg.get("maxAgentHops", 6), contextMessages: cfg.get("contextMessages", 30), memoryBudgetChars: cfg.get("memoryBudgetChars", 12000), agentDebounceMs: Math.max(0, cfg.get<number>("agentDebounceMs", 8000)) },
         memory: new MemoryStore(agentroomDir),
         skills,
         skillDrafts: new SkillDrafts(join(agentroomDir, "skills")),

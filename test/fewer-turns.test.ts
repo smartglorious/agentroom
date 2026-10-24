@@ -146,11 +146,41 @@ test("rules: the persona tells workers about [NOOP] and not to @mention just to 
   assert.match(p.stable.text, /Đừng @mention ai chỉ để cảm ơn/);
 });
 
-test("config: limits default to 10 turns per conversation and no task budget; bad values are rejected", () => {
+test("config: limits default to 6 turns per conversation, 3 workers woken per worker message and no task budget; bad values are rejected", () => {
   const d = parseConfig(CFG());
-  assert.deepEqual(d.limits, { chainTurns: 10 });
+  assert.deepEqual(d.limits, { chainTurns: 6, maxFanout: 3 });
   const c = parseConfig(CFG("limits: { chainTurns: 6, usdPerTask: 0.5 }\n"));
-  assert.deepEqual(c.limits, { chainTurns: 6, usdPerTask: 0.5 });
+  assert.deepEqual(c.limits, { chainTurns: 6, maxFanout: 3, usdPerTask: 0.5 });
+  assert.equal(parseConfig(CFG("limits: { maxFanout: 1 }\n")).limits.maxFanout, 1);
+  assert.throws(() => parseConfig(CFG("limits: { maxFanout: 0 }\n")));
   assert.throws(() => parseConfig(CFG("limits: { chainTurns: 1 }\n")));
   assert.throws(() => parseConfig(CFG("limits: { usdPerTask: 0 }\n")));
+});
+
+import { route, withoutCc } from "../src/core/router";
+
+const team = parseConfig(`accounts: { c: { provider: claude, maxConcurrent: 3 } }
+workers:
+${["lead", "be", "fe", "qa", "fw"].map((id) => `  - { id: ${id}, name: ${id}, role: x, account: c${id === "lead" ? ", coordinator: true" : ""} }`).join("\n")}
+`).workers;
+
+test("router: a worker's cc:/FYI: lines wake nobody, and one worker message wakes at most maxFanout workers", () => {
+  const o = { maxAgentHops: 6, maxFanout: 3 };
+  assert.deepEqual(route({ from: "lead", depth: 1, text: "@be làm A\ncc: @qa @fe @fw" }, team, o), ["be"]);
+  assert.deepEqual(route({ from: "lead", depth: 1, text: "xong\n  FYI: @be, @qa" }, team, o), []);
+  assert.deepEqual(route({ from: "lead", depth: 1, text: "@be @fe @qa @fw việc" }, team, o), ["be", "fe", "qa"], "first three mentioned");
+  assert.equal(route({ from: "lead", depth: 1, text: "@all x" }, team, o).length, 3);
+  assert.deepEqual(route({ from: "user", depth: 0, text: "@be @fe @qa @fw @lead" }, team, o), ["be", "fe", "qa", "fw", "lead"], "a person is never limited");
+  assert.deepEqual(route({ from: "lead", depth: 1, text: "@be @fe @qa @fw" }, team, { maxAgentHops: 6 }), ["be", "fe", "qa", "fw"], "no limit when not set");
+  assert.equal(withoutCc("a\ncc: @x\nb"), "a\n\nb");
+});
+
+test("room: a worker's message with cc lines wakes only the asked worker; the persona teaches the cc and fan-out rules", async () => {
+  const { fake, room } = rig((req) => (req.worker.id === "lead" ? "@be làm bước 1\ncc: @qa" : "[NOOP]"));
+  room.post("user", "@lead bắt đầu");
+  await settle(room);
+  assert.ok(fake.calls.some((c) => c.worker.id === "be"));
+  assert.ok(!fake.calls.some((c) => c.worker.id === "qa"), "cc did not wake qa");
+  const p = buildPersona(parseConfig(CFG()).workers[1], parseConfig(CFG()).workers);
+  assert.match(p.stable.text, /bắt đầu bằng `cc:`/);
 });

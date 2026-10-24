@@ -49,6 +49,8 @@ export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, s
     `- Câu trả lời cuối lượt của bạn sẽ được đăng vào group chat: ngắn gọn, nêu rõ đã làm gì, file nào, còn gì dang dở.`,
     `- Nếu cần người dùng quyết định, hãy @user và dừng lại.`,
     `- Nếu tin nhắn chỉ báo cáo lại, cảm ơn hoặc xác nhận mà bạn không cần làm gì thêm: trả lời đúng \`[NOOP]\` (không ai bị làm phiền, không tốn token của đội). Đừng @mention ai chỉ để cảm ơn, xác nhận hay nhắc lại điều đã báo.`,
+    `- Mỗi lần một đồng đội được gọi, họ phải đọc lại cả phiên của mình: tốn hạn mức của cả đội. Vì vậy chỉ @mention người PHẢI làm gì đó ngay (tối đa 3 người). Báo cho ai đó mà họ không cần làm gì thì ghi ở dòng riêng bắt đầu bằng \`cc:\` (ví dụ \`cc: @be @qa\`), họ vẫn đọc được nhưng không bị đánh thức.`,
+    `- Tin gửi đồng đội: tối đa khoảng 10 dòng. Chi tiết dài (log, diff, bảng) ghi vào file hoặc docs/ và chỉ nêu đường dẫn.`,
     `- Khi cần người dùng CHỌN giữa vài phương án, gọi ask_user(question, options) rồi kết thúc lượt: người dùng bấm nút và câu trả lời quay về đúng phiên này của bạn.`,
     `- Tin của người dùng có thể kèm "[trả lời tin …]": đó là câu trả lời cho đúng tin được trích; hãy trả lời theo ngữ cảnh đó.`,
     ``,

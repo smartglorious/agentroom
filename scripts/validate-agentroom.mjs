@@ -167,10 +167,11 @@ for (const [i, s] of (Array.isArray(schedules) ? schedules : []).entries()) {
 // ---- limits ----
 if (cfg.limits !== undefined) {
   const l = cfg.limits;
-  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, usdPerTask }");
+  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, maxFanout, usdPerTask }");
   else {
-    for (const k of Object.keys(l)) if (!["chainTurns", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
+    for (const k of Object.keys(l)) if (!["chainTurns", "maxFanout", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
     if (l.chainTurns !== undefined && !(Number.isInteger(l.chainTurns) && l.chainTurns >= 2 && l.chainTurns <= 100)) errors.push("limits.chainTurns phải là số nguyên từ 2 đến 100");
+    if (l.maxFanout !== undefined && !(Number.isInteger(l.maxFanout) && l.maxFanout >= 1 && l.maxFanout <= 20)) errors.push("limits.maxFanout phải là số nguyên 1-20");
     if (l.usdPerTask !== undefined && !(typeof l.usdPerTask === "number" && l.usdPerTask > 0)) errors.push("limits.usdPerTask phải là số > 0");
   }
 }

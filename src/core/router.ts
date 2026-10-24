@@ -14,8 +14,14 @@ export function parseMentions(text: string, workers: Worker[]): string[] {
   return [...found];
 }
 
+/** Lines that start with `cc:` or `FYI:` tell people something without asking them to answer: their @mentions wake nobody. */
+const CC_LINE = /^[ \t]*(?:cc|fyi)[ \t]*[:：].*$/gim;
+export const withoutCc = (text: string) => text.replace(CC_LINE, "");
+
 export interface RouteOptions {
   maxAgentHops: number;
+  /** Most workers one worker message may wake (the first ones mentioned). Humans are not limited. */
+  maxFanout?: number;
 }
 
 /**
@@ -32,5 +38,7 @@ export function route(msg: Pick<ChatMessage, "from" | "text" | "depth">, workers
   }
   if (msg.from === SYSTEM) return mentioned;
   if (msg.depth >= opts.maxAgentHops) return [];
-  return mentioned;
+  // Every worker woken re-reads its whole session, so a worker message wakes only the people it asks something of.
+  const asked = parseMentions(withoutCc(msg.text), workers).filter((id) => id !== msg.from);
+  return opts.maxFanout ? asked.slice(0, opts.maxFanout) : asked;
 }
