@@ -1,3 +1,5 @@
+import { IssueStore } from "../core/issues";
+import { VERSION } from "../core/version";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -119,6 +121,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     const s0 = settings();
     const skills = new SkillRegistry(skillSources(o.root, home));
     const usage = new UsageStore(stateDir);
+    const issues = new IssueStore(join(stateDir, "issues.json"), { version: VERSION, platform: process.platform, node: process.version, scrub: [[o.root, "<project>"], [home, "~"]] });
     const roomStore = new RoomStore(stateDir);
     const server: { current?: AgentRoomMcp } = {};
 
@@ -163,6 +166,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       resolveCwd: (w) => ensureWorktree(localBase(o.root, w), w),
       mcpUrl: (id) => server.current!.urlFor(id),
       home,
+      issues,
       autonomyStore: {
         get: (id) => store.read().autonomy?.[`${o.root}|${id}`],
         set: (id, m) => store.update((f) => { f.autonomy = { ...f.autonomy, [`${o.root}|${id}`]: m }; }),
@@ -222,7 +226,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       const apiBase = o.apiBase ?? env.AGENTROOM_TELEGRAM_API;
       telegram = new TelegramService({
         room, usage, config,
-        bot: new TelegramBot(new BotApi(token, apiBase ? { apiBase } : {}), { log: (t) => log(`[telegram] ${t}`), ...o.bot }),
+        bot: new TelegramBot(new BotApi(token, apiBase ? { apiBase } : {}), { log: (t) => { log(`[telegram] ${t}`); if (/lỗi|không (gửi|khởi động)|failed|error/i.test(t)) room.noteIssue({ kind: "error", source: "telegram", title: t }); }, ...o.bot }),
         settings,
         stores: {
           paired: {
@@ -238,7 +242,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
         workspaceName: o.root.split(/[\\/]/).pop(),
       });
       disposers.push(() => telegram!.stop());
-      void telegram.start().catch((e) => log(`[telegram] không khởi động được: ${e instanceof Error ? e.message : e}`));
+      void telegram.start().catch((e) => { const m = `không khởi động được: ${e instanceof Error ? e.message : e}`; log(`[telegram] ${m}`); room.noteIssue({ kind: "error", source: "telegram", title: m }); });
     } else {
       log("Telegram chưa thiết lập (chạy: agentroom-daemon setup-telegram).");
     }

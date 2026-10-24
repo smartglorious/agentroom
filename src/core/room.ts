@@ -9,6 +9,7 @@ import { isRateLimit, Scheduler } from "./scheduler";
 import { REMOTE_SKILLS, SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, claudeSkillOptions, codexSkillDirs, codexSkillsBlock } from "./skills";
 import { Autonomy, PolicyContext, absolutePath, decide, describeCall, toolPaths } from "./autonomy";
 import { PlanMonitor, PlanProbe } from "./plan";
+import type { IssueInput, IssueStore } from "./issues";
 import { RoomStore } from "./store";
 import { TaskBoard } from "./tasks";
 import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
@@ -50,6 +51,8 @@ export interface RoomDeps {
   autonomyStore?: { get(workerId: string): Autonomy | undefined; set(workerId: string, mode: Autonomy): void };
   /** Home folder on this machine, for judging `~/…` paths of local workers. */
   home?: string;
+  /** Local log of errors and friction, for fixing and upgrading AgentRoom. Optional. */
+  issues?: IssueStore;
 }
 
 export interface RoomEvents {
@@ -416,6 +419,7 @@ export class Room extends EventEmitter<RoomEvents> {
     };
     if (pct >= 100) {
       this.budgetPaused.add(accountId);
+      if (announce) this.noteIssue({ kind: "friction", source: "budget", title: `Account ${accountId} chạm ngân sách ngày nên tạm dừng` });
       this.deps.scheduler.pauseUntil(accountId, nextMidnight(this.now()));
       say("stop", `⛔ Account ${accountId} đã chạm ngân sách ngày ($${spent.toFixed(2)} / $${acc.budgetUsdPerDay}). Tạm dừng đến 0h; bấm "Cho chạy tiếp hôm nay" để tiếp tục.`);
       for (const w of this.workers.filter((x) => x.account === accountId)) {
@@ -468,8 +472,23 @@ export class Room extends EventEmitter<RoomEvents> {
   }
 
   /** Says once (per conversation or task) why work between workers stopped. */
+  get issues() { return this.deps.issues; }
+
+  /** Never throws: the issue log must not break a turn. Use `Room.reportIssue` for the owner's own notes. */
+  noteIssue(i: IssueInput) {
+    try { this.deps.issues?.record(i); } catch { /* best effort */ }
+  }
+
+  /** A note the owner wrote (⚑ button, /issue, CLI). */
+  reportIssue(text: string, worker?: string) {
+    const t = text.trim();
+    if (!t) return undefined;
+    return this.deps.issues?.record({ kind: "user", source: "user", title: t.split("\n")[0].slice(0, 200), detail: t.includes("\n") ? t : undefined, worker });
+  }
+
   private announceStop(key: string, text: string, chain?: string) {
     if (this.stopNotes.has(key)) return;
+    this.noteIssue({ kind: "friction", source: "limit", title: key.startsWith("task:") ? "Task chạm limits.usdPerTask nên các worker dừng" : "Chuỗi trao đổi chạm limits.chainTurns nên các worker dừng" });
     this.stopNotes.add(key);
     if (this.stopNotes.size > 500) this.stopNotes.delete(this.stopNotes.values().next().value!);
     this.post(SYSTEM, text, { alert: true, to: [], chain });
@@ -525,11 +544,12 @@ export class Room extends EventEmitter<RoomEvents> {
     }
     this.deps.scheduler
       .submit(worker.account, key, () => this.runTurn(worker, key), (until) =>
-        this.setStatus(worker.id, "rate_limited", `chờ đến ${new Date(until).toLocaleTimeString()}`))
+        { this.noteIssue({ kind: "friction", source: "rate-limit", title: `Account ${worker.account} bị rate limit`, worker: worker.id }); this.setStatus(worker.id, "rate_limited", `chờ đến ${new Date(until).toLocaleTimeString()}`); })
       .catch((err) => {
         if (err instanceof Error && err.message === "cancelled") return;
         const reason = err instanceof Error ? err.message : String(err);
         this.setStatus(worker.id, "error", reason);
+        this.noteIssue({ kind: "error", source: "turn", title: `Lượt của worker lỗi: ${reason}`, worker: worker.id });
         // Deliberately no "@id" here: a mention would route the error back to the failing worker.
         this.post(SYSTEM, `⚠️ ${worker.name} (id: ${worker.id}) gặp lỗi: ${reason}`, { alert: true });
       })

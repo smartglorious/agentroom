@@ -64,7 +64,7 @@ const HELP = [
   "• Nhắn thường → gửi cho worker điều phối; @id → gọi đúng worker",
   "/status — worker đang làm gì · /tasks — việc đang mở · /cost — chi phí hôm nay",
   "/mode — mức tự chủ của worker (chỉ hạ được từ đây) · /plan — hạn mức gói Claude/Codex còn lại (/plan refresh để đọc lại) · /stop <id|all> — dừng worker · /mute [30m|2h] · /unmute",
-  "/detail summary|full|alerts — mức chi tiết tin gửi về",
+  "/detail summary|full|alerts — mức chi tiết tin gửi về · /issue <mô tả> — ghi một vấn đề · /issues — vấn đề đang mở",
   "/budget — cho account hết ngân sách chạy tiếp · /unpair — ngắt ghép cặp",
 ].join("\n");
 
@@ -385,6 +385,16 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
         if (!room.plan) return void (await say("Chưa bật theo dõi hạn mức gói."));
         if (arg === "refresh") await room.plan.refresh(undefined, true);
         return void (await say(planText(room.plan.list(), this.now())));
+      }
+      case "issue": {
+        if (!arg) return void (await say("Dùng: /issue <mô tả vấn đề>. Lưu cục bộ để bạn xem/sửa sau; không gửi đi đâu."));
+        const it = room.reportIssue(arg);
+        return void (await say(it ? `⚑ Đã ghi vấn đề ${it.id}.` : "Chưa bật bộ gom lỗi."));
+      }
+      case "issues": {
+        const open = room.issues?.list("open").sort((a, b) => b.count - a.count).slice(0, 8);
+        if (!open) return void (await say("Chưa bật bộ gom lỗi."));
+        return void (await say(open.length ? ["⚑ Vấn đề đang mở (nhiều nhất trước):", ...open.map((i) => `• ${i.title.slice(0, 90)} ×${i.count} [${i.source}]`)].join("\n") : "Không có vấn đề nào đang mở."));
       }
       case "stop": {
         const ids = room.snapshot().workers.map((w) => w.id);

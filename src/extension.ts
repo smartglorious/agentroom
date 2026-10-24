@@ -11,6 +11,10 @@ import { TelegramBot } from "./channels/telegram/bot";
 import { PIN_FORMAT, hashPin } from "./channels/telegram/pin";
 import { PairedUser, TelegramService, TelegramSettings } from "./channels/telegram/service";
 import { findExecutable } from "./core/cli";
+import { IssueStore } from "./core/issues";
+import { VERSION } from "./core/version";
+
+const TELEGRAM_FAULT = /lỗi|không (gửi|khởi động)|failed|error/i;
 import { gatherCleanup, humanBytes, listBatches, restoreCleanup, scanCleanup } from "./core/cleanup";
 import { parseConfig, SAMPLE_CONFIG } from "./core/config";
 import { CronEngine } from "./core/cron";
@@ -113,7 +117,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
     const pairedKey = `agentroom.telegram.paired.${createHash("sha256").update(token).digest("hex").slice(0, 12)}`;
     const svc = new TelegramService({
       room, usage: live!.usage, config: live!.config,
-      bot: new TelegramBot(new BotApi(token), { log: (t) => out.appendLine(`[telegram] ${t}`) }),
+      bot: new TelegramBot(new BotApi(token), { log: (t) => { out.appendLine(`[telegram] ${t}`); if (TELEGRAM_FAULT.test(t)) live?.room.noteIssue({ kind: "error", source: "telegram", title: t }); } }),
       settings: liveSettings,
       stores: {
         paired: { get: () => ctx.globalState.get<PairedUser>(pairedKey), set: async (u) => { await ctx.globalState.update(pairedKey, u); } },
@@ -186,6 +190,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
       const server: { current?: AgentRoomMcp } = {};
       const inspector = new TurnInspector(stateDir, cfg.get("inspector.keepTurns", 300));
       const usage = new UsageStore(stateDir);
+      const issues = new IssueStore(join(stateDir, "issues.json"), { version: VERSION, platform: process.platform, node: process.version, scrub: [[ws, "<project>"], [homedir(), "~"]] });
 
       let hosts: HostManager | undefined;
       if (config.hosts.length) {
@@ -225,6 +230,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
           },
         },
         home: homedir(),
+        issues,
         planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
         planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });
@@ -280,7 +286,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
       live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config };
       const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel };
       view.attach(vctx);
-      void startTelegram().catch((e) => out.appendLine(`[telegram] không khởi động được: ${e instanceof Error ? e.message : e}`));
+      void startTelegram().catch((e) => { const m = `không khởi động được: ${e instanceof Error ? e.message : e}`; out.appendLine(`[telegram] ${m}`); live?.room.noteIssue({ kind: "error", source: "telegram", title: m }); });
     } catch (e) {
       dispose();
       lock.release();
@@ -389,6 +395,20 @@ export async function activate(ctx: vscode.ExtensionContext) {
       const pick = await vscode.window.showQuickPick(["(tất cả worker)", ...live.room.workers.map((w) => w.id)], { placeHolder: "Gom trí nhớ của ai?" });
       if (!pick) return;
       for (const w of pick === "(tất cả worker)" ? live.room.workers : live.room.workers.filter((x) => x.id === pick)) live.room.consolidateMemory(w.id);
+    }),
+    vscode.commands.registerCommand("agentroom.reportIssue", async () => {
+      if (!live) return vscode.window.showWarningMessage("AgentRoom chưa được cấu hình.");
+      const text = await vscode.window.showInputBox({ prompt: "Mô tả vấn đề bạn gặp với AgentRoom (lưu cục bộ, không gửi đi đâu)", ignoreFocusOut: true });
+      if (!text) return;
+      const it = live.room.reportIssue(text);
+      vscode.window.showInformationMessage(it ? `Đã ghi vấn đề ${it.id}.` : "Chưa bật bộ gom lỗi.");
+    }),
+    vscode.commands.registerCommand("agentroom.exportIssues", async () => {
+      const ws = root();
+      if (!ws || !live?.room.issues) return vscode.window.showWarningMessage("AgentRoom chưa được cấu hình.");
+      const f = join(ws, ".agentroom", "state", "issues-report.md");
+      writeFileSync(f, live.room.issues.markdown());
+      await vscode.window.showTextDocument(vscode.Uri.file(f));
     }),
     vscode.commands.registerCommand("agentroom.cleanup", async () => {
       const ws = root();

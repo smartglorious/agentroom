@@ -9,6 +9,8 @@ import { PIN_FORMAT, hashPin } from "../channels/telegram/pin";
 import { Autonomy, isAutonomy } from "../core/autonomy";
 import { gatherCleanup, humanBytes, listBatches, renderScan, restoreCleanup, scanCleanup } from "../core/cleanup";
 import { parseConfig } from "../core/config";
+import { IssueStore, IssueStatus } from "../core/issues";
+import { VERSION } from "../core/version";
 import { RoomLock } from "../core/lock";
 import { fingerprint } from "../remote/host";
 import { createHash } from "node:crypto";
@@ -26,6 +28,7 @@ const USAGE = `agentroom-daemon — chạy AgentRoom không cần VS Code
   settings                                xem cài đặt
   set <khóa> <giá trị>                    đổi cài đặt (detail, hookPort, claudePath, …)
   autonomy [<worker> <manual|auto|full>] [--root <thư mục>]   xem/đổi mức tự chủ của worker
+  issues [list|export|report <mô tả>|fix <id> [ghi chú]|wontfix <id>]   lỗi/vấn đề đã gom (cục bộ)
   cleanup [scan|gather|list|restore <lô>] [--root <thư mục>]   dọn file rác/tạm/cache: GOM vào .agentroom/cleanup/, không xóa
   status [--root <thư mục>]               ai đang giữ phòng
   service [--root <thư mục>]              in file systemd mẫu
@@ -230,6 +233,24 @@ async function main() {
       const chosen = mode as Autonomy;
       store.update((f) => { f.autonomy = { ...f.autonomy, [key(id)]: chosen }; });
       return console.log(`${id}: ${mode}. Có hiệu lực ở lượt tới của worker (không cần khởi động lại daemon).`);
+    }
+
+    case "issues": {
+      const st = new IssueStore(join(root, ".agentroom", "state", "issues.json"), { version: VERSION, platform: process.platform, node: process.version, scrub: [[root, "<project>"], [home, "~"]] });
+      const [sub = "list", ...more] = rest;
+      if (sub === "export") { process.stdout.write(st.markdown()); return; }
+      if (sub === "report") {
+        if (!more.length) die("issues report <mô tả>", 1);
+        const text = more.join(" ");
+        return console.log(`Đã ghi ${st.record({ kind: "user", source: "user", title: text.split("\n")[0].slice(0, 200), detail: text }).id}.`);
+      }
+      if (sub === "fix" || sub === "wontfix") {
+        const [id, ...note] = more;
+        const it = id ? st.setStatus(id, (sub === "fix" ? "fixed" : "wontfix") as IssueStatus, note.join(" ") || undefined) : undefined;
+        return it ? console.log(`${it.id}: ${it.status}`) : die("Không thấy id đó (xem: issues list).", 1);
+      }
+      const open = st.list("open").sort((a, b) => b.count - a.count);
+      return console.log(open.length ? open.map((i) => `${i.id}  ×${i.count}  [${i.kind}/${i.source}]  ${i.title}`).join("\n") : "Không có vấn đề nào đang mở.");
     }
 
     case "cleanup": {

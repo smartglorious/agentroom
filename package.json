@@ -49,6 +49,14 @@
         "title": "AgentRoom: Dừng tất cả worker"
       },
       {
+        "command": "agentroom.reportIssue",
+        "title": "AgentRoom: Ghi một vấn đề / lỗi"
+      },
+      {
+        "command": "agentroom.exportIssues",
+        "title": "AgentRoom: Xuất báo cáo lỗi (Markdown)"
+      },
+      {
         "command": "agentroom.cleanup",
         "title": "AgentRoom: Dọn dẹp file rác/tạm/cache (gom, không xóa)"
       },

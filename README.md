@@ -2,7 +2,7 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, tính cách, trí nhớ riêng) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`. Mức tự chủ: `docs/AUTONOMY.md`. Reply và lựa chọn: `docs/REPLY-OPTIONS.md`. Bớt lượt: `docs/FEWER-TURNS.md`. Dọn dẹp: `docs/CLEANUP.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
+Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`. Mức tự chủ: `docs/AUTONOMY.md`. Reply và lựa chọn: `docs/REPLY-OPTIONS.md`. Bớt lượt: `docs/FEWER-TURNS.md`. Dọn dẹp: `docs/CLEANUP.md`. Gom lỗi: `docs/ISSUES.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
 
 ## Tính năng
 
@@ -15,6 +15,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 | **Mức tự chủ** | Mỗi worker chọn 🛡 Manual (hỏi mọi thao tác) · 🤖 Auto (tự duyệt việc an toàn trong thư mục của worker, chặn xóa file/hệ thống/sudo, hỏi khi không chắc) · ⚡ Full (không hỏi, trừ vài hành động phá máy; có hộp thoại cảnh báo, chỉ bạn bật được). Nhật ký quyết định ở `audit.jsonl`. **Auto không phải sandbox.** Xem `docs/AUTONOMY.md`. |
 | **Trả lời đúng tin, lựa chọn bằng nút** | Nút ↩ trên tin của worker: câu trả lời tới đúng tác giả, đúng phiên, kèm trích dẫn. Worker cần bạn chọn thì gọi `ask_user` và hiện nút; bấm là trả lời về đúng phiên đó. Cả trên Telegram. Xem `docs/REPLY-OPTIONS.md`. |
 | **Ít lượt vô ích** | Các worker không còn nhắn qua lại vô tận: giới hạn lượt cho mỗi tin của bạn (`limits.chainTurns`), ngân sách theo task (`limits.usdPerTask`), `[NOOP]` thay cho "không có việc mới", chống lặp, gom tin đến cùng lúc vào một lượt. Xem `docs/FEWER-TURNS.md`. |
+| **Gom lỗi để cải tiến** | Lỗi lượt, lỗi Telegram, rate limit, chạm ngân sách/giới hạn được ghi cục bộ, gộp trùng, ẩn bí mật; xuất báo cáo Markdown (`AgentRoom: Xuất báo cáo lỗi`, Telegram `/issues`, `agentroom-daemon issues`). Không tự tải lên đâu cả. Xem `docs/ISSUES.md`. |
 | **Dọn dẹp, không xóa** | Lệnh *Dọn dẹp file rác/tạm/cache*: tìm `.DS_Store`, `*.tmp`, `__pycache__`… (bỏ qua file git theo dõi), và khi bạn chọn thì *di chuyển* vào `.agentroom/cleanup/` để bạn tự xóa; có khôi phục. Không bao giờ tự xóa. Xem `docs/CLEANUP.md`. |
 | **Hạn mức gói** | Tab *Chi phí* hiện phần trăm còn lại của gói Claude/Codex theo từng cửa sổ (5 giờ, 7 ngày…) và giờ reset; cảnh báo, tự tạm dừng khi hết; Telegram `/plan`. Xem `docs/PLAN-USAGE.md`. |
 | **Chi phí** | Tab *Chi phí*: token, chi phí, cache hit theo worker / account / model / task / tool. |

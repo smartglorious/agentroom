@@ -3,15 +3,17 @@
 // copied to remote hosts: one self-contained ESM file with both SDKs inlined (it uses the host's own
 // `claude` / `codex` CLIs, so no native binaries are needed).
 import * as esbuild from "esbuild";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 const watch = process.argv.includes("--watch");
 const tests = process.argv.includes("--tests");
 
+const version = JSON.parse(readFileSync("package.json", "utf8")).version;
+const define = { __AR_VERSION__: JSON.stringify(version) };
 const external = ["vscode", "@anthropic-ai/claude-agent-sdk", "@openai/codex-sdk", "@modelcontextprotocol/sdk", "zod"];
-const cjs = { bundle: true, platform: "node", target: "node20", format: "cjs", sourcemap: true, external };
+const cjs = { define, bundle: true, platform: "node", target: "node20", format: "cjs", sourcemap: true, external };
 const esm = {
-  bundle: true, platform: "node", target: "node20", format: "esm",
+  define, bundle: true, platform: "node", target: "node20", format: "esm",
   banner: { js: 'import{createRequire as __cr}from"module";const require=__cr(import.meta.url);' },
 };
 
