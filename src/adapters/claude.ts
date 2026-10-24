@@ -36,6 +36,9 @@ export function buildClaudeOptions(
     allowedTools: [...allowed, "mcp__agentroom"],
     ...(req.readOnly ? { disallowedTools: READ_ONLY_DENY } : {}),
     mcpServers: { agentroom: { type: "http", url: req.mcpUrl } },
+    // A worker needs the room's MCP server and nothing else. Without this the CLI also connects the account's claude.ai connectors
+    // (Figma, Docs, …) and loads their tool definitions into every session. Set AGENTROOM_KEEP_CONNECTORS=1 to keep them.
+    ...(process.env.AGENTROOM_KEEP_CONNECTORS === "1" ? {} : { strictMcpConfig: true, settings: { disableClaudeAiConnectors: true } }),
     env: { BASH_MAX_OUTPUT_LENGTH: BASH_OUTPUT_CHARS, ...accountEnv(req.account, "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY") },
     abortController,
     ...(req.claudeSkills ? { plugins: req.claudeSkills.plugins, skills: req.claudeSkills.skills } : {}),
