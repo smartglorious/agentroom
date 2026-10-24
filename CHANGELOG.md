@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.13.1
+- **Sửa chi phí Claude bị cộng dồn:** `total_cost_usd` của Claude CLI là tổng tích lũy của cả session, nhưng trước đây mỗi lượt ghi nguyên số đó nên tab Chi phí và ngân sách phình lên nhiều lần khi session dài (trên một log thật: $201 hiện ra so với ≈ $22,6 thực). Giờ mỗi lượt ghi phần chênh lệch so với lượt trước của cùng session (`sessionId`, `costCum` trong `usage.jsonl`); log cũ được sửa trong bộ nhớ khi nạp (file không bị đổi; suy ra session mới khi số giảm). Token không bị ảnh hưởng. **Chưa kiểm chứng với tài liệu chính thức của SDK**: dựa trên dữ liệu thật (chuỗi chi phí tăng đơn điệu trong mỗi session, lượt 8 token ra vẫn "tốn" $5).
+
 ## 0.13.0
 - Điểm mở rộng (tiếp): lệnh chat `/tên` do plugin đăng ký (gõ trong chat hoặc Telegram, không bao giờ gửi cho worker; kết quả là tin hệ thống không chứa `@`), sự kiện `onApproved` sau khi một lệnh gọi tool được duyệt, và `setBranchNamer` đặt tên nhánh cho worktree mới. Xem `docs/EXTENSIONS.md`.
 

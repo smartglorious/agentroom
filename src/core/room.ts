@@ -610,7 +610,7 @@ export class Room extends EventEmitter<RoomEvents> {
       if (record) this.deps.inspector.save({ ...record, usage, error });
       this.deps.usage.append({
         ts: this.now(), turnId, worker: worker.id, account: account.id, provider: worker.provider,
-        model: usage?.model ?? worker.model, sessionKey: key, taskId,
+        model: usage?.model ?? worker.model, sessionKey: key, sessionId: this.sessions[sessKey], taskId,
         input: usage?.input ?? 0, output: usage?.output ?? 0, cacheRead: usage?.cacheRead ?? 0, cacheWrite: usage?.cacheWrite ?? 0,
         costUsd: usage?.costUsd, estimated: usage?.estimated ?? false, numTurns: usage?.numTurns,
         durationMs: this.now() - startedAt, tools, error: error ?? null,

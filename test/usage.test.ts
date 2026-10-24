@@ -202,3 +202,32 @@ test("claude options: read-only turns drop the worker's tools and deny write too
   assert.equal(await verdict(gated, "Write"), "deny");
   assert.equal(asked, 1, "normal turns ask the human");
 });
+
+test("usage: Claude's reported cost is cumulative per session, so each turn is stored as the difference (also across a restart)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ar-usage-"));
+  const a = new UsageStore(dir);
+  a.append(rec({ sessionId: "s1", costUsd: 0.2 }));
+  a.append(rec({ sessionId: "s1", costUsd: 0.5 }));
+  a.append(rec({ sessionId: "s2", costUsd: 0.1 }));   // a new session starts from zero
+  a.append(rec({ sessionId: "s1", costUsd: 0.9 }));
+  assert.deepEqual(a.all().map((r) => Math.round(r.costUsd! * 100) / 100), [0.2, 0.3, 0.1, 0.4]);
+  assert.equal(Math.round(a.summarize("today").totals.costUsd * 100) / 100, 1.0);
+  const b = new UsageStore(dir);
+  b.append(rec({ sessionId: "s1", costUsd: 1.0 }));
+  assert.equal(Math.round(b.all()[4].costUsd! * 100) / 100, 0.1, "the running total survives a restart");
+  assert.equal(Math.round(b.all().reduce((s, r) => s + r.costUsd!, 0) * 100) / 100, 1.1);
+  // Codex estimates are per turn already
+  a.append(rec({ provider: "codex", estimated: true, sessionId: "t1", costUsd: 0.3 }));
+  a.append(rec({ provider: "codex", estimated: true, sessionId: "t1", costUsd: 0.3 }));
+  assert.equal(a.all().slice(-2).every((r) => r.costUsd === 0.3), true);
+});
+
+test("usage: old logs with cumulative numbers (no sessionId) are corrected when loaded; the file is untouched", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ar-usage-"));
+  const raw = [0.17, 0.21, 0.75, 0.14, 0.92].map((c, i) => JSON.stringify(rec({ ts: i, costUsd: c }))).join("\n") + "\n";
+  require("node:fs").writeFileSync(join(dir, "usage.jsonl"), raw);
+  const s = new UsageStore(dir);
+  // 0.17, +0.04, +0.54, the drop to 0.14 is a new session, +0.78
+  assert.deepEqual(s.all().map((r) => Math.round(r.costUsd! * 100) / 100), [0.17, 0.04, 0.54, 0.14, 0.78]);
+  assert.equal(readFileSync(join(dir, "usage.jsonl"), "utf8"), raw);
+});

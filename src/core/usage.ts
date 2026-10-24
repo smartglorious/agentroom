@@ -9,13 +9,17 @@ export interface UsageRecord {
   provider: string;
   model?: string;
   sessionKey: string;
+  /** Provider session the turn ran in. Claude's reported cost is cumulative per session, so this tells the store where a session starts over. */
+  sessionId?: string;
   taskId?: string;
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
-  /** Absent when the provider reports none and the model has no price configured. */
+  /** What this turn cost. Absent when the provider reports none and the model has no price configured. */
   costUsd?: number;
+  /** Claude only: the cumulative session cost the CLI reported (`costUsd` is the difference from the previous turn of the session). */
+  costCum?: number;
   estimated: boolean;
   durationMs: number;
   numTurns?: number;
@@ -88,10 +92,14 @@ function group(records: UsageRecord[], keyOf: (r: UsageRecord) => string | undef
   return [...map.values()].sort((a, b) => b.costUsd - a.costUsd || b.tokens - a.tokens);
 }
 
+const isCumulative = (r: UsageRecord) => r.provider === "claude" && !r.estimated && r.costUsd !== undefined;
+
 /** Append-only usage log (usage.jsonl) with in-memory aggregation. */
 export class UsageStore {
   private records: UsageRecord[] = [];
   private file: string;
+  /** Last cumulative Claude cost seen per provider session. */
+  private cum = new Map<string, number>();
 
   constructor(dir: string, private now: () => number = Date.now) {
     mkdirSync(dir, { recursive: true });
@@ -100,10 +108,28 @@ export class UsageStore {
       this.records = readFileSync(this.file, "utf8").split("\n").filter(Boolean).flatMap((l) => {
         try { return [JSON.parse(l) as UsageRecord]; } catch { return []; }
       });
+      // Records written before sessionId/costCum existed hold the CLI's cumulative number as `costUsd`. Turn them into
+      // per-turn costs in memory (the file is left as it is): a drop means the session started over.
+      const last = new Map<string, number>();
+      for (const r of this.records) {
+        if (r.costCum !== undefined) { if (r.sessionId) this.cum.set(r.sessionId, r.costCum); continue; }
+        if (!isCumulative(r)) continue;
+        const prev = last.get(r.sessionKey) ?? 0;
+        const c = r.costUsd!;
+        last.set(r.sessionKey, c);
+        r.costCum = c;
+        r.costUsd = c >= prev ? c - prev : c;
+      }
     }
   }
 
   append(r: UsageRecord) {
+    if (isCumulative(r) && r.sessionId && r.costCum === undefined) {
+      const prev = this.cum.get(r.sessionId) ?? 0;
+      const c = r.costUsd!;
+      this.cum.set(r.sessionId, c);
+      r = { ...r, costCum: c, costUsd: c >= prev ? c - prev : c };
+    }
     this.records.push(r);
     appendFileSync(this.file, JSON.stringify(r) + "\n");
   }
