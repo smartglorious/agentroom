@@ -1,7 +1,7 @@
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { RateLimitError } from "../core/scheduler";
 import { TurnUsage } from "../core/types";
-import { AgentAdapter, READ_ONLY_TOOLS, approvalAllowed, approvalReason, claudeToolSet, TurnRequest, TurnResult, accountEnv, summarizeInput } from "./types";
+import { AgentAdapter, ContextBreakdown, READ_ONLY_TOOLS, approvalAllowed, approvalReason, claudeToolSet, TurnRequest, TurnResult, accountEnv, summarizeInput } from "./types";
 
 type Sdk = typeof import("@anthropic-ai/claude-agent-sdk");
 let sdk: Promise<Sdk> | undefined;
@@ -74,6 +74,15 @@ export function claudeUsage(m: {
   };
 }
 
+/** Asks the CLI what fills the context window (no model call). Only for a new session: that is where the fixed part shows. Never fails the turn. */
+async function contextOf(q: { getContextUsage?: (o?: { detail?: "summary" | "full" }) => Promise<{ categories: { name: string; tokens: number; kind?: string }[]; totalTokens: number }> }): Promise<ContextBreakdown | undefined> {
+  try {
+    const r = await q.getContextUsage?.({ detail: "summary" });
+    if (!r) return undefined;
+    return { categories: r.categories.filter((c) => c.kind === undefined || c.kind === "used").map((c) => ({ name: c.name, tokens: c.tokens })).filter((c) => c.tokens > 0), total: r.totalTokens };
+  } catch { return undefined; }
+}
+
 /** Runs one worker turn as a Claude Code session via the Claude Agent SDK. */
 export class ClaudeAdapter implements AgentAdapter {
   /** `executable` returns the user's `claude` CLI path, or undefined to use the SDK's bundled one. */
@@ -88,8 +97,14 @@ export class ClaudeAdapter implements AgentAdapter {
 
     let sessionId = req.sessionId;
     let lastText = "";
-    for await (const m of query({ prompt: req.prompt, options }) as AsyncIterable<SDKMessage>) {
-      if (m.type === "system" && m.subtype === "init") sessionId = m.session_id;
+    let context: ContextBreakdown | undefined;
+    const q = query({ prompt: req.prompt, options });
+    for await (const m of q as AsyncIterable<SDKMessage>) {
+      if (m.type === "system" && m.subtype === "init") {
+        sessionId = m.session_id;
+        // The query is closed once the result arrives, so the fixed part is read now (a control request, no model call).
+        if (!req.sessionId) context = await contextOf(q);
+      }
       else if (m.type === "assistant") {
         for (const block of m.message.content) {
           if (block.type === "tool_use") req.onActivity(`${block.name} ${summarizeInput(block.input)}`.trim());
@@ -104,7 +119,7 @@ export class ClaudeAdapter implements AgentAdapter {
         throw new RateLimitError(`Claude rate limit (${m.rate_limit_info.rateLimitType ?? "unknown"})`, ms && ms > 0 ? ms : undefined);
       } else if (m.type === "result") {
         sessionId = m.session_id;
-        if (m.subtype === "success") return { sessionId, text: m.result || lastText, usage: claudeUsage(m) };
+        if (m.subtype === "success") return { sessionId, text: m.result || lastText, usage: claudeUsage(m), context };
         throw new Error(`Claude: ${m.subtype}: ${m.errors.join("; ")}`);
       }
     }

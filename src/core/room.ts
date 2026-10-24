@@ -609,8 +609,8 @@ export class Room extends EventEmitter<RoomEvents> {
     const edited = new Set<string>();
     let record: TurnRecord | undefined;
 
-    const finish = (usage: TurnUsage | undefined, error?: string) => {
-      if (record) this.deps.inspector.save({ ...record, usage, error });
+    const finish = (usage: TurnUsage | undefined, error?: string, context?: TurnRecord["context"]) => {
+      if (record) this.deps.inspector.save({ ...record, usage, error, context });
       this.deps.usage.append({
         ts: this.now(), turnId, worker: worker.id, account: account.id, provider: worker.provider,
         model: usage?.model ?? worker.model, sessionKey: key, sessionId: this.sessions[sessKey], taskId,
@@ -643,7 +643,8 @@ export class Room extends EventEmitter<RoomEvents> {
       const fresh = !this.sessions[sessKey];
       const sendMemory = fresh || !meta || meta.mem !== persona.memoryKey;
       const seen = this.cursors[key] ?? 0;
-      const recent = this.messages.filter((m) => m.ts > seen).slice(-this.deps.options.contextMessages);
+      // Notices the room posts for the person (plan usage, session rotation, stopped conversations…) address nobody: workers have no use for them.
+      const recent = this.messages.filter((m) => m.ts > seen && !(m.from === SYSTEM && !m.to.length)).slice(-this.deps.options.contextMessages);
       const memoSections = sendMemory ? [...persona.volatile, ...(fresh && persona.journal ? [persona.journal] : [])] : [];
       const turn = buildTurn(worker, this.workers, recent, batch, this.tasks.list(), sendMemory ? { sections: memoSections, update: !fresh } : undefined, (id) => this.quoteOf(id));
       const cwd = host ? `${host}:${remote!.base}` : await this.deps.resolveCwd(worker);
@@ -692,7 +693,7 @@ export class Room extends EventEmitter<RoomEvents> {
       if (result.cwd && record) record.cwd = host ? `${host}:${result.cwd}` : result.cwd;
       this.cursors[key] = startedAt;
       this.deps.store.saveCursors(this.cursors);
-      finish(result.usage);
+      finish(result.usage, undefined, result.context);
       this.rotateIfLarge(worker, key, sessKey, result.usage);
       this.plan?.touch(account.id);
       // A reply to other workers that carries nothing new ("[NOOP]", or the same words as before in this conversation)
