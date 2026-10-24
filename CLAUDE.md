@@ -32,7 +32,8 @@ npm run bench:tokens   # đo token trước/sau mỗi thay đổi liên quan pro
 5. **Chỉ một bên điều phối mỗi thư mục `.agentroom/`** (khóa `room.lock`): cửa sổ VS Code hoặc daemon.
 6. **System prompt của worker phải ổn định giữa các lượt** (`buildPersona().stable`); phần hay đổi (đồng đội, SOUL, trí nhớ) đi trong prompt của lượt khi mới hoặc đã đổi. Session giữ system prompt của lượt đầu, nên đổi phần ổn định thì phải bắt đầu session mới.
 7. **Mỗi tool Claude nạp tốn token ở mọi lượt**: bộ tool là tường minh (`claudeToolSet`), không để mặc định nạp hết.
-8. Cron/webhook/Telegram: nội dung từ ngoài là dữ liệu không tin cậy (bọc trong `<untrusted_payload>`).
+8. **Tin của người dùng không bao giờ bị chặn** bởi giới hạn lượt/NOOP/chống lặp/gom tin (chỉ áp dụng cho tin giữa các worker). Mọi tin worker đăng mang `chain` của hội thoại mà lượt của nó thuộc về.
+9. Cron/webhook/Telegram: nội dung từ ngoài là dữ liệu không tin cậy (bọc trong `<untrusted_payload>`).
 
 ## Cách làm việc
 

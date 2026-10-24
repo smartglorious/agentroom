@@ -21,7 +21,7 @@ const strList = (v) => Array.isArray(v) && v.every((s) => typeof s === "string")
 
 // ---- khóa cấp cao nhất ----
 for (const k of Object.keys(cfg)) {
-  if (["hosts", "accounts", "workers", "schedules", "webhooks"].includes(k)) continue;
+  if (["hosts", "accounts", "workers", "schedules", "webhooks", "limits"].includes(k)) continue;
   warns.push(/telegram|channel|bot/i.test(k)
     ? `Khóa "${k}" bị bỏ qua: Telegram được cấu hình trong cài đặt VS Code của người dùng (lệnh "AgentRoom: Telegram — thiết lập"), KHÔNG đặt token hay cấu hình bot trong file của repo`
     : `Khóa cấp cao nhất "${k}" không được dùng (bị bỏ qua)`);
@@ -162,6 +162,17 @@ for (const [i, s] of (Array.isArray(schedules) ? schedules : []).entries()) {
   for (const k of ["skipIfRunning", "notify", "enabled"]) if (s?.[k] !== undefined && !isBool(s[k])) errors.push(`${at}.${k} phải là true/false`);
   if (s?.catchUpHours !== undefined && !(typeof s.catchUpHours === "number" && s.catchUpHours >= 0)) errors.push(`${at}.catchUpHours phải là số ≥ 0`);
   if (s?.worker === "*" && !s?.builtin) warns.push(`${at}: prompt chạy cho MỌI worker — tốn quota; cân nhắc chọn một worker`);
+}
+
+// ---- limits ----
+if (cfg.limits !== undefined) {
+  const l = cfg.limits;
+  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, usdPerTask }");
+  else {
+    for (const k of Object.keys(l)) if (!["chainTurns", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
+    if (l.chainTurns !== undefined && !(Number.isInteger(l.chainTurns) && l.chainTurns >= 2 && l.chainTurns <= 100)) errors.push("limits.chainTurns phải là số nguyên từ 2 đến 100");
+    if (l.usdPerTask !== undefined && !(typeof l.usdPerTask === "number" && l.usdPerTask > 0)) errors.push("limits.usdPerTask phải là số > 0");
+  }
 }
 
 // ---- webhooks ----

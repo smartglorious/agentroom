@@ -273,6 +273,13 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `tools` | | danh sách tên tool | lõi (`Read, Grep, Glob, Edit, Write, Bash`) + các tool trong `allowedTools` | **Chỉ Claude.** Những built-in tool được NẠP cho worker. Mỗi tool nạp tốn token ở mọi lượt (đo: nạp hết ≈ 33 nghìn token mỗi session, bộ lõi ≈ 8 nghìn, chỉ `Read, Grep, Glob` ≈ 6 nghìn). `allowedTools` chỉ tự duyệt, không giới hạn việc nạp. Thêm tool ngoài lõi (`WebFetch`, `WebSearch`, `Agent`, `TodoWrite`…) bằng cách ghi vào `allowedTools` hoặc `tools:`. Lượt chỉ-đọc luôn chỉ có `Read, Grep, Glob`. `Skill` tự được thêm khi có `useSkills`. Worker chỉ điều phối nên đặt `tools: [Read, Grep, Glob]` |
 | `autonomy` | | `manual` \| `auto` \| `full` | `manual` | mức tự chủ: `manual` hỏi mọi thao tác chưa được duyệt trước; `auto` tự duyệt việc an toàn trong thư mục của worker, chặn xóa file/hệ thống/sudo, hỏi khi không chắc. **`full` ghi ở đây không có hiệu lực** (chạy Auto): Full Access chỉ do người dùng bật trên máy của mình. Xem `docs/AUTONOMY.md` |
 
+**`limits`** (tùy chọn, cấp cao nhất): chặn các worker nói chuyện với nhau thành vòng lặp tốn token. Xem `docs/FEWER-TURNS.md`.
+
+| Khóa | Kiểu | Mặc định | Ý nghĩa |
+|---|---|---|---|
+| `chainTurns` | số nguyên 2–100 | `10` | Số lượt worker tối đa mà MỘT tin nhắn của người dùng (hoặc một lịch/webhook) được phép kéo theo. Hết thì tạm dừng và báo |
+| `usdPerTask` | số > 0 | không giới hạn | Task đã tốn bằng này (USD) thì các worker thôi làm tiếp việc đó với nhau; bạn vẫn nhắn vào task để tiếp tục |
+
 **`schedules[]`** (tùy chọn)
 
 | Trường | Bắt buộc | Kiểu | Mặc định | Ghi chú |
@@ -608,7 +615,7 @@ const strList = (v) => Array.isArray(v) && v.every((s) => typeof s === "string")
 
 // ---- khóa cấp cao nhất ----
 for (const k of Object.keys(cfg)) {
-  if (["hosts", "accounts", "workers", "schedules", "webhooks"].includes(k)) continue;
+  if (["hosts", "accounts", "workers", "schedules", "webhooks", "limits"].includes(k)) continue;
   warns.push(/telegram|channel|bot/i.test(k)
     ? `Khóa "${k}" bị bỏ qua: Telegram được cấu hình trong cài đặt VS Code của người dùng (lệnh "AgentRoom: Telegram — thiết lập"), KHÔNG đặt token hay cấu hình bot trong file của repo`
     : `Khóa cấp cao nhất "${k}" không được dùng (bị bỏ qua)`);
@@ -749,6 +756,17 @@ for (const [i, s] of (Array.isArray(schedules) ? schedules : []).entries()) {
   for (const k of ["skipIfRunning", "notify", "enabled"]) if (s?.[k] !== undefined && !isBool(s[k])) errors.push(`${at}.${k} phải là true/false`);
   if (s?.catchUpHours !== undefined && !(typeof s.catchUpHours === "number" && s.catchUpHours >= 0)) errors.push(`${at}.catchUpHours phải là số ≥ 0`);
   if (s?.worker === "*" && !s?.builtin) warns.push(`${at}: prompt chạy cho MỌI worker — tốn quota; cân nhắc chọn một worker`);
+}
+
+// ---- limits ----
+if (cfg.limits !== undefined) {
+  const l = cfg.limits;
+  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, usdPerTask }");
+  else {
+    for (const k of Object.keys(l)) if (!["chainTurns", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
+    if (l.chainTurns !== undefined && !(Number.isInteger(l.chainTurns) && l.chainTurns >= 2 && l.chainTurns <= 100)) errors.push("limits.chainTurns phải là số nguyên từ 2 đến 100");
+    if (l.usdPerTask !== undefined && !(typeof l.usdPerTask === "number" && l.usdPerTask > 0)) errors.push("limits.usdPerTask phải là số > 0");
+  }
 }
 
 // ---- webhooks ----
