@@ -16,7 +16,9 @@ export function parseMentions(text: string, workers: Worker[]): string[] {
 
 /** Lines that start with `cc:` or `FYI:` tell people something without asking them to answer: their @mentions wake nobody. */
 const CC_LINE = /^[ \t]*(?:cc|fyi)[ \t]*[:：].*$/gim;
-export const withoutCc = (text: string) => text.replace(CC_LINE, "");
+/** Models also write it inline ("@lead @user cc @fw @be: ..."): the mentions right after the word cc are copies too. */
+const CC_INLINE = /(?<![\w@])cc[ \t]*:?[ \t]*(?:@[\w-]+[ \t,;]*)+/gi;
+export const withoutCc = (text: string) => text.replace(CC_LINE, "").replace(CC_INLINE, "");
 
 export interface RouteOptions {
   maxAgentHops: number;

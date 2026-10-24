@@ -173,6 +173,9 @@ test("router: a worker's cc:/FYI: lines wake nobody, and one worker message wake
   assert.deepEqual(route({ from: "user", depth: 0, text: "@be @fe @qa @fw @lead" }, team, o), ["be", "fe", "qa", "fw", "lead"], "a person is never limited");
   assert.deepEqual(route({ from: "lead", depth: 1, text: "@be @fe @qa @fw" }, team, { maxAgentHops: 6 }), ["be", "fe", "qa", "fw"], "no limit when not set");
   assert.equal(withoutCc("a\ncc: @x\nb"), "a\n\nb");
+  assert.deepEqual(route({ from: "qa", depth: 1, text: "@lead @user cc @fw @be: Kevin khuyến nghị" }, team, o), ["lead"], "inline cc");
+  assert.deepEqual(route({ from: "qa", depth: 1, text: "@be cc: @fw, @fe xong" }, team, o), ["be"]);
+  assert.deepEqual(route({ from: "qa", depth: 1, text: "@be accc @fw: ok" }, team, o), ["be", "fw"], "cc must be a word of its own");
 });
 
 test("room: a worker's message with cc lines wakes only the asked worker; the persona teaches the cc and fan-out rules", async () => {
