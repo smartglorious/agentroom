@@ -676,3 +676,78 @@ test("phone: an approval card says why Auto or Full did not decide it itself", a
     r.room.respondApproval(r.room.snapshot().approvals[0].id, false);
   } finally { r.stop(); }
 });
+
+// ------------------------------------------------------------------ replies and options on the phone
+
+test("phone: a worker's question arrives with one button per option, loud, and not hidden by /mute", async () => {
+  const r = await rig();
+  try {
+    r.room.askUser("be", { question: "Chọn cơ sở dữ liệu?", options: [{ label: "Postgres", description: "ổn định" }, { label: "SQLite" }] }, "T1");
+    await until(() => r.tg.sent.some((s) => /Chọn cơ sở dữ liệu/.test(s.text)), 3000, "question");
+    const q = r.tg.sent.find((s) => /Chọn cơ sở dữ liệu/.test(s.text))!;
+    assert.equal(q.silent, false, "it wants an answer: it rings");
+    assert.deepEqual(q.buttons.flat().map((b) => b.text), ["1. Postgres", "2. SQLite"]);
+    assert.ok(q.buttons.flat().every((b) => /^op:[0-9a-z]+:\d$/.test(b.callback_data) && Buffer.byteLength(b.callback_data) <= 64));
+    assert.match(q.text, /1\. Postgres — ổn định/);
+
+    r.tg.userSays(USER, "/mute 2h");
+    await until(() => r.tg.texts(USER).some((t) => /tắt|mute/i.test(t)), 3000, "muted");
+    r.room.askUser("be", { question: "Có cần review không?", options: [{ label: "Có" }, { label: "Không" }] });
+    await until(() => r.tg.sent.some((s) => /Có cần review/.test(s.text)), 3000, "question while muted");
+  } finally { r.stop(); }
+});
+
+test("phone: tapping an option answers the worker in its own session, edits the question, and works once", async () => {
+  const fake = new Fake(() => "đã ghi nhận");
+  const r = await rig({ adapter: fake });
+  try {
+    const asked = r.room.askUser("be", { question: "Chọn?", options: [{ label: "A" }, { label: "B" }] }, "T7");
+    await until(() => r.tg.sent.some((s) => /^🤖 .*\nChọn\?/.test(s.text)), 3000, "question");
+    const q = r.tg.sent.find((s) => /^🤖 .*\nChọn\?/.test(s.text))!;
+    r.tg.userTaps(USER, q, q.buttons.flat()[1].callback_data);
+    await until(() => r.room.snapshot().messages.some((m) => m.choice), 3000, "answer in the room");
+    const a = r.room.snapshot().messages.find((m) => m.choice)!;
+    assert.deepEqual([a.text, a.to, a.taskId, a.replyTo, a.source], ["Tôi chọn 2: B", ["be"], "T7", asked.id, "telegram"]);
+    await until(() => q.edits.some((e) => /✔ Đã chọn 2\. B \(từ điện thoại\)/.test(e)), 3000, "question edited");
+    assert.equal(q.buttons.length === 0 || q.edits.length > 0, true);
+    await idle(r.room);
+    assert.match(fake.calls.at(-1)!.prompt, /\[task T7\] \[trả lời tin “@be: Chọn\?/);
+
+    r.tg.userTaps(USER, q, q.buttons.flat()[0]?.callback_data ?? "op:zz:1");
+    await sleep(120);
+    assert.equal(r.room.snapshot().messages.filter((m) => m.choice).length, 1, "a second tap cannot answer again");
+    r.tg.userTaps(USER, q, "op:zz:1");
+    await until(() => r.tg.answers.some((x) => /quá cũ|đã được trả lời/.test(x.text ?? "")), 3000, "stale button answered");
+  } finally { r.stop(); }
+});
+
+test("phone: answering at the computer closes the question on the phone too", async () => {
+  const r = await rig();
+  try {
+    const asked = r.room.askUser("be", { question: "Chọn nhanh?", options: [{ label: "Một" }, { label: "Hai" }] });
+    await until(() => r.tg.sent.some((s) => /Chọn nhanh/.test(s.text)), 3000, "question");
+    const q = r.tg.sent.find((s) => /Chọn nhanh/.test(s.text))!;
+    r.room.answerOption(asked.id, "1");
+    await until(() => q.edits.some((e) => /✔ Đã chọn 1\. Một \(ở máy tính\)/.test(e)), 3000, "edited");
+  } finally { r.stop(); }
+});
+
+test("phone: Telegram's own reply on a worker message answers that message; an unknown or old target is just a normal message", async () => {
+  const fake = new Fake(() => "ok");
+  const r = await rig({ adapter: fake });
+  try {
+    r.room.post("be", "Cổng mặc định là bao nhiêu?", { taskId: "T3", to: [] });
+    await until(() => r.tg.sent.some((s) => /Cổng mặc định/.test(s.text)), 3000, "worker message");
+    const sent = r.tg.sent.find((s) => /Cổng mặc định/.test(s.text))!;
+    r.tg.userSays(USER, "3000 nhé", { replyTo: sent.id });
+    await until(() => roomReplies(r.room).length === 1, 3000, "reply in the room");
+    const m = roomReplies(r.room)[0];
+    assert.deepEqual([m.to, m.taskId, m.source], [["be"], "T3", "telegram"], "goes to the author, in that message's session, with no @mention");
+    r.tg.userSays(USER, "linh tinh", { replyTo: 99999 });
+    await until(() => r.room.snapshot().messages.some((x) => x.text === "linh tinh"), 3000, "unknown target");
+    const plain = r.room.snapshot().messages.find((x) => x.text === "linh tinh")!;
+    assert.equal(plain.replyTo, undefined);
+    assert.deepEqual(plain.to, ["lead"], "routed like any message");
+  } finally { r.stop(); }
+});
+const roomReplies = (room: ReturnType<typeof makeRoom>["room"]) => room.snapshot().messages.filter((m) => m.from === "user" && m.replyTo);

@@ -104,3 +104,15 @@ nav button.on { opacity: 1; border-bottom: 2px solid var(--vscode-focusBorder); 
 .worker.mode-auto { outline: 1px solid var(--vscode-charts-blue); }
 .worker.mode-full { outline: 2px solid var(--vscode-charts-red); }
 .worker.mode-full select.autonomy { font-weight: 700; color: var(--vscode-charts-red); }
+
+/* reply and options */
+.msg .quote { margin: 2px 0 4px; padding: 2px 6px; border-left: 2px solid var(--vscode-textLink-foreground); font-size: 11px; opacity: .8; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.options { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.options button.opt { text-align: left; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 4px 8px; cursor: pointer; color: var(--vscode-foreground); background: var(--vscode-editor-inactiveSelectionBackground); }
+.options button.opt:hover:not(:disabled) { border-color: var(--vscode-textLink-foreground); }
+.options button.opt .desc { display: block; font-size: 11px; opacity: .7; font-weight: normal; }
+.options button.opt:disabled { cursor: default; opacity: .6; }
+.options.answered button.opt.picked { opacity: 1; border-color: var(--vscode-charts-green); }
+.options.answered button.opt.picked b::before { content: "✓ "; color: var(--vscode-charts-green); }
+#replybar { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 11px; border-top: 1px solid var(--vscode-panel-border); border-left: 3px solid var(--vscode-textLink-foreground); }
+#replybar .rb { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

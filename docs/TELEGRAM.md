@@ -40,6 +40,8 @@ AgentRoom gửi về điện thoại:
 - **Cảnh báo**: lỗi worker, mất kết nối máy từ xa, chạm ngân sách, skill đang chờ duyệt, task chưa được kích hoạt.
 - Tin của chuỗi **chỉ-đọc** (webhook) mang dấu 🔒 và lời nhắc: nhắn lại `@worker …` để tiếp tục.
 
+Câu hỏi có lựa chọn của worker (`ask_user`) tới kèm một nút cho mỗi phương án, có chuông và không bị `/mute` ẩn; bấm nút là trả lời về đúng phiên của worker. Dùng "Trả lời" (reply) của Telegram trên tin của bot để trả lời đúng tin đó. Xem `REPLY-OPTIONS.md`.
+
 Tin bạn nhắn từ điện thoại hiện trong chat VS Code với nhãn 📱. Khung giờ yên lặng (`quietHours`) làm mọi tin đến không kêu.
 
 ## 4. Duyệt quyền từ điện thoại

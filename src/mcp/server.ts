@@ -67,6 +67,22 @@ export class AgentRoomMcp {
       return text(msg.to.length ? `Đã gửi, sẽ gọi: ${msg.to.join(", ")}` : "Đã gửi (không ai bị gọi).");
     });
 
+    server.registerTool("ask_user", {
+      description: "Hỏi người dùng chọn một trong 2–8 phương án. Tin nhắn hiện nút bấm; câu trả lời quay lại ĐÚNG phiên này của bạn. Sau khi gọi, hãy kết thúc lượt và chờ.",
+      inputSchema: {
+        question: z.string().min(1).max(500),
+        options: z.array(z.object({ label: z.string().min(1).max(80), description: z.string().max(200).optional() })).min(2).max(8),
+        taskId: z.string().optional(),
+      },
+    }, async ({ question, options, taskId }) => {
+      try {
+        room.askUser(me, { question, options }, taskId);
+        return text("Đã gửi câu hỏi kèm lựa chọn. Hãy kết thúc lượt bây giờ; câu trả lời của người dùng sẽ đến như một tin nhắn mới trong phiên này.");
+      } catch (e) {
+        return text(`Không gửi được câu hỏi: ${e instanceof Error ? e.message : e}`);
+      }
+    });
+
     server.registerTool("read_channel", {
       description: "Đọc N tin nhắn gần nhất của group chat.",
       inputSchema: { limit: z.number().int().min(1).max(200).default(30) },

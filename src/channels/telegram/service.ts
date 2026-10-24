@@ -83,6 +83,12 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
   private phoneHandled = new Set<string>();
   private full = new Map<string, string>();
   private fullSeq = 0;
+  /** Telegram message id → room message id, so that a Telegram "reply" lands on the right worker message. */
+  private sentRoom = new Map<number, string>();
+  /** Questions with buttons that are still open: key (in callback_data) → what to answer, and where to show the pick. */
+  private questions = new Map<string, { msg: string; chat: number; tg: number; text: string; items: { id: string; label: string }[] }>();
+  private questionOf = new Map<string, string>();
+  private questionSeq = 0;
   private pendingPin?: { user: number; action: PinAction; expiresAt: number; prompt?: number };
   private guard: PinGuard;
   private started = false;
@@ -192,7 +198,10 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
 
   async forward(m: ChatMessage) {
     const p = this.paired();
-    if (!p || this.d.bot.state !== "running" || m.from === "user" || m.source === "telegram") return;
+    if (!p || this.d.bot.state !== "running") return;
+    // The user answered a question at the computer: show the pick on the phone too and take its buttons away.
+    if (m.choice && m.source !== "telegram") return void (await this.closeQuestion(m.choice.message, m.choice.option, "ở máy tính"));
+    if (m.from === "user" || m.source === "telegram") return;
     const quiet = this.quietNow();
 
     if (m.from === "system") {
@@ -202,7 +211,8 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
       return;
     }
 
-    if (this.mutedUntil > this.now()) return;
+    // A question with buttons is waiting for the user, so /mute does not hide it.
+    if (this.mutedUntil > this.now() && !m.options) return;
     const wantsYou = mentionsUser(m.text);
     const mode = this.detail();
     if (mode === "alerts" && !wantsYou) return;
@@ -210,8 +220,32 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
     const cap = this.d.settings().summaryChars;
     const full = mode === "full" && !wantsYou ? { text: redactSecrets(m.text), cut: false } : summarize(m.text, cap);
     const footer = m.readOnly ? "\n\n🔒 Chuỗi chỉ-đọc: bạn nhắn lại @tên-worker để tiếp tục." : "";
-    const buttons: InlineButton[][] | undefined = full.cut ? [[{ text: "📄 Xem đầy đủ", callback_data: `fx:${this.rememberFull(redactSecrets(m.text))}` }]] : undefined;
-    await this.tell(p.chat, `${this.header(m)}\n${full.text}${footer}`, { quiet: quiet || !wantsYou, buttons });
+    const key = m.options ? (++this.questionSeq).toString(36) : undefined;
+    const rows: InlineButton[][] = [
+      ...(m.options && key ? m.options.items.map((i) => [{ text: `${i.id}. ${i.label}`.slice(0, 60), callback_data: `op:${key}:${i.id}` }]) : []),
+      ...(full.cut ? [[{ text: "📄 Xem đầy đủ", callback_data: `fx:${this.rememberFull(redactSecrets(m.text))}` }]] : []),
+    ];
+    const text = `${this.header(m)}\n${full.text}${footer}`;
+    const id = await this.tell(p.chat, text, { quiet: quiet || !wantsYou, buttons: rows.length ? rows : undefined });
+    if (id) {
+      this.sentRoom.set(id, m.id);
+      if (this.sentRoom.size > 400) this.sentRoom.delete(this.sentRoom.keys().next().value!);
+      if (m.options && key) {
+        this.questions.set(key, { msg: m.id, chat: p.chat, tg: id, text, items: m.options.items });
+        this.questionOf.set(m.id, key);
+        if (this.questions.size > 100) { const old = this.questions.keys().next().value!; this.questionOf.delete(this.questions.get(old)!.msg); this.questions.delete(old); }
+      }
+    }
+  }
+
+  private async closeQuestion(msgId: string, optionId: string, where: string) {
+    const key = this.questionOf.get(msgId);
+    const q = key && this.questions.get(key);
+    if (!key || !q) return;
+    this.questions.delete(key);
+    this.questionOf.delete(msgId);
+    const label = q.items.find((i) => i.id === optionId)?.label ?? optionId;
+    await this.d.bot.edit(q.chat, q.tg, `${q.text}\n✔ Đã chọn ${optionId}. ${label} (${where})`);
   }
 
   async sendApproval(req: ApprovalRequest) {
@@ -278,7 +312,10 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
       return void (await this.tell(p.chat, "Không có yêu cầu nào đang chờ PIN nên tin này không được gửi đi (và đã bị xoá). Muốn gửi số này cho worker, hãy thêm chữ vào cùng tin.", { quiet: true }));
     }
 
-    const posted = this.d.room.post("user", text.slice(0, MAX_INBOUND), { source: "telegram" });
+    // Telegram's own "reply" on one of the bot's messages answers that worker message.
+    const repliedTo = (m.reply_to_message as { message_id?: number } | undefined)?.message_id;
+    const replyTo = repliedTo !== undefined ? this.sentRoom.get(repliedTo) : undefined;
+    const posted = this.d.room.post("user", text.slice(0, MAX_INBOUND), { source: "telegram", ...(replyTo ? { replyTo } : {}) });
     if (!posted.to.length) await this.tell(p.chat, "Chưa có worker nào nhận tin này (không có worker điều phối). Hãy @id để gọi một worker.", { quiet: true });
   }
 
@@ -385,6 +422,23 @@ export class TelegramService extends EventEmitter<{ change: [] }> {
       await bot.answer(c.id, t ? undefined : "Tin này đã quá cũ");
       if (t) await this.tell(p.chat, t, { quiet: true });
       return;
+    }
+
+    if (data.startsWith("op:")) {
+      const [, key, optionId] = data.split(":");
+      const q = this.questions.get(key);
+      if (!q) {
+        await bot.answer(c.id, "Câu hỏi đã được trả lời hoặc đã quá cũ");
+        return void (await bot.edit(msg.chat.id, msg.message_id, `${msg.text ?? ""}\n⌛ Hết hạn`));
+      }
+      try {
+        this.d.room.answerOption(q.msg, optionId, "telegram");
+      } catch (e) {
+        await bot.answer(c.id, e instanceof Error ? e.message.slice(0, 150) : "Không gửi được");
+        return void (await this.closeQuestion(q.msg, optionId, "đã có người trả lời"));
+      }
+      await bot.answer(c.id, "Đã gửi cho worker");
+      return void (await this.closeQuestion(q.msg, optionId, "từ điện thoại"));
     }
 
     if (data.startsWith("ap:")) {

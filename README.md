@@ -2,7 +2,7 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, tính cách, trí nhớ riêng) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`. Mức tự chủ: `docs/AUTONOMY.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
+Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`. Mức tự chủ: `docs/AUTONOMY.md`. Reply và lựa chọn: `docs/REPLY-OPTIONS.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
 
 ## Tính năng
 
@@ -13,6 +13,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 | **Trí nhớ bền vững** | `SOUL.md`, `MEMORY.md`, nhật ký ngày cho từng worker + trí nhớ chung của đội. Agent ghi qua tool `remember` / `recall` / `forget` / `journal`. |
 | **Skills thật** | `useSkills` bật các `SKILL.md` cho đúng worker; agent có thể đề xuất skill mới, chỉ có hiệu lực sau khi bạn duyệt. |
 | **Mức tự chủ** | Mỗi worker chọn 🛡 Manual (hỏi mọi thao tác) · 🤖 Auto (tự duyệt việc an toàn trong thư mục của worker, chặn xóa file/hệ thống/sudo, hỏi khi không chắc) · ⚡ Full (không hỏi, trừ vài hành động phá máy; có hộp thoại cảnh báo, chỉ bạn bật được). Nhật ký quyết định ở `audit.jsonl`. **Auto không phải sandbox.** Xem `docs/AUTONOMY.md`. |
+| **Trả lời đúng tin, lựa chọn bằng nút** | Nút ↩ trên tin của worker: câu trả lời tới đúng tác giả, đúng phiên, kèm trích dẫn. Worker cần bạn chọn thì gọi `ask_user` và hiện nút; bấm là trả lời về đúng phiên đó. Cả trên Telegram. Xem `docs/REPLY-OPTIONS.md`. |
 | **Hạn mức gói** | Tab *Chi phí* hiện phần trăm còn lại của gói Claude/Codex theo từng cửa sổ (5 giờ, 7 ngày…) và giờ reset; cảnh báo, tự tạm dừng khi hết; Telegram `/plan`. Xem `docs/PLAN-USAGE.md`. |
 | **Chi phí** | Tab *Chi phí*: token, chi phí, cache hit theo worker / account / model / task / tool. |
 | **Context Inspector** | Nút 🔍 trên tin nhắn: xem chính xác những gì đã gửi cho model, chia theo phần, kèm số token. |
@@ -106,7 +107,7 @@ Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1). Mỗi worker còn có 
 
 ## Tool agent dùng để phối hợp (MCP `agentroom`)
 
-`post_message`, `read_channel`, `list_tasks`, `create_task`, `claim_task`, `complete_task`, `remember`, `forget`, `recall`, `journal`, `propose_skill`.
+`post_message`, `ask_user`, `read_channel`, `list_tasks`, `create_task`, `claim_task`, `complete_task`, `remember`, `forget`, `recall`, `journal`, `propose_skill`.
 
 ## Bảo mật: webhook và dữ liệu không tin cậy
 

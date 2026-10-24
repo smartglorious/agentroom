@@ -3,7 +3,7 @@
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
   const state = {
-    workers: [], plans: [], statuses: {}, tasks: [], drafts: [], accounts: [], todayByWorker: {},
+    workers: [], plans: [], byId: new Map(), answers: new Map(), replyTo: null, statuses: {}, tasks: [], drafts: [], accounts: [], todayByWorker: {},
     usage: null, range: "today", schedules: [], hooks: { port: null, hooks: [], calls: [] },
     profile: null, profileWorker: null, hostList: [], telegram: null,
   };
@@ -75,17 +75,73 @@
       head.append(b);
     }
     head.append(el("time", null, new Date(m.ts).toLocaleTimeString()));
+    if (m.from !== "user" && m.from !== "system") {
+      const r = btn("↩", () => startReply(m), "stop");
+      r.title = "Trả lời đúng tin này";
+      head.append(r);
+    }
+    state.byId.set(m.id, m);
+    row.id = "msg-" + m.id;
     const body = el("div", "body");
-    // Highlight @mentions without using innerHTML.
-    for (const part of m.text.split(/(@[\w-]+)/g)) {
+    // Highlight @mentions without using innerHTML. A question with options shows just the question; the options are buttons.
+    for (const part of (m.options ? m.options.question : m.text).split(/(@[\w-]+)/g)) {
       if (!part.startsWith("@")) { body.append(document.createTextNode(part)); continue; }
       body.append(tint(el("span", colorOf(part.slice(1)) ? "mention worker-mention" : "mention", part), part.slice(1)));
     }
-    row.append(head, body);
+    const quoted = m.replyTo ? state.byId.get(m.replyTo) : null;
+    if (m.replyTo) {
+      const q = el("div", "quote");
+      q.append(el("b", null, quoted ? "↩ " + nameOf(quoted.from) : "↩ tin cũ"));
+      if (quoted) q.append(el("span", null, " " + (quoted.options ? quoted.options.question : quoted.text).replace(/\s+/g, " ").slice(0, 140)));
+      q.onclick = () => document.getElementById("msg-" + m.replyTo)?.scrollIntoView({ block: "center" });
+      row.append(head, q, body);
+    } else row.append(head, body);
+    if (m.options) row.append(renderOptions(m));
+    if (m.choice) { state.answers.set(m.choice.message, m.choice.option); markAnswered(m.choice.message, m.choice.option); }
     const chat = $("chat");
     const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
     chat.append(row);
     if (atBottom) chat.scrollTop = chat.scrollHeight;
+  }
+
+  // ---------- reply and options ----------
+  function renderOptions(m) {
+    const box = el("div", "options");
+    box.dataset.msg = m.id;
+    for (const it of m.options.items) {
+      const b = el("button", "opt");
+      b.dataset.opt = it.id;
+      b.append(el("b", null, `${it.id}. ${it.label}`));
+      if (it.description) b.append(el("span", "desc", it.description));
+      b.onclick = () => { box.querySelectorAll("button").forEach((x) => (x.disabled = true)); send({ type: "answerOption", messageId: m.id, optionId: it.id }); };
+      box.append(b);
+    }
+    const chosen = state.answers.get(m.id);
+    if (chosen) setTimeout(() => markAnswered(m.id, chosen));
+    return box;
+  }
+  function markAnswered(msgId, optionId) {
+    const box = document.querySelector(`.options[data-msg="${CSS.escape(msgId)}"]`);
+    if (!box) return;
+    box.classList.add("answered");
+    box.querySelectorAll("button").forEach((b) => { b.disabled = true; b.classList.toggle("picked", b.dataset.opt === optionId); });
+  }
+  function startReply(m) {
+    state.replyTo = m.id;
+    const bar = $("replybar");
+    bar.replaceChildren();
+    const text = (m.options ? m.options.question : m.text).replace(/\s+/g, " ").slice(0, 120);
+    const x = btn("✕", () => clearReply(), "stop");
+    x.title = "Bỏ trả lời";
+    bar.append(el("span", "rb", `↩ Trả lời ${nameOf(m.from)}: ${text}`), x);
+    bar.hidden = false;
+    showTab("chat");
+    $("input").focus();
+  }
+  function clearReply() {
+    state.replyTo = null;
+    $("replybar").hidden = true;
+    $("replybar").replaceChildren();
   }
 
   // ---------- tasks ----------
@@ -444,6 +500,7 @@
       case "init": {
         $("chat").replaceChildren();
         $("approvals").replaceChildren();
+        state.byId.clear(); state.answers.clear(); clearReply();
         if (!data.state) {
           $("chat").append(el("p", "empty", "Chưa có .agentroom/workers.yaml. Chạy lệnh “AgentRoom: Tạo cấu hình workers mẫu”."));
           state.workers = []; renderTeam(); return;
@@ -471,6 +528,7 @@
       case "tasks": state.tasks = data.tasks; renderTasks(); break;
       case "plans": state.plans = data.plans; renderCost(); break;
       case "workers": state.workers = data.workers; renderTeam(); break;
+      case "optionError": document.querySelector(`.options[data-msg="${CSS.escape(data.messageId)}"]`)?.querySelectorAll("button").forEach((b) => (b.disabled = false)); break;
       case "approval": renderApproval(data.req); break;
       case "approvalResolved": $("ap-" + data.id)?.remove(); break;
       case "usage": state.usage = data; state.range = data.range; state.accounts = data.accounts; state.todayByWorker = data.todayByWorker; renderTeam(); renderCost(); renderTasks(); break;
@@ -488,7 +546,7 @@
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       const text = e.target.value.trim();
-      if (text) send({ type: "send", text });
+      if (text) { send({ type: "send", text, ...(state.replyTo ? { replyTo: state.replyTo } : {}) }); clearReply(); }
       e.target.value = "";
     }
   });

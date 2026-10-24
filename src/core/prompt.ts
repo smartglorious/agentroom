@@ -34,6 +34,8 @@ export function buildPersona(w: Worker, team: Worker[], memory?: MemoryBlocks, s
     `- Dùng các tool agentroom (post_message, read_channel, list_tasks, create_task, claim_task, complete_task) để phối hợp.`,
     `- Câu trả lời cuối lượt của bạn sẽ được đăng vào group chat: ngắn gọn, nêu rõ đã làm gì, file nào, còn gì dang dở.`,
     `- Nếu cần người dùng quyết định, hãy @user và dừng lại.`,
+    `- Khi cần người dùng CHỌN giữa vài phương án, gọi ask_user(question, options) rồi kết thúc lượt: người dùng bấm nút và câu trả lời quay về đúng phiên này của bạn.`,
+    `- Tin của người dùng có thể kèm "[trả lời tin …]": đó là câu trả lời cho đúng tin được trích; hãy trả lời theo ngữ cảnh đó.`,
     ``,
     `## Trí nhớ`,
     `- Bạn không nhớ gì giữa các session ngoài những gì có trong mục "Trí nhớ" bên dưới.`,
@@ -63,7 +65,7 @@ const label = (from: string, team: Worker[]) =>
   from === HUMAN ? "@user" : from === SYSTEM ? "[system]" : `@${from} (${team.find((t) => t.id === from)?.name ?? from})`;
 
 /** The per-turn user prompt: what happened in the room since this worker last looked. */
-export function buildTurn(w: Worker, team: Worker[], recent: ChatMessage[], inbox: ChatMessage[], tasks: Task[]): BuiltPrompt {
+export function buildTurn(w: Worker, team: Worker[], recent: ChatMessage[], inbox: ChatMessage[], tasks: Task[], quote?: (messageId: string) => string | undefined): BuiltPrompt {
   const inboxIds = new Set(inbox.map((m) => m.id));
   const context = recent
     .filter((m) => !inboxIds.has(m.id))
@@ -77,7 +79,7 @@ export function buildTurn(w: Worker, team: Worker[], recent: ChatMessage[], inbo
       name: "Tin nhắn mới",
       text: [
         `<new_messages_for_you>`,
-        inbox.map((m) => `${label(m.from, team)}${m.taskId ? ` [task ${m.taskId}]` : ""}: ${m.text}`).join("\n"),
+        inbox.map((m) => { const q = m.replyTo && quote?.(m.replyTo); return `${label(m.from, team)}${m.taskId ? ` [task ${m.taskId}]` : ""}${q ? ` [trả lời tin “${q}”]` : ""}: ${m.text}`; }).join("\n"),
         `</new_messages_for_you>`,
         `Hãy xử lý các tin nhắn mới gửi cho bạn.`,
       ].join("\n"),

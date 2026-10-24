@@ -4,14 +4,14 @@ import { AgentAdapter, ApprovalResult } from "../adapters/types";
 import { TurnInspector, TurnRecord, newTurnId, sectionInfo } from "./inspector";
 import { CONSOLIDATE_PROMPT, MemoryEntry, MemoryStore, redactSecrets, ymd } from "./memory";
 import { buildPersona, buildTurn } from "./prompt";
-import { route } from "./router";
+import { parseMentions, route } from "./router";
 import { isRateLimit, Scheduler } from "./scheduler";
 import { REMOTE_SKILLS, SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, claudeSkillOptions, codexSkillDirs, codexSkillsBlock } from "./skills";
 import { Autonomy, PolicyContext, absolutePath, decide, describeCall, toolPaths } from "./autonomy";
 import { PlanMonitor, PlanProbe } from "./plan";
 import { RoomStore } from "./store";
 import { TaskBoard } from "./tasks";
-import { ApprovalRequest, ChatMessage, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
+import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
 import { nextMidnight, UsageStore } from "./usage";
 
 export interface RoomOptions {
@@ -71,6 +71,9 @@ export interface PostOptions {
   to?: string[];
   source?: string;
   alert?: boolean;
+  replyTo?: string;
+  options?: ChoiceSet;
+  choice?: { message: string; option: string };
 }
 
 export interface WorkerProfile {
@@ -216,13 +219,65 @@ export class Room extends EventEmitter<RoomEvents> {
     // A read-only chain started by an untrusted trigger never wakes anyone through @mentions: the text
     // may quote attacker-controlled data, so a human decides who continues. Explicit `to` (the trigger
     // itself) is the only way in.
-    const to = opts.to ? opts.to.filter((id) => this.hasWorker(id)) : readOnly ? [] : route({ from, text, depth }, this.workers, this.deps.options);
-    const msg: ChatMessage = { id: randomUUID(), ts: this.now(), from, text, to, depth, taskId: opts.taskId, turnId: opts.turnId, readOnly: readOnly || undefined, source: opts.source, alert: opts.alert || undefined };
+    // "Reply" on a worker's message sends the answer back to that worker, in the session (task) the message came from,
+    // unless the text @mentions somebody, which is then taken as the user's own choice of who answers.
+    const target = opts.replyTo ? this.messages.find((m) => m.id === opts.replyTo) : undefined;
+    const replyBack = from === HUMAN && target && this.hasWorker(target.from) && !parseMentions(text, this.workers).length ? [target.from] : undefined;
+    const to = opts.to ? opts.to.filter((id) => this.hasWorker(id)) : replyBack ?? (readOnly ? [] : route({ from, text, depth }, this.workers, this.deps.options));
+    const taskId = opts.taskId ?? (from === HUMAN ? target?.taskId : undefined);
+    const msg: ChatMessage = {
+      id: randomUUID(), ts: this.now(), from, text, to, depth, taskId, turnId: opts.turnId, readOnly: readOnly || undefined, source: opts.source, alert: opts.alert || undefined,
+      ...(target ? { replyTo: target.id } : {}), ...(opts.options ? { options: opts.options } : {}), ...(opts.choice ? { choice: opts.choice } : {}),
+    };
     this.messages.push(msg);
     this.deps.store.appendMessage(msg);
     this.emit("message", msg);
     for (const id of to) this.deliver(id, msg);
     return msg;
+  }
+
+  /** The task whose session `workerId` is working in right now, when that is unambiguous. */
+  private currentTask(workerId: string): string | undefined {
+    const keys = [...this.running.keys()].filter((k) => k.startsWith(`${workerId}:`));
+    if (keys.length !== 1) return undefined;
+    const t = keys[0].slice(workerId.length + 1);
+    return t === "main" ? undefined : t;
+  }
+
+  /**
+   * A worker asks the user to pick one of 2–8 options. The message carries buttons; the pick (or a typed reply) goes back to
+   * this worker in the same session, so the worker can simply end its turn and continue when the answer arrives.
+   * Nobody is woken by the question itself (`to: []`), whatever the option texts say.
+   */
+  askUser(me: string, args: { question: string; options: { label: string; description?: string }[] }, taskId?: string): ChatMessage {
+    const tidy = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+    const question = tidy(args.question, 500);
+    if (!question) throw new Error("Thiếu câu hỏi");
+    const items = args.options.map((o, i) => ({ id: String(i + 1), label: tidy(o.label, 80), ...(o.description ? { description: tidy(o.description, 200) } : {}) }));
+    if (items.length < 2 || items.length > 8) throw new Error("Cần 2 đến 8 lựa chọn");
+    if (items.some((i) => !i.label)) throw new Error("Mỗi lựa chọn cần có nhãn");
+    if (new Set(items.map((i) => i.label.toLowerCase())).size !== items.length) throw new Error("Các lựa chọn bị trùng nhãn");
+    const lines = items.map((i) => `${i.id}. ${i.label}${i.description ? ` — ${i.description}` : ""}`);
+    return this.post(me, `${question}\n${lines.join("\n")}\n@user hãy chọn một phương án (bấm nút) hoặc trả lời bằng chữ.`, { to: [], options: { question, items }, taskId: taskId ?? this.currentTask(me) });
+  }
+
+  /** The user picks option `optionId` of message `messageId`; once per question. */
+  answerOption(messageId: string, optionId: string, via?: string): ChatMessage {
+    const m = this.messages.find((x) => x.id === messageId);
+    if (!m?.options) throw new Error("Tin nhắn này không có lựa chọn");
+    if (!this.hasWorker(m.from)) throw new Error("Chỉ trả lời được lựa chọn của worker");
+    if (this.messages.some((x) => x.choice?.message === messageId)) throw new Error("Câu hỏi này đã được trả lời");
+    const item = m.options.items.find((i) => i.id === optionId);
+    if (!item) throw new Error("Không có lựa chọn này");
+    return this.post(HUMAN, `Tôi chọn ${item.id}: ${item.label}`, { replyTo: m.id, choice: { message: m.id, option: item.id }, to: [m.from], taskId: m.taskId, source: via });
+  }
+
+  /** A short quote of a message, for the prompt of whoever is being replied to. */
+  quoteOf(id: string): string | undefined {
+    const t = this.messages.find((m) => m.id === id);
+    if (!t) return undefined;
+    const body = t.text.replace(/\s+/g, " ").trim();
+    return `${t.from === HUMAN ? "@user" : t.from === SYSTEM ? "[system]" : "@" + t.from}: ${body.length > 240 ? body.slice(0, 237) + "…" : body}`;
   }
 
   transcript(limit: number): string {
@@ -461,7 +516,7 @@ export class Room extends EventEmitter<RoomEvents> {
         ? codexSkillsBlock(worker, this.deps.skills, host ? (s) => `${REMOTE_SKILLS}/${s.name}/SKILL.md` : undefined)
         : "";
       const persona = buildPersona(worker, this.workers, memory, skillsBlock, host ? { host, base: remote!.base } : undefined);
-      const turn = buildTurn(worker, this.workers, recent, batch, this.tasks.list());
+      const turn = buildTurn(worker, this.workers, recent, batch, this.tasks.list(), (id) => this.quoteOf(id));
       const cwd = host ? `${host}:${remote!.base}` : await this.deps.resolveCwd(worker);
       // What approvals are judged against: this machine's folder, or what the remote runner reports (unexpanded until it does).
       let approvalCwd = host ? remote!.base : cwd;

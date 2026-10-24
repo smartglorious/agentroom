@@ -12,7 +12,8 @@ import type { TelegramPanel } from "./telegramPanel";
 /** Messages the webview sends to the extension. */
 type FromWebview =
   | { type: "ready" }
-  | { type: "send"; text: string }
+  | { type: "send"; text: string; replyTo?: string }
+  | { type: "answerOption"; messageId: string; optionId: string }
   | { type: "approve"; id: string; allow: boolean }
   | { type: "stop"; workerId: string }
   | { type: "inspect"; turnId: string }
@@ -159,7 +160,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!c) return;
     const room = c.room;
     switch (m.type) {
-      case "send": if (typeof m.text === "string" && m.text.trim()) room.post("user", m.text.trim()); break;
+      case "send": if (typeof m.text === "string" && m.text.trim()) room.post("user", m.text.trim(), typeof m.replyTo === "string" ? { replyTo: m.replyTo } : {}); break;
+      case "answerOption":
+        try { room.answerOption(String(m.messageId), String(m.optionId)); }
+        catch (e) { vscode.window.showWarningMessage(String(e instanceof Error ? e.message : e)); this.post({ type: "optionError", messageId: String(m.messageId) }); }
+        break;
       case "approve": room.respondApproval(String(m.id), !!m.allow); break;
       case "stop": room.stop(String(m.workerId)); break;
       case "inspect": void this.handlers?.inspect(String(m.turnId)); break;
@@ -212,6 +217,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <section id="hosts" class="tab" hidden></section>
   <section id="profile" class="tab" hidden></section>
   <div id="approvals"></div>
+  <div id="replybar" hidden></div>
   <form id="composer"><textarea id="input" rows="2" placeholder="Nhắn cả nhóm… dùng @id để gọi ai đó (Enter để gửi)"></textarea></form>
   <script nonce="${nonce}" src="${js}"></script>
 </body></html>`;

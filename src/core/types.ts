@@ -125,7 +125,16 @@ export interface ChatMessage {
   source?: string;
   /** A system notice worth interrupting the user for: failures, budget stops, drafts waiting, tasks not started. */
   alert?: boolean;
+  /** The message this one answers: the user pressed "reply" on it, or picked one of its options. */
+  replyTo?: string;
+  /** Choices a worker offers the user (Room.askUser). The user's pick comes back to that worker's own session. */
+  options?: ChoiceSet;
+  /** On the user's message that picked an option of `message`. */
+  choice?: { message: string; option: string };
 }
+
+export interface ChoiceOption { id: string; label: string; description?: string }
+export interface ChoiceSet { question: string; items: ChoiceOption[] }
 
 export type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
 

@@ -49,11 +49,12 @@ export class FakeTelegram {
 
   // ---- what the "person on the phone" does ----
 
-  userSays(user: number, text: string | undefined, o: { chat?: number; type?: string; forward?: boolean; edited?: boolean; name?: string } = {}) {
+  userSays(user: number, text: string | undefined, o: { chat?: number; type?: string; forward?: boolean; edited?: boolean; name?: string; replyTo?: number } = {}) {
     const msg: TgMessage = {
       message_id: this.nextMsg++, date: 1, chat: { id: o.chat ?? user, type: o.type ?? "private" },
       from: { id: user, first_name: o.name ?? "Minh", is_bot: false }, ...(text !== undefined ? { text } : {}),
       ...(o.forward ? { forward_origin: { type: "user" }, forward_date: 1 } : {}),
+      ...(o.replyTo !== undefined ? { reply_to_message: { message_id: o.replyTo, chat: { id: o.chat ?? user, type: o.type ?? "private" }, date: 1 } } : {}),
     };
     this.push(o.edited ? { update_id: this.nextUpdate++, edited_message: msg } : { update_id: this.nextUpdate++, message: msg });
     return msg;

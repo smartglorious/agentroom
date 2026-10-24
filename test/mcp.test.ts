@@ -15,7 +15,7 @@ test("mcp: agents coordinate through tools over streamable HTTP", async () => {
   await client.connect(new StreamableHTTPClientTransport(new URL(mcp.urlFor("lead"))));
 
   const names = (await client.listTools()).tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["claim_task", "complete_task", "create_task", "forget", "journal", "list_tasks", "post_message", "propose_skill", "read_channel", "recall", "remember"]);
+  assert.deepEqual(names, ["ask_user", "claim_task", "complete_task", "create_task", "forget", "journal", "list_tasks", "post_message", "propose_skill", "read_channel", "recall", "remember"]);
 
   const created = await client.callTool({ name: "create_task", arguments: { title: "API login", assignee: "be" } });
   const task = JSON.parse((created.content as any)[0].text);
