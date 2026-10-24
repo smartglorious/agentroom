@@ -339,10 +339,11 @@
     const chat = $("chat");
     chat.replaceChildren();
     const card = el("div", "task locked");
-    card.append(el("b", null, "Phòng này đang chạy ở một cửa sổ khác"));
+    const daemon = holder.kind === "daemon";
+    card.append(el("b", null, daemon ? "Phòng này đang chạy bằng chương trình nền (daemon)" : "Phòng này đang chạy ở một cửa sổ khác"));
     const age = holder.heartbeat ? Math.max(0, Math.round((Date.now() - holder.heartbeat) / 1000)) : null;
     card.append(el("div", "meta", `Máy ${holder.host}, pid ${holder.pid}${holder.startedAt ? ", từ " + when(holder.startedAt) : ""}${age != null ? `, tín hiệu cuối ${age}s trước` : ""}.`));
-    card.append(el("p", "note", "Chỉ một cửa sổ được điều phối mỗi thư mục .agentroom/: nếu hai cửa sổ cùng chạy, chat, bảng task và giới hạn account sẽ lệch nhau. Hãy dùng cửa sổ kia, hoặc chiếm quyền (cửa sổ kia sẽ tự dừng)."));
+    card.append(el("p", "note", "Chỉ một cửa sổ được điều phối mỗi thư mục .agentroom/: nếu hai cửa sổ cùng chạy, chat, bảng task và giới hạn account sẽ lệch nhau. Hãy dùng cửa sổ kia, hoặc chiếm quyền (cửa sổ kia sẽ tự dừng)." + (daemon ? " Chiếm quyền sẽ dừng daemon: Telegram, lịch và webhook của daemon ngừng cho tới khi bạn khởi động lại nó (chạy lại daemon sẽ chiếm lại phòng)." : "")));
     card.append(btn("Chiếm quyền điều phối", () => send({ type: "takeOver" })));
     chat.append(card);
   }

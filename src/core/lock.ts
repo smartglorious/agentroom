@@ -10,6 +10,8 @@ export interface LockInfo {
   host: string;
   startedAt: number;
   heartbeat: number;
+  /** Who holds it: a VS Code window (default, also for old lock files) or the headless daemon. */
+  kind?: "vscode" | "daemon";
 }
 
 export interface LockOptions {
@@ -19,6 +21,7 @@ export interface LockOptions {
   now?: () => number;
   pid?: number;
   host?: string;
+  kind?: "vscode" | "daemon";
 }
 
 export type AcquireResult = { ok: true } | { ok: false; holder?: LockInfo };
@@ -45,6 +48,7 @@ export class RoomLock extends EventEmitter<{ lost: [] }> {
       now: opts.now ?? Date.now,
       pid: opts.pid ?? process.pid,
       host: opts.host ?? hostname(),
+      kind: opts.kind ?? "vscode",
     };
   }
 
@@ -60,7 +64,7 @@ export class RoomLock extends EventEmitter<{ lost: [] }> {
   }
 
   private info(startedAt = this.opts.now()): LockInfo {
-    return { token: this.token, pid: this.opts.pid, host: this.opts.host, startedAt, heartbeat: this.opts.now() };
+    return { token: this.token, pid: this.opts.pid, host: this.opts.host, kind: this.opts.kind, startedAt, heartbeat: this.opts.now() };
   }
 
   private write(info: LockInfo) {

@@ -1,6 +1,6 @@
 # Điều khiển AgentRoom từ điện thoại qua Telegram (v0.6)
 
-> Nhắn cho đội AI, nhận tóm tắt, và duyệt các yêu cầu quyền *an toàn* ngay trên điện thoại. Kênh này chạy trong cửa sổ VS Code đang điều phối phòng, nên **máy đó phải bật và VS Code phải mở** (chương trình nền chạy độc lập là giai đoạn sau, mục 9).
+> Nhắn cho đội AI, nhận tóm tắt, và duyệt các yêu cầu quyền *an toàn* ngay trên điện thoại. Kênh này chạy trong cửa sổ VS Code đang điều phối phòng, nên **máy đó phải bật và VS Code phải mở** (muốn chạy khi VS Code đóng: `agentroom-daemon`, xem `DAEMON.md`).
 
 ## 1. Dùng một bot RIÊNG
 
@@ -98,9 +98,9 @@ Dịch vụ chỉ chạy ở cửa sổ **đang giữ quyền điều phối** (
 - Chính sách đường dẫn không theo **symlink**: một đường dẫn nằm trong thư mục làm việc nhưng là liên kết trỏ ra ngoài vẫn được coi là "bên trong".
 - Chưa hỗ trợ nhóm/chủ đề (topic), ảnh, file, giọng nói.
 
-## 9. Bước tiếp theo
+## 9. Chạy không cần VS Code
 
-Chương trình nền (daemon) tách phần điều phối khỏi VS Code để Telegram, lịch và webhook chạy cả khi bạn không mở VS Code (khoảng 1,5 ngày; phần lõi đã không phụ thuộc VS Code).
+Đã có (v0.7): `agentroom-daemon` tách phần điều phối khỏi VS Code để Telegram, lịch và webhook chạy cả khi bạn không mở VS Code. Xem `docs/DAEMON.md`. Daemon có kho token/PIN/ghép cặp riêng (phải ghép cặp một lần).
 
 ## 10. Xử lý sự cố
 

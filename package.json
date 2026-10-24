@@ -2,7 +2,7 @@
   "name": "agentroom",
   "displayName": "AgentRoom — AI team group chat",
   "description": "Nhiều AI worker (Claude Code / Codex) với vai trò riêng cùng làm việc trong một group chat ngay trong VS Code.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "agentroom",
   "license": "MIT",
   "engines": {
@@ -203,5 +203,8 @@
       "supported": false,
       "description": "AgentRoom chạy agent, lệnh và kết nối SSH theo cấu hình nằm trong repo, nên chỉ hoạt động trong workspace bạn tin tưởng."
     }
+  },
+  "bin": {
+    "agentroom-daemon": "dist/daemon.mjs"
   }
 }

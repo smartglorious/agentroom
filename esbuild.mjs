@@ -24,6 +24,8 @@ const configs = tests
   : [
       { ...cjs, entryPoints: ["src/extension.ts"], outfile: "dist/extension.js" },
       { ...esm, entryPoints: ["src/remote/runner-main.ts"], outfile: "dist/runner.mjs" },
+      // headless room (Telegram, schedules, webhooks): `node dist/daemon.mjs run` — also self-contained
+      { ...esm, entryPoints: ["src/daemon/main.ts"], outfile: "dist/daemon.mjs", banner: { js: esm.banner.js } },
     ];
 
 for (const c of configs) {

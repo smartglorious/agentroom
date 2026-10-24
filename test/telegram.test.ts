@@ -325,8 +325,10 @@ test("outbound: @user wakes the phone; your own messages and routine system chat
     r.room.post("system", "task [T1] xong", {});                       // not an alert
     r.room.post("be", "Cần bạn chọn: A hay B? @user quyết giúp");
     r.room.post("be", "Chỉ báo tiến độ nhỏ");
-    await until(() => r.tg.texts(USER).filter((t) => t.startsWith("🤖")).length === 2, 3000, "two worker messages");
-    const [needs, plain] = r.tg.sent.filter((s) => s.text.startsWith("🤖"));
+    // the coordinator also answers these posts, so pick the two by content rather than by position
+    const mine = () => r.tg.sent.filter((s) => /quyết giúp|tiến độ nhỏ/.test(s.text));
+    await until(() => mine().length === 2, 3000, "two worker messages");
+    const needs = mine().find((s) => s.text.includes("quyết giúp"))!, plain = mine().find((s) => s.text.includes("tiến độ nhỏ"))!;
     assert.deepEqual([needs.silent, plain.silent], [false, true]);
     assert.ok(!r.tg.texts(USER).some((t) => /nhắn từ máy tính|task \[T1\]/.test(t)));
   } finally { r.stop(); }

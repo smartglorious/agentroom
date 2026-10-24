@@ -2,7 +2,7 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, tính cách, trí nhớ riêng) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
+Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
 
 ## Tính năng
 
@@ -18,6 +18,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 | **Webhook** | `127.0.0.1`, bắt buộc HMAC, chống trùng, giới hạn tần suất, payload coi như dữ liệu không tin cậy, chế độ chỉ-đọc. |
 | **Nhiều máy** | Worker chạy trên máy này **và** trên các máy khác qua SSH, cùng lúc, cùng một repo git. Tự cài runner, không cần port forwarding, duyệt quyền xuyên máy, tab *Máy*. |
 | **Điện thoại (Telegram)** | Nhắn cho đội, nhận tóm tắt, cảnh báo và thẻ xin quyền; duyệt việc sửa file *an toàn* bằng nút (PIN tuỳ chọn). Bot riêng, chỉ một người đã ghép cặp, tin tồn đọng không bị phát lại. |
+| **Chương trình nền** | `agentroom-daemon`: Telegram, lịch và webhook chạy khi VS Code đóng (systemd), cùng khóa phòng với extension. |
 | **Một cửa sổ điều phối** | Khóa `.agentroom/state/room.lock`: cửa sổ thứ hai không chạy song song làm hỏng dữ liệu, có thể chiếm quyền. |
 | **An toàn** | Worktree riêng cho từng dev, thẻ duyệt quyền (Claude), sandbox (Codex), xác nhận trước khi ssh tới host trong cấu hình repo. |
 
@@ -30,7 +31,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 ## Cài từ file .vsix
 
 ```bash
-code --install-extension agentroom-0.6.0.vsix
+code --install-extension agentroom-0.7.0.vsix
 ```
 
 Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → chọn file.
@@ -40,7 +41,7 @@ Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → ch�
 ```bash
 npm install
 npm run build        # dist/extension.js + dist/runner.mjs (file được cài lên máy từ xa)
-npm test             # 127 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH, Telegram
+npm test             # 132 test: router, scheduler, task board, room, MCP, memory, skills, usage, cron, webhook, khóa, runner/SSH, Telegram
 npm run test:live    # kịch bản thật với Claude (tốn vài cent, cần đã đăng nhập claude)
 npm run test:ssh     # nhiều máy qua sshd THẬT + Claude thật (cần openssh-server, root: scripts/live/ssh-sandbox.sh up)
 npm run package      # agentroom-<version>.vsix
