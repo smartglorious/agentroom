@@ -2,7 +2,7 @@
   "name": "agentroom",
   "displayName": "AgentRoom — AI team group chat",
   "description": "Nhiều AI worker (Claude Code / Codex) với vai trò riêng cùng làm việc trong một group chat ngay trong VS Code.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "agentroom",
   "license": "MIT",
   "engines": {

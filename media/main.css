@@ -15,6 +15,11 @@ nav button.on { opacity: 1; border-bottom: 2px solid var(--vscode-focusBorder); 
 .tab { flex: 1; overflow-y: auto; padding: 6px; }
 .tab[hidden] { display: none; }
 .msg { margin: 0 0 8px; padding: 6px 8px; border-radius: 6px; background: var(--vscode-editor-inactiveSelectionBackground); }
+/* per-worker colour: --wc is set from workers.yaml */
+.msg.from-agent { border-left: 3px solid var(--wc, transparent); background: color-mix(in srgb, var(--wc, transparent) 12%, var(--vscode-editor-inactiveSelectionBackground)); }
+.msg.from-agent .head b { color: color-mix(in srgb, var(--wc, var(--vscode-foreground)) 75%, var(--vscode-foreground)); }
+.worker { border-left: 3px solid var(--wc, transparent); }
+.mention.worker-mention { color: color-mix(in srgb, var(--wc) 75%, var(--vscode-foreground)); }
 .msg.from-user { background: var(--vscode-inputOption-activeBackground); }
 .msg.from-system { background: none; opacity: .75; font-size: 11px; border-left: 2px solid var(--vscode-panel-border); border-radius: 0; }
 .msg .head { display: flex; gap: 6px; align-items: baseline; font-size: 11px; margin-bottom: 2px; }

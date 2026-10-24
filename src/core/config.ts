@@ -43,6 +43,7 @@ const WorkerSchema = z.object({
   coordinator: z.boolean().default(false),
   sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).default("workspace-write"),
   workdir: z.string().min(1).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "color: dạng #rrggbb").optional(),
 });
 
 const ScheduleSchema = z.object({
@@ -86,6 +87,9 @@ function unique(kind: string, ids: string[]) {
   }
 }
 
+/** Distinguishable on both light and dark themes. */
+export const PALETTE = ["#4f8cff", "#e5703a", "#3fb97f", "#c261e6", "#e0b43a", "#ee5d8f", "#2fb8c4", "#8f7cf0", "#a3c93a", "#d9534f"];
+
 export function validCron(expr: string, timezone?: string): string | undefined {
   try {
     // croner only rejects a bad timezone when it computes a run time, so do that here too.
@@ -107,6 +111,11 @@ export function parseConfig(text: string): RoomConfig {
   const accounts = Object.entries(raw.accounts).map(([id, a]) => ({ id, ...a, home: a.host ? a.home : expandHome(a.home) }));
   for (const a of accounts) if (a.host && !hostNames.has(a.host)) throw new Error(`Account ${a.id}: không có host "${a.host}" trong hosts:`);
   unique("worker", raw.workers.map((w) => w.id));
+  // Unset colours take the palette in order, skipping ones another worker chose explicitly.
+  const chosen = new Set(raw.workers.flatMap((w) => (w.color ? [w.color.toLowerCase()] : [])));
+  const free = PALETTE.filter((c) => !chosen.has(c));
+  const pool = free.length ? free : PALETTE;
+  let nextColor = 0;
   const workers = raw.workers.map((w) => {
     const acc = accounts.find((a) => a.id === w.account);
     if (!acc) throw new Error(`Worker ${w.id}: không có account "${w.account}"`);
@@ -115,7 +124,7 @@ export function parseConfig(text: string): RoomConfig {
       if (!base) throw new Error(`Worker ${w.id}: chạy trên host "${acc.host}" nên cần workdir (hoặc hosts.${acc.host}.repo)`);
       if (!isRemotePath(base)) throw new Error(`Worker ${w.id}: đường dẫn trên host phải tuyệt đối hoặc bắt đầu bằng ~ (nhận "${base}")`);
     }
-    return { ...w, provider: acc.provider };
+    return { ...w, provider: acc.provider, color: w.color ?? pool[nextColor++ % pool.length] };
   });
   const known = new Set(workers.map((w) => w.id));
 

@@ -267,6 +267,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `allowedTools` | | danh sách chuỗi | `[Read, Grep, Glob]` | chỉ Claude |
 | `worktree` | | bool | `false` | `true` cho mọi dev sửa code |
 | `coordinator` | | bool | `false` | ít nhất một worker nên là `true` |
+| `color` | | chuỗi `#rrggbb` | tự chọn từ bảng 10 màu | màu của worker trong chat; bỏ trống thì tự gán, tránh trùng màu đã chọn |
 | `workdir` | | đường dẫn | workspace (hoặc `hosts.<tên>.repo`) | clone worker dùng; trên máy này có thể tương đối, trên host phải tuyệt đối/`~/…` |
 | `sandbox` | | `read-only` \| `workspace-write` \| `danger-full-access` | `workspace-write` | chỉ Codex |
 
@@ -669,7 +670,7 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color"]);
 const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
@@ -692,6 +693,7 @@ for (const [i, w] of workers.entries()) {
   if (provider === "codex" && w?.sandbox === "danger-full-access") warns.push(`${at}: sandbox danger-full-access — rủi ro cao`);
   if (provider === "codex" && (w?.useSkills ?? []).length) warns.push(`${at}: Codex không lọc được skill theo worker; skill chỉ được nhắc trong prompt (mức kiểm soát lỏng hơn Claude)`);
   if (w?.workdir !== undefined && !isStr(w.workdir)) errors.push(`${at}.workdir phải là chuỗi`);
+  if (w?.color !== undefined && !(isStr(w.color) && /^#[0-9a-fA-F]{6}$/.test(w.color))) errors.push(`${at}.color phải có dạng #rrggbb`);
   const hostName = accounts[w?.account]?.host;
   if (hostName && hosts?.[hostName]) {
     const base = w?.workdir ?? hosts[hostName].repo;

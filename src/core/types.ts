@@ -39,6 +39,8 @@ export interface Worker {
   sandbox: "read-only" | "workspace-write" | "danger-full-access";
   /** Checkout this worker uses instead of the workspace (on its host's machine). */
   workdir?: string;
+  /** #rrggbb used to tell this worker apart in the chat. Filled from a palette when not set. */
+  color: string;
 }
 
 export interface ScheduleDef {

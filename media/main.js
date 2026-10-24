@@ -13,6 +13,9 @@
     rate_limited: "hết quota", over_budget: "hết ngân sách", error: "lỗi",
   };
 
+  // Colours come from workers.yaml (validated #rrggbb); anything else is ignored rather than put in a style.
+  const colorOf = (id) => { const c = state.workers.find((w) => w.id === id)?.color; return /^#[0-9a-f]{6}$/i.test(c || "") ? c : null; };
+  const tint = (node, id) => { const c = colorOf(id); if (c) node.style.setProperty("--wc", c); return node; };
   const nameOf = (id) => id === "user" ? "Bạn" : id === "system" ? "Hệ thống" : (state.workers.find((w) => w.id === id)?.name ?? id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (label, onclick, cls) => { const b = el("button", cls || "small", label); b.onclick = onclick; return b; };
@@ -28,7 +31,7 @@
     team.replaceChildren();
     for (const w of state.workers) {
       const s = state.statuses[w.id] || { state: "idle" };
-      const card = el("div", `worker ${s.state}`);
+      const card = tint(el("div", `worker ${s.state}`), w.id);
       card.title = `${w.role} · ${w.provider}${w.skills.length ? " · " + w.skills.join(", ") : ""}`;
       card.append(el("span", "dot"), el("b", null, w.name), el("span", "id", "@" + w.id));
       if (w.host) { const h = el("span", "host", "⇄ " + w.host); h.title = "Chạy trên máy " + w.host; card.append(h); }
@@ -50,7 +53,7 @@
 
   // ---------- chat ----------
   function renderMessage(m) {
-    const row = el("article", `msg from-${m.from === "user" ? "user" : m.from === "system" ? "system" : "agent"}`);
+    const row = tint(el("article", `msg from-${m.from === "user" ? "user" : m.from === "system" ? "system" : "agent"}`), m.from);
     const head = el("div", "head");
     head.append(el("b", null, nameOf(m.from)));
     if (m.taskId) head.append(el("span", "tag", m.taskId));
@@ -65,7 +68,10 @@
     head.append(el("time", null, new Date(m.ts).toLocaleTimeString()));
     const body = el("div", "body");
     // Highlight @mentions without using innerHTML.
-    for (const part of m.text.split(/(@[\w-]+)/g)) body.append(part.startsWith("@") ? el("span", "mention", part) : document.createTextNode(part));
+    for (const part of m.text.split(/(@[\w-]+)/g)) {
+      if (!part.startsWith("@")) { body.append(document.createTextNode(part)); continue; }
+      body.append(tint(el("span", colorOf(part.slice(1)) ? "mention worker-mention" : "mention", part), part.slice(1)));
+    }
     row.append(head, body);
     const chat = $("chat");
     const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;

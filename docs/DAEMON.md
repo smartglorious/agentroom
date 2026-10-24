@@ -8,7 +8,7 @@ Cần Node ≥ 20 và `claude` / `codex` đã đăng nhập trên máy đó.
 
 ```bash
 node dist/daemon.mjs help                       # từ mã nguồn sau `npm run build`
-# hoặc đã cài .vsix:  node ~/.vscode/extensions/agentroom.agentroom-0.7.0/dist/daemon.mjs help
+# hoặc đã cài .vsix:  node ~/.vscode/extensions/agentroom.agentroom-0.7.1/dist/daemon.mjs help
 # hoặc:               npm link   →   agentroom-daemon help
 ```
 

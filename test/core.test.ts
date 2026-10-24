@@ -115,3 +115,18 @@ test("room: completing a task does not wake the finisher", async () => {
   await idle(room);
   assert.deepEqual(fake.calls.map((c) => c.worker.id), ["lead"]);
 });
+
+test("config: every worker gets a colour; explicit ones are kept and not reused; bad ones are rejected", () => {
+  const base = (extra: string[]) => `accounts: { c: { provider: claude } }\nworkers:\n${extra.map((e, i) => `  - { id: w${i}, name: W${i}, role: r, account: c${e} }`).join("\n")}\n`;
+  const auto = parseConfig(base(["", "", ""])).workers.map((w) => w.color);
+  assert.equal(new Set(auto).size, 3, "distinct by default");
+  assert.ok(auto.every((c) => /^#[0-9a-f]{6}$/i.test(c)));
+  const mixed = parseConfig(base([`, color: "${auto[1]}"`, "", ""])).workers.map((w) => w.color);
+  assert.equal(mixed[0], auto[1], "explicit colour kept");
+  assert.equal(new Set(mixed).size, 3, "automatic ones skip a colour somebody chose");
+  assert.throws(() => parseConfig(base([`, color: "red"`])), /#rrggbb/);
+  assert.throws(() => parseConfig(base([`, color: "#12345"`])), /#rrggbb/);
+  assert.throws(() => parseConfig(base([`, color: "#abcdef; background:url(x)"`])), /#rrggbb/);
+  const many = parseConfig(base(Array(12).fill(""))).workers;
+  assert.equal(many.length, 12, "more workers than palette entries still works (colours repeat)");
+});

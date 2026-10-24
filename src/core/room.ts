@@ -118,8 +118,8 @@ export class Room extends EventEmitter<RoomEvents> {
 
   snapshot() {
     return {
-      workers: this.workers.map(({ id, name, role, skills, useSkills, provider, coordinator, account }) => ({
-        id, name, role, skills, useSkills, provider, coordinator, account, host: this.deps.config.accounts.find((a) => a.id === account)?.host,
+      workers: this.workers.map(({ id, name, role, skills, useSkills, provider, coordinator, account, color }) => ({
+        id, name, role, skills, useSkills, provider, coordinator, account, color, host: this.deps.config.accounts.find((a) => a.id === account)?.host,
       })),
       messages: this.messages.slice(-200),
       statuses: [...this.statuses.values()],
