@@ -7,13 +7,16 @@ import { SqliteMigrationRunner } from "../src/storage/migrations";
 import { schemaMigrations } from "../src/storage/schema-v1";
 import { SqliteConnection } from "../src/storage/sqlite";
 
-test("schema v4: adds durable execution, failure and context tables", async () => {
+test("schema v5: adds durable execution, context and hybrid memory tables", async () => {
   const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-schema-v2-")), "agentroom.db"));
   try {
     const state = await new SqliteMigrationRunner(db, schemaMigrations).apply();
-    assert.equal(state.currentVersion, 4);
+    assert.equal(state.currentVersion, 5);
     const tables = await db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
     for (const name of ["checkpoints", "tool_receipts", "execution_outbox", "execution_dead_letters", "context_sources", "context_chunks", "context_chunks_fts", "task_packets"]) {
+      assert.equal(tables.some((table) => table.name === name), true);
+    }
+    for (const name of ["memory_candidates", "memories", "memory_relations", "memory_deletion_audit", "memories_fts"]) {
       assert.equal(tables.some((table) => table.name === name), true);
     }
     const columns = await db.all<{ name: string }>("PRAGMA table_info(steps)");

@@ -304,4 +304,90 @@ const contextBrokerV4: SqliteMigration = {
   `,
 };
 
-export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4];
+const hybridMemoryV5: SqliteMigration = {
+  version: 5,
+  name: "hybrid_memory_v5",
+  sql: `
+    CREATE TABLE memory_candidates (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      scope TEXT NOT NULL CHECK (scope IN ('user', 'workspace', 'agent', 'task')),
+      scope_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('working', 'episodic', 'semantic', 'procedural', 'archive')),
+      content TEXT NOT NULL,
+      normalized_hash TEXT NOT NULL,
+      confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+      sensitivity TEXT NOT NULL CHECK (sensitivity IN ('normal', 'sensitive')),
+      provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'rejected', 'duplicate')),
+      reason TEXT NOT NULL,
+      memory_id TEXT,
+      created_at INTEGER NOT NULL,
+      decided_at INTEGER,
+      UNIQUE (workspace_id, id)
+    ) STRICT;
+
+    CREATE TABLE memories (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      scope TEXT NOT NULL CHECK (scope IN ('user', 'workspace', 'agent', 'task')),
+      scope_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('working', 'episodic', 'semantic', 'procedural', 'archive')),
+      content TEXT NOT NULL,
+      normalized_hash TEXT NOT NULL,
+      confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+      importance REAL NOT NULL CHECK (importance >= 0 AND importance <= 1),
+      acl_json TEXT NOT NULL CHECK (json_valid(acl_json) AND json_type(acl_json) = 'array'),
+      provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
+      status TEXT NOT NULL CHECK (status IN ('active', 'superseded')),
+      valid_from INTEGER NOT NULL,
+      valid_to INTEGER,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+      UNIQUE (workspace_id, scope, scope_id, normalized_hash),
+      UNIQUE (workspace_id, id)
+    ) STRICT;
+
+    CREATE TABLE memory_relations (
+      workspace_id TEXT NOT NULL,
+      from_memory_id TEXT NOT NULL,
+      to_memory_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('supersedes', 'contradicts', 'supports')),
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (from_memory_id, to_memory_id, kind),
+      CHECK (from_memory_id <> to_memory_id),
+      FOREIGN KEY (workspace_id, from_memory_id) REFERENCES memories(workspace_id, id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id, to_memory_id) REFERENCES memories(workspace_id, id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE memory_deletion_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id TEXT NOT NULL,
+      memory_id TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      deleted_at INTEGER NOT NULL,
+      reason TEXT NOT NULL
+    ) STRICT;
+
+    CREATE VIRTUAL TABLE memories_fts USING fts5(memory_id UNINDEXED, workspace_id UNINDEXED, content,
+      tokenize = 'unicode61 remove_diacritics 2');
+    CREATE TRIGGER memories_fts_insert AFTER INSERT ON memories BEGIN
+      INSERT INTO memories_fts(memory_id, workspace_id, content) VALUES (new.id, new.workspace_id, new.content);
+    END;
+    CREATE TRIGGER memories_fts_delete AFTER DELETE ON memories BEGIN
+      DELETE FROM memories_fts WHERE memory_id = old.id;
+    END;
+    CREATE TRIGGER memories_fts_update AFTER UPDATE OF content ON memories BEGIN
+      DELETE FROM memories_fts WHERE memory_id = old.id;
+      INSERT INTO memories_fts(memory_id, workspace_id, content) VALUES (new.id, new.workspace_id, new.content);
+    END;
+
+    CREATE INDEX memory_candidates_pending_idx ON memory_candidates(workspace_id, status, created_at);
+    CREATE INDEX memories_scope_idx ON memories(workspace_id, scope, scope_id, status, updated_at);
+    CREATE INDEX memories_expiry_idx ON memories(workspace_id, expires_at) WHERE expires_at IS NOT NULL;
+  `,
+};
+
+export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5];
