@@ -294,7 +294,7 @@ export const wireWorker = (w: Worker): TurnMessage["worker"] => ({
   id: w.id, name: w.name, role: w.role, model: w.model, allowedTools: w.allowedTools, tools: w.tools, sandbox: w.sandbox, useSkills: w.useSkills, worktree: w.worktree,
 });
 
-export const wireAccount = (a: Account): TurnMessage["account"] => ({ id: a.id, provider: a.provider, home: a.home, apiKeyEnv: a.apiKeyEnv, baseUrl: a.baseUrl, authTokenEnv: a.authTokenEnv });
+export const wireAccount = (a: Account): TurnMessage["account"] => ({ id: a.id, provider: a.provider, home: a.home, apiKeyEnv: a.apiKeyEnv, baseUrl: a.baseUrl, authTokenEnv: a.authTokenEnv, windowsSandbox: a.windowsSandbox });
 
 // ---------- all hosts of a room ----------
 

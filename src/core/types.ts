@@ -11,6 +11,8 @@ export interface Account {
   apiKeyEnv?: string;
   /** Claude: send requests to another Anthropic-compatible endpoint (for example DeepSeek's) instead of Anthropic. */
   baseUrl?: string;
+  /** Codex on Windows: how its sandbox is set up for AgentRoom's turns, overriding `[windows] sandbox` of ~/.codex/config.toml for these runs only. */
+  windowsSandbox?: "elevated" | "unelevated";
   /** Claude, with baseUrl: name of the env var holding that endpoint's token. The token itself never goes in workers.yaml. */
   authTokenEnv?: string;
   /** How many turns may run at once on this account. */

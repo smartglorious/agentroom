@@ -25,6 +25,7 @@ const AccountSchema = z.object({
   home: z.string().optional(),
   apiKeyEnv: z.string().optional(),
   baseUrl: z.string().url().optional(),
+  windowsSandbox: z.enum(["elevated", "unelevated"]).optional(),
   authTokenEnv: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "authTokenEnv: tên biến môi trường, không phải bản thân token").optional(),
   maxConcurrent: z.number().int().min(1).default(1),
   budgetUsdPerDay: z.number().positive().optional(),

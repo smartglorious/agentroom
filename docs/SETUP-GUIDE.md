@@ -249,6 +249,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `home` | | chuỗi | login mặc định | `~` được mở rộng |
 | `apiKeyEnv` | | chuỗi | | tên biến môi trường chứa key |
 | `baseUrl` | | URL | Anthropic | Claude: gửi yêu cầu tới endpoint tương thích Anthropic khác (ví dụ DeepSeek `https://api.deepseek.com/anthropic`). Không đo gói đăng ký cho account này |
+| `windowsSandbox` | | `elevated`/`unelevated` | theo `~/.codex/config.toml` | Codex trên Windows: ghi đè `[windows] sandbox` chỉ cho các lượt của AgentRoom (không sửa file cấu hình của bạn). `unelevated` thường khắc phục lỗi `CreateProcess … setup refresh had errors` (theo báo cáo cộng đồng; chưa kiểm chứng trên máy bạn) |
 | `authTokenEnv` | | chuỗi | | cùng với `baseUrl`: **tên** biến môi trường chứa token của endpoint đó (không ghi token vào YAML) |
 | `maxConcurrent` | | số nguyên ≥ 1 | `1` | |
 | `host` | | tên trong `hosts` | máy này | account là một đăng nhập **trên máy đó**; `home`/`apiKeyEnv` cũng là của máy đó |
@@ -679,6 +680,7 @@ for (const [id, a] of Object.entries(accounts)) {
   if (a?.warnAtPercent !== undefined && !(typeof a.warnAtPercent === "number" && a.warnAtPercent >= 1 && a.warnAtPercent <= 100)) errors.push(`accounts.${id}.warnAtPercent phải nằm trong 1–100`);
   if (a?.host !== undefined && !hosts?.[a.host]) errors.push(`accounts.${id}.host "${a.host}" không có trong hosts`);
   if (a?.host && a?.home) warns.push(`accounts.${id}: home là đường dẫn TRÊN máy "${a.host}"`);
+  if (a?.windowsSandbox !== undefined && !["elevated", "unelevated"].includes(a.windowsSandbox)) errors.push(`accounts.${id}.windowsSandbox phải là elevated hoặc unelevated`);
   if (a?.baseUrl !== undefined && !/^https?:\/\/\S+$/.test(String(a.baseUrl))) errors.push(`accounts.${id}.baseUrl phải là URL http(s)`);
   if (a?.authTokenEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(a.authTokenEnv))) errors.push(`accounts.${id}.authTokenEnv phải là TÊN biến môi trường, không phải token`);
   if ((a?.baseUrl || a?.authTokenEnv) && a?.provider !== "claude") warns.push(`accounts.${id}: baseUrl/authTokenEnv chỉ dùng cho provider claude`);
