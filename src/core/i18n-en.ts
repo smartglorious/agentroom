@@ -551,4 +551,5 @@ export const EN: Record<string, string> = {
   "⏱️ {name} im lặng quá {m} phút nên lượt bị dừng (CLI có thể đang treo hoặc chờ mạng). Nhắn lại để thử tiếp; đổi giới hạn bằng limits.turnIdleMinutes (0 = tắt).": "⏱️ {name} was silent for over {m} minutes so the turn was stopped (the CLI may be hung or waiting for the network). Write again to retry; change the limit with limits.turnIdleMinutes (0 = off).",
   "🔀 {name} tạm chạy trên account {to} vì account {from} đang bị giới hạn. Sẽ quay về {from} khi có thể.": "🔀 {name} is temporarily running on account {to} because account {from} is limited. It will return to {from} when it can.",
   "↩️ {name} quay về account {from}.": "↩️ {name} is back on account {from}.",
+  "ℹ️ Cửa sổ {label} của account {id} đã hết.{left} AgentRoom không tạm dừng vì cửa sổ này không chặn mọi yêu cầu; nếu worker bị từ chối thật, lỗi sẽ hiện riêng.": "ℹ️ Window {label} of account {id} is used up.{left} AgentRoom does not pause because this window does not hold back every request; if a worker is really refused, the error shows separately.",
 };

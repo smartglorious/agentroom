@@ -223,3 +223,21 @@ test("codex probe: logged-out / API-key homes are 'unavailable' with a hint; oth
   await assert.rejects(probeCodexPlan(a, fakeAppServer(`/* never answers */`), () => NOW, 300), /không có phản hồi/);
   await assert.rejects(probeCodexPlan(a, "/nonexistent/codex", () => NOW, 2000), /ENOENT/);
 });
+
+test("plan monitor: a used-up model-specific or unnamed window informs but does not pause the account; the 5-hour and 7-day windows still do", async () => {
+  const r = monitorRig();
+  r.set(usedBy(100, NOW + 12 * 24 * H, "iguana_necktie"));
+  await r.m.refresh(undefined, true);
+  assert.equal(r.pauses.length, 0, "an unnamed full window does not hold the account");
+  assert.equal(r.alerts.length, 1);
+  assert.match(r.alerts[0], /không tạm dừng/);
+  r.set(usedBy(100, NOW + 2 * H, "seven_day_sonnet"));
+  await r.m.refresh(undefined, true);
+  assert.equal(r.pauses.length, 0, "a model-specific window does not hold the whole account either");
+  r.set(usedBy(100, NOW + 3 * H, "five_hour"));
+  await r.m.refresh(undefined, true);
+  assert.equal(r.pauses.length, 1, "the 5-hour window does");
+  r.set(usedBy(100, NOW + 4 * 24 * H, "seven_day"));
+  await r.m.refresh(undefined, true);
+  assert.equal(r.pauses.length, 2, "and so does the 7-day window");
+});

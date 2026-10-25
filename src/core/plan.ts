@@ -213,9 +213,17 @@ export class PlanMonitor extends EventEmitter<{ change: [] }> {
       const cycle = w.resetsAt ? Math.floor(w.resetsAt / 60_000) : "x";
       const tag = `${a.id}:${w.key}:${cycle}`;
       const left = w.resetsAt ? ` Reset ${new Date(w.resetsAt).toLocaleString("vi-VN")}.` : "";
+      // Only the general windows hold back every request. A model-specific or unnamed window can read 0% while the CLI still answers
+      // (a user's account showed an unnamed window at 0% and sonnet/haiku worked), so those only inform. A real refusal still
+      // reaches the scheduler as a rate-limit error from the CLI.
+      const gates = a.provider !== "claude" || w.key === "five_hour" || w.key === "seven_day";
       if (w.usedPercent >= 100) {
         if (this.announced.has(tag + ":full")) continue;
         this.announced.add(tag + ":full");
+        if (!gates) {
+          this.d.alert(tr("ℹ️ Cửa sổ {label} của account {id} đã hết.{left} AgentRoom không tạm dừng vì cửa sổ này không chặn mọi yêu cầu; nếu worker bị từ chối thật, lỗi sẽ hiện riêng.", { id: a.id, label: w.label, left }));
+          continue;
+        }
         this.d.alert(tr("⛔ Gói của account {id} ({label}) đã hết hạn mức.{left}{p}", { id: a.id, label: w.label, left, p: w.resetsAt ? tr(" Hàng đợi của account tạm dừng tới lúc reset.") : "" }));
         if (w.resetsAt && w.resetsAt > this.now()) this.d.pause(a.id, w.resetsAt);
       } else if (w.usedPercent >= a.warnAtPercent) {
