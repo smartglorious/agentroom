@@ -138,13 +138,15 @@ test("Room bridge: a durable model turn receives its sealed ACL-filtered context
       trust: "untrusted", acl: ["lead"], chunks: [{ id: "guide-1", locator: "guide.md#L1", content: "migration checkpoint evidence" }], at: 10 });
     const queue = new DurableTurnQueue(db, "w1");
     const fake = new Fake(() => "used packet");
-    const { room } = makeRoom(fake, { turnQueue: queue, contextBroker: new ContextBroker(db) });
+    const { room, deps } = makeRoom(fake, { turnQueue: queue, contextBroker: new ContextBroker(db) });
     room.post("user", "@lead review migration checkpoint");
     await idle(room);
     assert.match(fake.calls[0].prompt, /<task_packet/);
     assert.match(fake.calls[0].prompt, /migration checkpoint evidence/);
     assert.match(fake.calls[0].prompt, /trust=untrusted/);
     assert.equal((await db.get<{ count: number }>("SELECT count(*) AS count FROM task_packets"))?.count, 1);
+    const reply = room.snapshot().messages.find((item) => item.from === "lead")!;
+    assert.deepEqual(deps.inspector.load(reply.turnId!)?.taskPacket?.sources.map((source) => source.sourceId), ["guide"]);
   } finally {
     await db.close();
   }

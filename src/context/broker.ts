@@ -1,6 +1,8 @@
 import type { SqliteConnection } from "../storage/sqlite";
 import { SqliteContextSources, type RetrievedContext } from "./sources";
 import { allocatePacketTokens, fitContextToBudget, sealTaskPacketV1, type TaskPacketV1, verifyTaskPacketV1 } from "./task-packet";
+import { createHash } from "node:crypto";
+import { redactContextSecrets } from "./redaction";
 
 export interface CompileTaskPacketInput {
   packetId?: string;
@@ -62,7 +64,15 @@ export class ContextBroker {
       if (!(error instanceof Error) || !/no searchable terms/.test(error.message)) throw error;
       retrieved = [];
     }
-    const ranked = rankContext(retrieved, input.maxPerSource);
+    const ranked = rankContext(retrieved, input.maxPerSource).map((item) => {
+      const redacted = redactContextSecrets(item.content);
+      return redacted.redactions ? {
+        ...item,
+        content: redacted.content,
+        contentHash: createHash("sha256").update(redacted.content).digest("hex"),
+        retrievalReason: `${item.retrievalReason};redacted:${redacted.redactions}`,
+      } : item;
+    });
     const selected = fitContextToBudget(ranked.map((item) => ({ ...item, content: item.content })), segments.sources);
     const packet = sealTaskPacketV1({
       ...(input.packetId ? { packet_id: input.packetId } : {}),

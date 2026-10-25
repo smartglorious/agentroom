@@ -794,6 +794,7 @@ export class Room extends EventEmitter<RoomEvents> {
       const recent = this.messages.filter((m) => m.ts > seen && !(m.from === SYSTEM && !m.to.length)).slice(-this.deps.options.contextMessages);
       const memoSections = sendMemory ? [...persona.volatile, ...(fresh && persona.journal ? [persona.journal] : [])] : [];
       const turn = buildTurn(worker, this.workers, recent, batch, this.tasks.list(), sendMemory ? { sections: memoSections, update: !fresh } : undefined, (id) => this.quoteOf(id));
+      let taskPacket: TurnRecord["taskPacket"];
       if (durable && this.deps.contextBroker) {
         const packet = await this.deps.contextBroker.compile({
           packetId: `tp_${durable.runId}`,
@@ -810,6 +811,11 @@ export class Room extends EventEmitter<RoomEvents> {
           attempt: durable.step.attempt,
           createdAt: new Date(Math.min(...batch.map((message) => message.ts))),
         });
+        taskPacket = {
+          id: packet.packet_id, sha256: packet.integrity.sha256, inputBudget: packet.budget.input_tokens,
+          sources: packet.context.map((item) => ({ sourceId: item.source_id, locator: item.locator, score: item.score,
+            trust: item.trust, reason: item.retrieval_reason })),
+        };
         if (packet.context.length) {
           const section = {
             name: "TaskPacket context",
@@ -829,7 +835,7 @@ export class Room extends EventEmitter<RoomEvents> {
         resumed: !fresh, taskId, cwd, readOnly,
         allowedTools: readOnly ? [tr("(chỉ đọc)")] : worker.allowedTools, useSkills: worker.useSkills,
         systemSections: sectionInfo(persona.stable.sections), promptSections: sectionInfo(turn.sections),
-        systemAppend: persona.stable.text, prompt: turn.text,
+        systemAppend: persona.stable.text, prompt: turn.text, taskPacket,
       };
 
       const adapter = host ? this.deps.remote! : this.deps.adapters[worker.provider];

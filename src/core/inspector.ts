@@ -29,6 +29,7 @@ export interface TurnRecord {
   promptSections: SectionInfo[];
   systemAppend: string;
   prompt: string;
+  taskPacket?: { id: string; sha256: string; inputBudget: number; sources: { sourceId: string; locator: string; score: number; trust: string; reason: string }[] };
   usage?: TurnUsage;
   /** New Claude sessions only: what the CLI says fills the window before the worker does anything. */
   context?: { categories: { name: string; tokens: number }[]; total: number };
@@ -96,6 +97,11 @@ export function renderTurn(r: TurnRecord): string {
   lines.push(`| **Tổng AgentRoom gửi** | | **${num(sent)}** |`);
   if (real !== undefined) {
     lines.push("", `Token thực tế phía model: **${num(real)}**. Phần chênh ≈ **${num(Math.max(0, real - sent))}** là system prompt của CLI và lịch sử session đã resume — phần này không xem chi tiết được.`);
+  }
+  if (r.taskPacket) {
+    lines.push("", `## TaskPacket ${r.taskPacket.id}`, "", `Checksum: \`${r.taskPacket.sha256}\` · input budget: ${num(r.taskPacket.inputBudget)} tokens.`, "",
+      "| Source | Locator | Score | Trust | Reason |", "|---|---|---:|---|---|");
+    for (const source of r.taskPacket.sources) lines.push(`| ${source.sourceId} | ${source.locator} | ${source.score.toFixed(3)} | ${source.trust} | ${source.reason} |`);
   }
   if (r.context) {
     lines.push("", "## Context cố định của session mới (CLI báo)", "", "| Mục | Token |", "|---|---:|");
