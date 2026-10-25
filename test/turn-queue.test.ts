@@ -8,6 +8,7 @@ import { SqliteMigrationRunner } from "../src/storage/migrations";
 import { schemaMigrations } from "../src/storage/schema-v1";
 import { SqliteConnection } from "../src/storage/sqlite";
 import { DurableTurnQueue } from "../src/storage/turn-queue";
+import { Fake, idle, makeRoom } from "./helpers";
 
 const open = async (file: string) => {
   const db = await SqliteConnection.open(file);
@@ -53,6 +54,49 @@ test("turn queue: a killed turn reappears with its exact message batch after lea
     const recovered = await secondQueue.recoverable();
     assert.deepEqual(recovered, [turn]);
     assert.equal((await secondQueue.claim(recovered[0], "process-2"))?.step.attempt, 2);
+  } finally {
+    await secondDb.close();
+  }
+});
+
+test("Room bridge: normal turns complete a durable Run/Step without changing the reply UX", async () => {
+  const file = join(mkdtempSync(join(tmpdir(), "ar-room-bridge-")), "agentroom.db");
+  const db = await open(file);
+  try {
+    const queue = new DurableTurnQueue(db, "w1", { leaseMs: 1_000 });
+    const fake = new Fake(() => "done");
+    const { room } = makeRoom(fake, { turnQueue: queue });
+    room.post("user", "@lead please continue");
+    await idle(room);
+    assert.equal(fake.calls.length, 1);
+    assert.equal(room.snapshot().messages.some((item) => item.from === "lead" && item.text === "done"), true);
+    assert.deepEqual(await db.get("SELECT status FROM runs"), { status: "succeeded" });
+    assert.deepEqual(await db.get("SELECT status FROM steps"), { status: "succeeded" });
+  } finally {
+    await db.close();
+  }
+});
+
+test("Room bridge: startup restores an expired in-flight batch and finishes it once", async () => {
+  const file = join(mkdtempSync(join(tmpdir(), "ar-room-recover-")), "agentroom.db");
+  let now = 100;
+  const firstDb = await open(file);
+  const firstQueue = new DurableTurnQueue(firstDb, "w1", { now: () => now, leaseMs: 50 });
+  const turn = await firstQueue.enqueue({ workerId: "lead", sessionKey: "lead:main", messages: [message] });
+  await firstQueue.claim(turn, "dead-process");
+  await firstDb.close();
+
+  now = 151;
+  const secondDb = await open(file);
+  try {
+    const queue = new DurableTurnQueue(secondDb, "w1", { now: () => now, leaseMs: 50 });
+    const fake = new Fake(() => "recovered");
+    const { room } = makeRoom(fake, { turnQueue: queue, now: () => now });
+    assert.equal(await room.recoverDurableTurns(), 1);
+    await idle(room);
+    assert.equal(fake.calls.length, 1);
+    assert.equal((await secondDb.get<{ status: string }>("SELECT status FROM runs WHERE id = ?", [turn.runId]))?.status, "succeeded");
+    assert.equal(await room.recoverDurableTurns(), 0);
   } finally {
     await secondDb.close();
   }

@@ -15,6 +15,10 @@ export interface DurableTurn {
 }
 
 export interface ClaimedTurn extends DurableTurn { step: StepRecord }
+export type TurnClaim =
+  | { state: "claimed"; turn: ClaimedTurn }
+  | { state: "waiting"; turn: DurableTurn }
+  | { state: "completed"; turn: DurableTurn };
 
 interface TurnRoute {
   kind: "room-turn-v1";
@@ -66,6 +70,14 @@ export class DurableTurnQueue {
     const leased = await this.workflow.claim(this.workspaceId, turn.stepId, owner);
     if (!leased) return undefined;
     return { ...turn, step: await this.workflow.startClaimed(leased) };
+  }
+
+  async begin(input: { workerId: string; sessionKey: string; taskId?: string; messages: ChatMessage[] }, owner: string): Promise<TurnClaim> {
+    const turn = await this.enqueue(input);
+    const run = await this.runs.get(this.workspaceId, turn.runId);
+    if (run && ["succeeded", "failed", "cancelled"].includes(run.status)) return { state: "completed", turn };
+    const claimed = await this.claim(turn, owner);
+    return claimed ? { state: "claimed", turn: claimed } : { state: "waiting", turn };
   }
 
   async succeed(turn: ClaimedTurn): Promise<RunRecord> { return await this.workflow.succeed(turn.step); }

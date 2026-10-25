@@ -16,6 +16,7 @@ import type { RoomStateStore } from "./store";
 import { TaskBoard } from "./tasks";
 import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
 import { nextMidnight, UsageStore } from "./usage";
+import { DurableTurnQueue, type ClaimedTurn } from "../storage/turn-queue";
 
 export interface RoomOptions {
   maxAgentHops: number;
@@ -59,6 +60,8 @@ export interface RoomDeps {
   issues?: IssueStore;
   /** Extension points (guards, panels). Optional. */
   plugins?: PluginManager;
+  /** Optional SQLite execution queue. File-based room state remains compatible when omitted. */
+  turnQueue?: DurableTurnQueue;
 }
 
 export interface RoomEvents {
@@ -142,6 +145,7 @@ export class Room extends EventEmitter<RoomEvents> {
   /** Context size of the first turn of each running session (this run only): what a fresh session already weighs before it does anything. */
   private freshCtx = new Map<string, number>();
   private budgetNotes = new Set<string>();
+  private readonly dispatcherId = `room-${randomUUID()}`;
 
   constructor(private deps: RoomDeps) {
     super();
@@ -203,6 +207,24 @@ export class Room extends EventEmitter<RoomEvents> {
   get workers() { return this.deps.config.workers; }
   hasWorker(id: string) { return this.workers.some((w) => w.id === id); }
   private now() { return this.deps.now?.() ?? Date.now(); }
+
+  /** Rehydrates batches whose process died after dequeueing but before the durable step completed. */
+  async recoverDurableTurns(): Promise<number> {
+    if (!this.deps.turnQueue) return 0;
+    let restored = 0;
+    for (const turn of await this.deps.turnQueue.recoverable()) {
+      const expectedKey = `${turn.workerId}:${turn.taskId.startsWith("room-main:") ? "main" : turn.taskId}`;
+      if (!this.hasWorker(turn.workerId) || turn.sessionKey !== expectedKey) continue;
+      const current = this.inbox.get(turn.sessionKey) ?? [];
+      const existing = new Set(current.map((message) => message.id));
+      const messages = turn.messages.filter((message) => !existing.has(message.id));
+      if (!messages.length) continue;
+      this.inbox.set(turn.sessionKey, [...current, ...messages]);
+      restored += messages.length;
+      this.schedule(turn.sessionKey);
+    }
+    return restored;
+  }
 
   snapshot() {
     return {
@@ -661,6 +683,27 @@ export class Room extends EventEmitter<RoomEvents> {
     this.inbox.delete(key);
     if (!batch.length) return;
 
+    let durable: ClaimedTurn | undefined;
+    let durableDone = false;
+    if (this.deps.turnQueue) {
+      const claim = await this.deps.turnQueue.begin({
+        workerId: worker.id,
+        sessionKey: key,
+        taskId: batch.find((message) => message.taskId)?.taskId,
+        messages: batch,
+      }, this.dispatcherId);
+      if (claim.state === "completed") return;
+      if (claim.state === "waiting") {
+        const timer = setTimeout(() => {
+          this.inbox.set(key, [...batch, ...(this.inbox.get(key) ?? [])]);
+          this.schedule(key);
+        }, 1_000);
+        timer.unref?.();
+        return;
+      }
+      durable = claim.turn;
+    }
+
     const abort = new AbortController();
     const depth = Math.max(...batch.map((m) => m.depth));
     const readOnly = batch.some((m) => m.readOnly);
@@ -804,7 +847,14 @@ export class Room extends EventEmitter<RoomEvents> {
       else if (!text && !noop && batch.some((m) => m.from === HUMAN) && !this.messages.some((m) => m.from === worker.id && m.ts >= startedAt)) {
         this.post(SYSTEM, tr("ℹ️ {name} chạy xong nhưng không có nội dung trả lời (token vào {i}, ra {o}). Xem 🔍 để biết lượt đó, hoặc nhắn lại.", { name: worker.name, i: (result.usage?.input ?? 0) + (result.usage?.cacheRead ?? 0) + (result.usage?.cacheWrite ?? 0), o: result.usage?.output ?? 0 }), { to: [], alert: true });
       }
+      if (durable) { await this.deps.turnQueue!.succeed(durable); durableDone = true; }
     } catch (err) {
+      if (durable && !durableDone && !abort.signal.aborted) {
+        await this.deps.turnQueue!.fail(durable, err).catch((failure) => this.noteIssue({
+          kind: "error", source: "turn", worker: worker.id,
+          title: `Durable turn failure could not be recorded: ${failure instanceof Error ? failure.message : String(failure)}`,
+        }));
+      }
       if (timedOut) {
         const msg = tr("⏱️ {name} im lặng quá {m} phút nên lượt bị dừng (CLI có thể đang treo hoặc chờ mạng). Nhắn lại để thử tiếp; đổi giới hạn bằng limits.turnIdleMinutes (0 = tắt).", { name: worker.name, m: Math.max(1, Math.round(idleMs / 60_000)) });
         finish(undefined, trVi("Quá thời gian im lặng"));
