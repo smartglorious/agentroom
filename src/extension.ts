@@ -29,6 +29,7 @@ import { Scheduler } from "./core/scheduler";
 import { SKILL_NAME, SKILL_TEMPLATE, SkillDrafts, SkillRegistry, checkWorkerSkills, skillSources } from "./core/skills";
 import { RoomStore } from "./core/store";
 import { prepareStorage, type StorageMode } from "./storage/bootstrap";
+import { HybridMemoryRepository } from "./memory/repository";
 import type { SqliteConnection } from "./storage/sqlite";
 import { DurableTurnQueue } from "./storage/turn-queue";
 import { ContextBroker } from "./context/broker";
@@ -261,9 +262,11 @@ export async function activate(ctx: vscode.ExtensionContext) {
         plugins,
         turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
         contextBroker: storage.connection ? new ContextBroker(storage.connection) : undefined,
+        hybridMemory: storage.connection && storage.workspaceId ? { repository: new HybridMemoryRepository(storage.connection), workspaceId: storage.workspaceId } : undefined,
         planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
         planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });
+      await room.initializeHybridMemory();
       room.plan?.start();
       const mcp = (server.current = new AgentRoomMcp(room));
       await mcp.start();

@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
 import { AgentAdapter, ApprovalResult } from "../adapters/types";
 import { ContextProbe, TurnInspector, TurnRecord, estimateTokens, newTurnId, sectionInfo } from "./inspector";
-import { CONSOLIDATE_PROMPT, MemoryEntry, MemoryStore, redactSecrets, ymd } from "./memory";
+import { CONSOLIDATE_PROMPT, type Kind, MemoryEntry, MemoryStore, type RecallHit, redactSecrets, type Scope, ymd } from "./memory";
 import { buildPersona, buildTurn } from "./prompt";
 import { parseMentions, route } from "./router";
 import { RateLimitError, isRateLimit, Scheduler } from "./scheduler";
@@ -18,6 +18,7 @@ import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, S
 import { nextMidnight, UsageStore } from "./usage";
 import { DurableTurnQueue, type ClaimedTurn } from "../storage/turn-queue";
 import { ContextBroker } from "../context/broker";
+import { HybridMemoryRepository, type HybridMemoryKind } from "../memory/repository";
 
 export interface RoomOptions {
   maxAgentHops: number;
@@ -65,6 +66,8 @@ export interface RoomDeps {
   turnQueue?: DurableTurnQueue;
   /** Compiles a sealed, ACL-filtered packet for durable model steps. */
   contextBroker?: ContextBroker;
+  /** Durable hybrid-memory shadow. File memory remains the compatibility source during migration. */
+  hybridMemory?: { repository: HybridMemoryRepository; workspaceId: string };
 }
 
 export interface RoomEvents {
@@ -150,6 +153,7 @@ export class Room extends EventEmitter<RoomEvents> {
   private budgetNotes = new Set<string>();
   private readonly dispatcherId = `room-${randomUUID()}`;
   private recoveryTimer?: NodeJS.Timeout;
+  private hybridMemoryInitialized = false;
 
   constructor(private deps: RoomDeps) {
     super();
@@ -211,6 +215,81 @@ export class Room extends EventEmitter<RoomEvents> {
   get workers() { return this.deps.config.workers; }
   hasWorker(id: string) { return this.workers.some((w) => w.id === id); }
   private now() { return this.deps.now?.() ?? Date.now(); }
+
+  /** Imports file memory once before durable runtime traffic starts. Safe to call repeatedly. */
+  async initializeHybridMemory(): Promise<void> {
+    const hybrid = this.deps.hybridMemory;
+    if (!hybrid || this.hybridMemoryInitialized) return;
+    const at = this.now();
+    for (const worker of this.workers) {
+      await hybrid.repository.importLegacy({ workspaceId: hybrid.workspaceId, agentId: worker.id, scope: "me", entries: this.memory.entries("me", worker.id), at });
+    }
+    const first = this.workers[0];
+    if (first) {
+      await hybrid.repository.importLegacy({ workspaceId: hybrid.workspaceId, agentId: hybrid.workspaceId, scope: "team", entries: this.memory.entries("team", first.id), at });
+    }
+    this.hybridMemoryInitialized = true;
+  }
+
+  async rememberMemory(workerId: string, scope: Scope, kind: Kind, text: string): Promise<MemoryEntry> {
+    if (this.deps.hybridMemory) await this.initializeHybridMemory();
+    const entry = this.memory.add(scope, workerId, kind, text);
+    const hybrid = this.deps.hybridMemory;
+    if (!hybrid) return entry;
+    try {
+      const mappedKind: HybridMemoryKind = kind === "decision" ? "procedural" : kind === "lesson" ? "episodic" : "semantic";
+      const mappedScope = scope === "team" ? "workspace" : "agent";
+      const scopeId = scope === "team" ? hybrid.workspaceId : workerId;
+      const candidate = await hybrid.repository.propose({
+        workspaceId: hybrid.workspaceId, scope: mappedScope, scopeId, kind: mappedKind, content: entry.text,
+        confidence: kind === "decision" ? 0.9 : 0.7, reason: "explicit remember tool",
+        provenance: { source: "memory-tool", legacy_id: entry.id, legacy_date: entry.date, legacy_scope: scope, agent_id: workerId }, at: this.now(),
+      });
+      if (candidate.status === "pending") {
+        await hybrid.repository.accept(candidate.id, { importance: kind === "decision" ? 0.9 : 0.6, acl: scope === "team" ? ["*"] : [workerId], at: this.now() });
+      }
+    } catch (error) {
+      this.deps.store.appendAudit({ ts: this.now(), worker: workerId, event: "hybrid_memory_shadow_error", operation: "remember", entryId: entry.id,
+        error: error instanceof Error ? error.message : String(error) });
+    }
+    return entry;
+  }
+
+  async forgetMemory(workerId: string, scope: Scope, entryId: string, force = false): Promise<MemoryEntry> {
+    const entry = this.memory.entries(scope, workerId).find((item) => item.id === entryId);
+    if (!entry) return this.memory.forget(scope, workerId, entryId, force);
+    if (entry.kind === "decision" && !force) return this.memory.forget(scope, workerId, entryId, force);
+    const hybrid = this.deps.hybridMemory;
+    if (hybrid) {
+      await this.initializeHybridMemory();
+      await hybrid.repository.deleteLegacy({ workspaceId: hybrid.workspaceId, scope, agentId: workerId, legacyId: entryId,
+        reason: "forget tool", at: this.now() });
+    }
+    return this.memory.forget(scope, workerId, entryId, force);
+  }
+
+  async recallMemory(workerId: string, query: string, limit = 10): Promise<RecallHit[]> {
+    const fileHits = this.memory.recall(workerId, query, limit);
+    const hybrid = this.deps.hybridMemory;
+    if (!hybrid || fileHits.length >= limit) return fileHits;
+    try {
+      await this.initializeHybridMemory();
+      const durable = await hybrid.repository.recall({ workspaceId: hybrid.workspaceId, agentId: workerId,
+        scopes: [{ scope: "agent", scopeId: workerId }, { scope: "workspace", scopeId: hybrid.workspaceId }], query, now: this.now(), limit });
+      const seen = new Set(fileHits.map((hit) => hit.text.normalize("NFKC").toLocaleLowerCase()));
+      const extra = durable.flatMap<RecallHit>((hit) => {
+        const key = hit.content.normalize("NFKC").toLocaleLowerCase();
+        if ([...seen].some((text) => text.includes(key)) || seen.has(key)) return [];
+        seen.add(key);
+        return [{ where: `hybrid:${hit.kind}`, text: `[${hit.id}] ${hit.content}` }];
+      });
+      return [...fileHits, ...extra].slice(0, limit);
+    } catch (error) {
+      this.deps.store.appendAudit({ ts: this.now(), worker: workerId, event: "hybrid_memory_shadow_error", operation: "recall",
+        error: error instanceof Error ? error.message : String(error) });
+      return fileHits;
+    }
+  }
 
   /** Rehydrates batches whose process died after dequeueing but before the durable step completed. */
   async recoverDurableTurns(): Promise<number> {

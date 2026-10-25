@@ -27,6 +27,7 @@ import { SkillDrafts, SkillRegistry, checkWorkerSkills, skillSources } from "../
 import type { HostDef } from "../core/types";
 import { RoomStore } from "../core/store";
 import { prepareStorage } from "../storage/bootstrap";
+import { HybridMemoryRepository } from "../memory/repository";
 import { DurableTurnQueue } from "../storage/turn-queue";
 import { ContextBroker } from "../context/broker";
 import { SYSTEM } from "../core/types";
@@ -183,6 +184,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       plugins,
       turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
       contextBroker: storage.connection ? new ContextBroker(storage.connection) : undefined,
+      hybridMemory: storage.connection && storage.workspaceId ? { repository: new HybridMemoryRepository(storage.connection), workspaceId: storage.workspaceId } : undefined,
       autonomyStore: {
         get: (id) => store.read().autonomy?.[`${o.root}|${id}`],
         set: (id, m) => store.update((f) => { f.autonomy = { ...f.autonomy, [`${o.root}|${id}`]: m }; }),
@@ -190,6 +192,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       planProbe: o.planProbe ?? makePlanProbe({ claude: () => findExecutable("claude", settings().claudePath), codex: cli("codex") }),
       planPollMs: () => settings().planPollMinutes * 60_000,
     });
+    await room.initializeHybridMemory();
     room.plan?.start();
     plugins.activate({ room, config, root: o.root, log: (t) => log(`[plugin] ${t}`) });
     disposers.push(() => plugins.dispose());

@@ -116,6 +116,35 @@ export class HybridMemoryRepository {
     });
   }
 
+  /** Removes the hybrid counterpart of a file-memory entry without retaining its content in the audit log. */
+  async deleteLegacy(input: { workspaceId: string; scope: "me" | "team"; agentId: string; legacyId: string; reason: string; at: number }): Promise<number> {
+    const scope = input.scope === "team" ? "workspace" : "agent";
+    const scopeId = input.scope === "team" ? input.workspaceId : input.agentId;
+    return await this.db.transaction(async (tx) => {
+      const memories = await tx.all<{ id: string }>(
+        `SELECT id FROM memories
+         WHERE workspace_id = ? AND scope = ? AND scope_id = ?
+           AND json_extract(provenance_json, '$.legacy_id') = ?`,
+        [input.workspaceId, scope, scopeId, input.legacyId],
+      );
+      for (const memory of memories) {
+        await tx.run("UPDATE memory_candidates SET memory_id = NULL WHERE workspace_id = ? AND memory_id = ?", [input.workspaceId, memory.id]);
+        await tx.run("DELETE FROM memories WHERE workspace_id = ? AND id = ?", [input.workspaceId, memory.id]);
+        await tx.run(
+          "INSERT INTO memory_deletion_audit(workspace_id, memory_id, scope, scope_id, deleted_at, reason) VALUES (?, ?, ?, ?, ?, ?)",
+          [input.workspaceId, memory.id, scope, scopeId, input.at, input.reason],
+        );
+      }
+      await tx.run(
+        `DELETE FROM memory_candidates
+         WHERE workspace_id = ? AND scope = ? AND scope_id = ?
+           AND json_extract(provenance_json, '$.legacy_id') = ?`,
+        [input.workspaceId, scope, scopeId, input.legacyId],
+      );
+      return memories.length;
+    });
+  }
+
   async importLegacy(input: { workspaceId: string; agentId: string; scope: "me" | "team"; entries: LegacyMemoryEntry[]; at: number }) {
     let imported = 0, existing = 0;
     const rejected: { id: string; reason: string }[] = [];

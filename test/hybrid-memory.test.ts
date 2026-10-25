@@ -7,6 +7,7 @@ import { HybridMemoryRepository } from "../src/memory/repository";
 import { SqliteMigrationRunner } from "../src/storage/migrations";
 import { schemaMigrations } from "../src/storage/schema-v1";
 import { SqliteConnection } from "../src/storage/sqlite";
+import { Fake, makeRoom } from "./helpers";
 
 const setup = async () => {
   const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-memory-")), "agentroom.db"));
@@ -70,5 +71,33 @@ test("hybrid memory: legacy import is idempotent and export preserves stable ent
     assert.match(markdown, /\[M1\] 2026-10-01 · fact · SQLite uses WAL/);
     assert.match(markdown, /\[M2\] 2026-10-02 · decision · Keep legacy fallback/);
     assert.doesNotMatch(markdown, /abcdef123456/);
+  } finally { await db.close(); }
+});
+
+test("hybrid memory: Room imports legacy files and keeps remember, recall and forget compatible", async () => {
+  const db = await setup();
+  try {
+    const repository = new HybridMemoryRepository(db);
+    const { room } = makeRoom(new Fake(), { hybridMemory: { repository, workspaceId: "w1" } });
+    room.memory.add("me", "be", "fact", "Legacy checkpoint uses WAL");
+    await room.initializeHybridMemory();
+    assert.equal((await db.get<{ count: number }>("SELECT count(*) AS count FROM memories WHERE workspace_id = 'w1'"))?.count, 1);
+
+    const remembered = await room.rememberMemory("be", "me", "lesson", "Run recovery before dispatch");
+    assert.equal(remembered.id, "M2");
+    assert.equal((await db.get<{ status: string }>(
+      "SELECT status FROM memory_candidates WHERE json_extract(provenance_json, '$.legacy_id') = 'M2'",
+    ))?.status, "accepted");
+    assert.equal((await room.recallMemory("be", "recovery dispatch", 10)).length, 1, "file and hybrid copies are deduplicated");
+
+    await repository.propose({ id: "hybrid-only-candidate", workspaceId: "w1", scope: "workspace", scopeId: "w1", kind: "semantic",
+      content: "Canary rollout needs rollback rehearsal", confidence: 0.8, provenance: { source: "review" }, reason: "verified", at: 200 });
+    await repository.accept("hybrid-only-candidate", { memoryId: "hybrid-only", acl: ["*"], at: 201 });
+    assert.match((await room.recallMemory("be", "canary rollback", 10))[0].where, /^hybrid:/);
+
+    await room.forgetMemory("be", "me", "M2");
+    assert.equal(await db.get("SELECT id FROM memories WHERE json_extract(provenance_json, '$.legacy_id') = 'M2'"), undefined);
+    assert.equal((await db.get<{ count: number }>("SELECT count(*) AS count FROM memory_deletion_audit"))?.count, 1);
+    assert.equal(room.memory.entries("me", "be").some((entry) => entry.id === "M2"), false);
   } finally { await db.close(); }
 });
