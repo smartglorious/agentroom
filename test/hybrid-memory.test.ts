@@ -52,3 +52,23 @@ test("hybrid memory: supersede is explicit and delete removes row, FTS, relation
     assert.equal(JSON.stringify(await db.get("SELECT * FROM memory_deletion_audit WHERE memory_id = 'm2'")).includes("Deploy"), false);
   } finally { await db.close(); }
 });
+
+test("hybrid memory: legacy import is idempotent and export preserves stable entries", async () => {
+  const db = await setup();
+  try {
+    const memory = new HybridMemoryRepository(db);
+    const entries = [
+      { id: "M1", date: "2026-10-01", kind: "fact" as const, text: "SQLite uses WAL" },
+      { id: "M2", date: "2026-10-02", kind: "decision" as const, text: "Keep legacy fallback" },
+      { id: "M3", date: "2026-10-03", kind: "fact" as const, text: "token=abcdef123456" },
+    ];
+    assert.deepEqual(await memory.importLegacy({ workspaceId: "w1", agentId: "qa", scope: "me", entries, at: 100 }),
+      { imported: 2, existing: 0, rejected: [{ id: "M3", reason: "secret" }] });
+    assert.deepEqual(await memory.importLegacy({ workspaceId: "w1", agentId: "qa", scope: "me", entries, at: 200 }),
+      { imported: 0, existing: 2, rejected: [{ id: "M3", reason: "secret" }] });
+    const markdown = await memory.exportMarkdown("w1", "agent", "qa", "Trí nhớ — @qa");
+    assert.match(markdown, /\[M1\] 2026-10-01 · fact · SQLite uses WAL/);
+    assert.match(markdown, /\[M2\] 2026-10-02 · decision · Keep legacy fallback/);
+    assert.doesNotMatch(markdown, /abcdef123456/);
+  } finally { await db.close(); }
+});

@@ -15,6 +15,8 @@ export interface MemoryRecallHit {
   confidence: number; importance: number; provenance: unknown; rank: number;
 }
 
+export interface LegacyMemoryEntry { id: string; date: string; kind: "fact" | "lesson" | "decision"; text: string }
+
 const normalize = (text: string) => text.normalize("NFKC").replace(/\s+/g, " ").trim();
 const digest = (text: string) => createHash("sha256").update(text.toLocaleLowerCase()).digest("hex");
 const json = (value: unknown, label: string) => {
@@ -112,5 +114,45 @@ export class HybridMemoryRepository {
       await tx.run("INSERT INTO memory_deletion_audit(workspace_id, memory_id, scope, scope_id, deleted_at, reason) VALUES (?, ?, ?, ?, ?, ?)",
         [workspaceId, memoryId, memory.scope, memory.scope_id, at, reason]);
     });
+  }
+
+  async importLegacy(input: { workspaceId: string; agentId: string; scope: "me" | "team"; entries: LegacyMemoryEntry[]; at: number }) {
+    let imported = 0, existing = 0;
+    const rejected: { id: string; reason: string }[] = [];
+    for (const entry of input.entries) {
+      const content = normalize(entry.text);
+      if (!content) { rejected.push({ id: entry.id, reason: "empty" }); continue; }
+      if (findSecret(content)) { rejected.push({ id: entry.id, reason: "secret" }); continue; }
+      const stable = createHash("sha256").update(`${input.workspaceId}\0${input.scope}\0${input.agentId}\0${entry.id}`).digest("hex").slice(0, 32);
+      const memoryId = `legacy_${stable}`;
+      const result = await this.db.run(
+        `INSERT INTO memories(id, workspace_id, scope, scope_id, kind, content, normalized_hash, confidence, importance,
+          acl_json, provenance_json, status, valid_from, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'active', ?, ?, ?) ON CONFLICT DO NOTHING`,
+        [memoryId, input.workspaceId, input.scope === "team" ? "workspace" : "agent", input.scope === "team" ? input.workspaceId : input.agentId,
+          entry.kind === "decision" ? "procedural" : entry.kind === "lesson" ? "episodic" : "semantic", content, digest(content),
+          entry.kind === "decision" ? 0.9 : 0.6, json(input.scope === "team" ? ["*"] : [input.agentId], "Memory ACL"),
+          json({ source: "legacy-memory-file", legacy_id: entry.id, legacy_date: entry.date, legacy_scope: input.scope }, "Memory provenance"),
+          Date.parse(`${entry.date}T00:00:00Z`) || input.at, input.at, input.at],
+      );
+      if (result.changes === 1) imported += 1; else existing += 1;
+    }
+    return { imported, existing, rejected };
+  }
+
+  async exportMarkdown(workspaceId: string, scope: MemoryScope, scopeId: string, title = "Memory"): Promise<string> {
+    const rows = await this.db.all<any>(
+      `SELECT id, kind, content, valid_from, provenance_json FROM memories
+       WHERE workspace_id = ? AND scope = ? AND scope_id = ? AND status = 'active'
+       ORDER BY valid_from, id`, [workspaceId, scope, scopeId],
+    );
+    const lines = rows.map((row) => {
+      const provenance = JSON.parse(row.provenance_json);
+      const legacyKind = row.kind === "procedural" ? "decision" : row.kind === "episodic" ? "lesson" : "fact";
+      const legacyId = typeof provenance.legacy_id === "string" ? provenance.legacy_id : row.id;
+      const date = typeof provenance.legacy_date === "string" ? provenance.legacy_date : new Date(row.valid_from).toISOString().slice(0, 10);
+      return `- [${legacyId}] ${date} · ${legacyKind} · ${row.content.replace(/\s*\n\s*/g, " ")}`;
+    });
+    return `# ${title}\n${lines.length ? `\n${lines.join("\n")}\n` : ""}`;
   }
 }
