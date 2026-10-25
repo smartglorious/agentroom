@@ -15,7 +15,7 @@
 5. **Sự thật lấy từ repo.** Lệnh build/test, cấu trúc thư mục, stack đều phải lấy từ file thật (package.json, Makefile, CI, …). Không đoán. Không tìm thấy thì ghi `TODO: xác nhận với người dùng`.
 6. Ghi lại mọi thứ đã làm để báo cáo ở Bước 9.
 
-## Kiến thức nền về AgentRoom v0.6 (để cấu hình đúng)
+## Kiến thức nền về AgentRoom (cập nhật cho 0.14.16; để cấu hình đúng)
 
 - AgentRoom là VS Code extension. Nó đọc **`.agentroom/workers.yaml`** ở thư mục gốc workspace.
 - **Account** là một login Claude Code hoặc Codex dùng chung. **Worker** là một persona (vai trò, kỹ năng, hướng dẫn) chạy trên một account. Nhiều worker có thể dùng chung một account.
@@ -50,6 +50,12 @@
 - **Telegram (điều khiển từ điện thoại)** là cài đặt của **người dùng**, không nằm trong `workers.yaml`: token bot ở kho bí mật của VS Code, bật bằng lệnh "AgentRoom: Telegram — thiết lập", cần một bot **riêng** (không dùng chung bot đang gắn với chương trình khác). **Agent không được hỏi, nhận hay ghi token vào bất kỳ file nào.** Chi tiết: `docs/TELEGRAM.md`.
 - **Một cửa sổ cho mỗi thư mục `.agentroom/`**: cửa sổ thứ hai thấy thẻ "đang chạy ở cửa sổ khác" và không chạy room (file `.agentroom/state/room.lock`). Đừng mở nhiều cửa sổ để "mỗi cửa sổ một worker".
 - **Chuỗi chỉ-đọc (nguồn không tin cậy)**: webhook có `readOnly: true` chạy worker chỉ với tool đọc (tool ghi/Bash/web bị cấm hẳn). Câu trả lời và task tạo ra trong lượt đó **không tự đánh thức ai** qua `@mention`; người dùng đọc rồi tự nhắn `@<worker> ...` để tiếp tục. Nội dung payload luôn được bọc trong `<untrusted_payload>`.
+- **Mức tự chủ (`autonomy`)**: `manual` (hỏi mọi thao tác chưa duyệt trước), `auto` (danh sách cho/chặn cố định, không dùng model: tự duyệt việc an toàn trong thư mục của worker, chặn xóa file/hệ thống/sudo, hỏi khi không chắc), `full` (chỉ người dùng bật trên máy của họ; `autonomy: full` trong YAML không có hiệu lực). Đổi bằng nút trong UI, `/mode <worker> <mức>` hoặc `agentroom-daemon autonomy`. **Lưu ý Codex:** ở chế độ `auto`, sandbox của Codex là `workspace-write` bất kể `sandbox:` trong YAML; muốn dùng đúng `sandbox:` của worker thì để `manual` (xem Xử lý sự cố). Xem `docs/AUTONOMY.md`.
+- **Hạn mức gói và dự phòng**: tab *Chi phí* hiện % còn lại của gói Claude/Codex theo từng cửa sổ; **chỉ** cửa sổ `five_hour` và `seven_day` tạm dừng account (cửa sổ khác chỉ báo ℹ️). Worker có `fallback: [account…]` tự chạy tiếp trên account dự phòng (cùng provider và host) khi account chính bị giới hạn và tự quay về khi dùng được (chưa kiểm chứng với giới hạn thật). Xem `docs/PLAN-USAGE.md`.
+- **Cái gì làm tốn hạn mức** (đo trên một dự án thật 23 giờ, xem `docs/PLAN-v0.8-tokens.md`): hạn mức gói chủ yếu bị đốt bởi **ghi cache** (`cacheWrite`), không phải đọc cache hay output. Phần lớn ghi cache nằm ở việc **nối lại một session to sau khi cache hết hạn** (gói thuê bao: khoảng 1 giờ nghỉ). Vì vậy AgentRoom: xoay session khi context quá `contextLimit`; mở session mới khi một session to nghỉ quá `limits.idleFreshMinutes`; chỉ nạp tool cần thiết (`tools:`); tắt connector claude.ai của worker; chỉ đánh thức người **phải** làm (dòng `cc:` không đánh thức, dòng bảng markdown và dòng mở đầu "Nếu…"/"If…" cũng không); không đánh thức hai lần người đã được `post_message` gọi; giới hạn chuỗi (`chainTurns`), số người bị gọi (`maxFanout`) và số lần gọi model mỗi lượt (`maxModelTurns`). Xem `docs/FEWER-TURNS.md`.
+- **Model theo độ khó của task** (0.14.16): task có `level` (`low`/`mid`/`high`, đặt ở `create_task`), worker khai `levels:` (model và `effort`). Chọn ở ranh giới task vì mỗi model có cache riêng. Xem `docs/MODEL-ROUTING.md`.
+- **Chạy không cần VS Code (daemon/VPS)**: `agentroom-daemon` chạy cùng một phòng (Telegram, lịch, webhook). Xem `docs/DAEMON.md` và `docs/DAEMON-VPS.md` (cài từ đầu trên VPS).
+- **Codex trên Windows**: lỗi `CreateProcess … setup refresh had errors` là sandbox dựng lỗi; thử `windowsSandbox: unelevated` ở account, hoặc `sandbox: danger-full-access` cho worker như phương án cuối. Công cụ của phòng được duyệt sẵn cho Codex (không hỏi). Claude trên Windows: nếu `claude` không có trong PATH, AgentRoom tự tìm `claude.exe` mới nhất trong extension Claude Code của VS Code/Cursor/Windsurf.
 
 ---
 
@@ -223,11 +229,27 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 6. **`node`/`claudePath`/`codexPath`**: chỉ đặt khi người dùng biết đường dẫn đầy đủ (login shell của SSH thường không có PATH của nvm). Không đoán.
 7. Mỗi máy cần **account riêng** (`account.host`); đặt `maxConcurrent` theo máy.
 
+### 4.6 Luật tiết kiệm hạn mức (giữ mặc định trừ khi có lý do)
+
+1. **Giữ mặc định của `limits`** (`chainTurns: 6`, `maxFanout: 3`, `idleFreshMinutes: 55`, `maxModelTurns: 60`). Chỉ đổi khi người dùng có số đo. Account **API key** (cache 5 phút) thì đặt `idleFreshMinutes: 5`.
+2. **Điều phối viên không xoay session theo mặc định**, nên session của nó dễ lên vài trăm nghìn token: đặt `contextLimit: 150000` cho `lead`. Đừng đặt `contextLimit` dưới khoảng 65000: một session mới đã nặng khoảng 40–45 nghìn token ngay lượt đầu, đặt thấp hơn gây xoay liên tục.
+3. **Tools tối thiểu**: worker chỉ điều phối đặt `tools: [Read, Grep, Glob]`; mọi tool nạp thêm tốn token ở mọi lượt.
+4. **Viết `instructions` để chỉ @mention người PHẢI làm ngay**; báo cho người khác ở dòng riêng `cc: @id`. Báo cáo trạng thái thì không @mention cả đội. Không ghi bảng giao việc dạng `| @id | … |` và tưởng nó gọi được người (dòng bảng không đánh thức).
+5. **Chọn model theo công việc**: việc đọc/kiểm thử/doc đơn giản dùng model rẻ hơn; qa/review có thể chạy account có `baseUrl` (ví dụ DeepSeek) với `fallback` về account chính. Chất lượng và hạn mức khi dùng model ngoài Claude cần đo, đừng giả định.
+6. **Đo trước khi tối ưu thêm**: gửi `.agentroom/state/usage.jsonl` và `chat.jsonl`, kèm % hạn mức 5 giờ trước/sau, để so. Hệ số hiệu chuẩn thô: khoảng 27% cửa sổ 5 giờ cho mỗi 1 triệu token ghi cache (4 điểm đo, chưa chính thức).
+
+### 4.7 Luật model theo độ khó của task (tùy chọn)
+
+1. Chỉ cấu hình `levels` cho worker **Claude** chạy code. Account `baseUrl` dùng tên model của cổng đó (không có `effort`); Với Codex chỉ có `model` của mức (chưa kiểm chứng), không có `effort`.
+2. Mẫu bảo thủ: `low: { model: <model rẻ>, effort: low }`, `mid: { effort: medium }`, `high: { effort: high }` (cùng model). Chỉ thêm model đắt hơn cho `high` khi đã đo ảnh hưởng đến hạn mức.
+3. Ghi vào `instructions` của lead khi nào dùng mức nào, và rằng task chọn `low` sai thì tạo lại ở mức cao hơn. Không chắc thì `mid`. AgentRoom không tự chấm độ khó.
+4. Mức của task không đổi sau khi tạo. Task không có `level` chạy như cũ.
+
 ---
 
 ## Bước 5: Viết `.agentroom/workers.yaml`
 
-### 5.1 Schema chính xác (v0.4)
+### 5.1 Schema chính xác (0.14.16)
 
 **`hosts.<tên>`** (tùy chọn; tên như id worker, không phải `local`)
 
@@ -399,6 +421,38 @@ workers:
       Chỉ báo "đạt" khi test pass và không còn lỗi nghiêm trọng.
 ```
 
+Thêm **chỉ khi người dùng yêu cầu** (Bước 4.6–4.7): `fallback`, model rẻ cho QA, và model theo độ khó:
+
+```yaml
+accounts:
+  claude-ds:                                 # model khác qua Claude Code; khóa ở BIẾN MÔI TRƯỜNG, không ghi vào YAML
+    provider: claude
+    baseUrl: "https://api.deepseek.com/anthropic"
+    authTokenEnv: DEEPSEEK_API_KEY
+    maxConcurrent: 2
+
+workers:
+  - id: lead
+    # …như trên…
+    contextLimit: 150000                     # điều phối viên mặc định không xoay session
+    instructions: |
+      # …như trên, thêm:
+      Mỗi task khi create_task phải có level: low = việc cơ học rõ ràng; mid = tính năng hoặc sửa lỗi thông thường;
+      high = thiết kế, lỗi khó tái hiện, đụng nhiều module. Không chắc thì chọn mid.
+
+  - id: be
+    # …như trên…
+    model: claude-sonnet-5-5
+    levels:
+      low:  { model: claude-haiku-5-5, effort: low }
+      mid:  { effort: medium }
+      high: { effort: high }
+
+  - id: qa
+    account: claude-ds                       # bỏ trống model: nếu không chắc tên model của cổng
+    fallback: [claude-main]                  # dự phòng khi claude-ds bị giới hạn/lỗi
+```
+
 Thêm **chỉ khi người dùng yêu cầu** worker chạy ở máy khác (Bước 4.5):
 
 ```yaml
@@ -558,6 +612,8 @@ Gửi người dùng báo cáo gồm:
 4. **Việc người dùng cần tự làm:**
    - Đọc và sửa các `SOUL.md` nháp.
    - Nếu có máy từ xa, với **mỗi máy** (agent không tự làm được các việc này): (1) `ssh <ssh>` vào được bằng khoá và đã xác nhận host key (chạy một lần trong terminal); (2) Node ≥ 20; (3) Claude Code/Codex đã cài và đăng nhập; (4) đã clone repo về đúng `repo`/`workdir` và `git pull` mới; (5) clone đó push được tới `origin`. Sau đó chạy lệnh **"AgentRoom: Kiểm tra kết nối các máy"** (hoặc tab *Máy* → *Kiểm tra tất cả*) và cho phép hộp thoại xác nhận host.
+   - Muốn chạy không cần VS Code (lịch đêm, Telegram, webhook): cài daemon theo `docs/DAEMON-VPS.md` (VPS) hoặc `docs/DAEMON.md`. Chỉ **một** bên điều phối mỗi thư mục `.agentroom/`: daemon **hoặc** VS Code.
+   - Sau vài giờ dùng, nếu thấy hạn mức cạn nhanh: gửi `usage.jsonl` và `chat.jsonl` kèm % hạn mức 5 giờ trước/sau để đo (xem 4.6).
    - Chỉ mở **một** cửa sổ VS Code cho repo này (cửa sổ thứ hai sẽ bị chặn).
    - (Tuỳ chọn) Muốn điều khiển từ điện thoại: tự tạo một bot Telegram **riêng** ở @BotFather rồi chạy lệnh **"AgentRoom: Telegram — thiết lập"** trong VS Code (xem `docs/TELEGRAM.md`). Đừng gửi token cho agent.
    - Nếu có webhook: đặt biến môi trường `secretEnv` (giá trị là một chuỗi ngẫu nhiên dài) **trước khi mở VS Code**, và dùng cùng giá trị đó làm secret khi cấu hình webhook ở bên gửi (GitHub: Settings → Webhooks → Secret). Muốn nhận từ GitHub thì tự mở tunnel tới cổng `agentroom.hookPort`.
@@ -596,6 +652,13 @@ Gửi người dùng báo cáo gồm:
 | Thẻ "Phòng này đang chạy ở một cửa sổ khác" | Có cửa sổ khác đang điều phối thư mục này | Dùng cửa sổ đó, hoặc bấm *Chiếm quyền điều phối* |
 | "Chưa xác nhận host key" / "SSH từ chối đăng nhập" / "Không tìm thấy node" / "Không tìm thấy CLI claude" | Chuẩn bị máy từ xa chưa đủ | Xem bảng xử lý sự cố ở `docs/MULTI-MACHINE.md` (mục 10) |
 | Worker từ xa làm xong nhưng code không thấy ở máy này | Thay đổi nằm trong clone của máy đó | Worker phải `git push origin agentroom/<id>`; rồi `git fetch` ở máy này |
+| Chat có "🕒 Session của … đã nghỉ N phút … bắt đầu session mới" | Bình thường: cache đã hết hạn nên AgentRoom mở session mới thay vì nạp lại session to (`limits.idleFreshMinutes`) | Không cần làm gì; worker nhận lại trí nhớ, nhật ký và 30 tin gần nhất. Tăng số phút hoặc đặt `0` nếu muốn giữ session |
+| "⚠️ Lượt này dừng ở giới hạn N lần gọi model" | Chạm `limits.maxModelTurns` | Nhắn "tiếp tục" để làm tiếp, hoặc nâng/đặt `0` nếu việc cần nhiều bước |
+| "Account X dùng baseUrl nhưng biến môi trường … chưa có giá trị" | Thiếu biến chứa token của endpoint | Đặt biến (tên khớp `authTokenEnv`) rồi khởi động lại VS Code/daemon. AgentRoom cố ý không chạy để khỏi gửi đăng nhập Claude sang endpoint khác |
+| Codex (Windows): `CreateProcess … setup refresh had errors` | Sandbox Codex dựng lỗi | Account `windowsSandbox: unelevated`; hoặc `sandbox: danger-full-access` cho worker (an toàn dựa vào `instructions`) |
+| Codex: `Unable to create .git/worktrees/<tên>/index.lock: Permission denied` khi `git add` | Worker ở chế độ `auto` nên Codex chạy `workspace-write` bỏ qua `sandbox:` trong YAML | Đổi worker về `manual` (`/mode <id> manual`) để dùng đúng `sandbox:` của YAML |
+| Một worker bị đánh thức dù chỉ được nhắc trong bảng hoặc câu điều kiện | Không nên xảy ra từ 0.14.15 (dòng bảng và dòng mở đầu "Nếu…" không gọi ai); mention giữa câu vẫn gọi | Ghi lại câu mention đó vào dòng riêng `cc:` hoặc bỏ @ |
+| Tất cả worker Claude bị tạm dừng dù CLI vẫn chạy | Bản cũ (≤ 0.14.11) dừng account khi bất kỳ cửa sổ hạn mức nào chạm 100% | Nâng lên ≥ 0.14.12 (chỉ `five_hour`/`seven_day` mới dừng) |
 | Codex sửa file ngoài vùng | Codex không có thẻ duyệt | Nhắc vùng trong `instructions`; dùng `sandbox: read-only` cho vai trò chỉ đọc |
 
 ---
