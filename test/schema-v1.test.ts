@@ -84,8 +84,8 @@ test("schema v1: event sequence is monotonic and the timeline is append-only", a
     await seedWorkspace(db);
     for (const [eventId, type] of [["e1", "TaskCreated"], ["e2", "TaskClaimed"]]) {
       await db.run(
-        "INSERT INTO events(event_id, workspace_id, aggregate_type, aggregate_id, type, schema_version, payload_json, occurred_at) VALUES (?, 'w1', 'task', 't1', ?, 1, '{}', 100)",
-        [eventId, type],
+        "INSERT INTO events(event_id, workspace_id, aggregate_type, aggregate_id, aggregate_version, type, schema_version, payload_json, occurred_at) VALUES (?, 'w1', 'task', 't1', ?, ?, 1, '{}', 100)",
+        [eventId, eventId === "e1" ? 1 : 2, type],
       );
     }
     assert.deepEqual(await db.all("SELECT seq, event_id FROM events ORDER BY seq"), [
@@ -94,7 +94,7 @@ test("schema v1: event sequence is monotonic and the timeline is append-only", a
     await assert.rejects(db.run("UPDATE events SET type = 'Changed' WHERE event_id = 'e1'"), /append-only/);
     await assert.rejects(db.run("DELETE FROM events WHERE event_id = 'e1'"), /append-only/);
     await assert.rejects(
-      db.run("INSERT INTO events(event_id, workspace_id, aggregate_type, aggregate_id, type, schema_version, payload_json, occurred_at) VALUES ('e3', 'w1', 'task', 't1', 'Bad', 1, 'not-json', 100)"),
+      db.run("INSERT INTO events(event_id, workspace_id, aggregate_type, aggregate_id, aggregate_version, type, schema_version, payload_json, occurred_at) VALUES ('e3', 'w1', 'task', 't1', 3, 'Bad', 1, 'not-json', 100)"),
       /CHECK constraint/i,
     );
   } finally {

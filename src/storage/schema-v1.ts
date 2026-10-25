@@ -91,12 +91,14 @@ export const schemaV1Migrations: readonly SqliteMigration[] = [{
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
       aggregate_type TEXT NOT NULL CHECK (aggregate_type IN ('workspace', 'agent', 'task', 'run', 'step')),
       aggregate_id TEXT NOT NULL,
+      aggregate_version INTEGER NOT NULL CHECK (aggregate_version >= 1),
       type TEXT NOT NULL,
       schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
       payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
       occurred_at INTEGER NOT NULL,
       causation_event_id TEXT,
       correlation_id TEXT,
+      UNIQUE (aggregate_type, aggregate_id, aggregate_version),
       FOREIGN KEY (causation_event_id) REFERENCES events(event_id) ON DELETE RESTRICT
     ) STRICT;
 
