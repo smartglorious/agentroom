@@ -14,7 +14,7 @@ import type { IssueInput, IssueStore } from "./issues";
 import type { GuardVerdict, PluginManager } from "./plugins";
 import { RoomStore, SessionMeta } from "./store";
 import { TaskBoard } from "./tasks";
-import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
+import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, SYSTEM, TASK_LEVELS, Task, TaskLevel, TurnUsage, Worker, WorkerStatus } from "./types";
 import { nextMidnight, UsageStore } from "./usage";
 
 export interface RoomOptions {
@@ -341,7 +341,8 @@ export class Room extends EventEmitter<RoomEvents> {
     return this.messages.slice(-limit).map((m) => `${m.from === HUMAN ? "@user" : m.from === SYSTEM ? "[system]" : "@" + m.from}: ${m.text}`).join("\n");
   }
 
-  createTask(me: string, args: { title: string; description?: string; assignee?: string; dependsOn?: string[] }): Task {
+  createTask(me: string, args: { title: string; description?: string; assignee?: string; dependsOn?: string[]; level?: TaskLevel }): Task {
+    if (args.level && !TASK_LEVELS.includes(args.level)) throw new Error(tr("Mức độ khó phải là low, mid hoặc high"));
     if (args.assignee && !this.hasWorker(args.assignee)) throw new Error(tr("Không có worker \"{assignee}\"", { assignee: args.assignee }));
     const t = this.tasks.create({ ...args, createdBy: me });
     this.saveTasks();
@@ -689,7 +690,10 @@ export class Room extends EventEmitter<RoomEvents> {
     const base = onFallback ? `${key}~${accountId}` : key;
     const sessKey = host ? `${base}@${host}` : base;
     // The worker's `model:` names a model of its own provider; another endpoint has its own names.
-    const runWorker: Worker = onFallback && account.baseUrl ? { ...worker, model: undefined } : worker;
+    // A task has a difficulty level; the worker says which model (and effort) fits each level. Another endpoint has its own model names, so none is sent there.
+    const picked = (taskId ? worker.levels?.[this.tasks.get(taskId)?.level as TaskLevel] : undefined) ?? undefined;
+    const runWorker: Worker = account.baseUrl && onFallback ? { ...worker, model: undefined } : picked?.model ? { ...worker, model: picked.model } : worker;
+    const effort = account.baseUrl ? undefined : picked?.effort;
 
     const turnId = newTurnId();
     const startedAt = this.now();
@@ -741,6 +745,13 @@ export class Room extends EventEmitter<RoomEvents> {
         delete this.cursors[key];
       }
       this.dropIfIdle(worker, key, sessKey, account);
+      // A model has its own cache: carrying the session over to another model would read all of it uncached, so the new model starts a new session.
+      if (this.sessions[sessKey] && meta?.model !== undefined && meta.model !== (runWorker.model ?? "")) {
+        delete this.sessions[sessKey];
+        delete this.sessionMeta[sessKey];
+        delete this.cursors[key];
+        this.freshCtx.delete(sessKey);
+      }
       const fresh = !this.sessions[sessKey];
       const sendMemory = fresh || !meta || meta.mem !== persona.memoryKey;
       // A new session (also on a fallback account) starts from the recent chat, not only from what came after the last turn.
@@ -753,7 +764,7 @@ export class Room extends EventEmitter<RoomEvents> {
       // What approvals are judged against: this machine's folder, or what the remote runner reports (unexpanded until it does).
       let approvalCwd = host ? remote!.base : cwd;
       record = {
-        turnId, ts: startedAt, worker: worker.id, account: account.id, model: worker.model, sessionKey: sessKey,
+        turnId, ts: startedAt, worker: worker.id, account: account.id, model: runWorker.model, sessionKey: sessKey,
         resumed: !fresh, taskId, cwd, readOnly,
         allowedTools: readOnly ? [tr("(chỉ đọc)")] : worker.allowedTools, useSkills: worker.useSkills,
         systemSections: sectionInfo(persona.stable.sections), promptSections: sectionInfo(turn.sections),
@@ -777,6 +788,7 @@ export class Room extends EventEmitter<RoomEvents> {
         onCwd: (c) => { approvalCwd = c; },
         onRateLimit: () => this.plan?.touch(account.id),
         autonomy: this.autonomyOf(worker.id),
+        effort: worker.provider === "claude" ? effort : undefined,
         maxTurns: worker.provider === "claude" ? this.deps.config.limits.maxModelTurns || undefined : undefined,
         onActivity: (a) => {
           lastActive = this.now();
@@ -791,7 +803,7 @@ export class Room extends EventEmitter<RoomEvents> {
       if (result.sessionId) {
         this.sessions[sessKey] = result.sessionId;
         this.deps.store.saveSessions(this.sessions);
-        this.sessionMeta[sessKey] = { persona: personaHash, mem: persona.memoryKey, end: this.now(), ...(result.usage && worker.provider === "claude" ? { ctx: contextOf(result.usage) } : {}) };
+        this.sessionMeta[sessKey] = { persona: personaHash, mem: persona.memoryKey, end: this.now(), model: runWorker.model ?? "", ...(result.usage && worker.provider === "claude" ? { ctx: contextOf(result.usage) } : {}) };
         this.deps.store.saveSessionMeta(this.sessionMeta);
       }
       if (result.cwd && record) record.cwd = host ? `${host}:${result.cwd}` : result.cwd;

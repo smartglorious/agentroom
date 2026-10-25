@@ -32,6 +32,11 @@ const AccountSchema = z.object({
   warnAtPercent: z.number().min(1).max(100).default(80),
 });
 
+const LevelSchema = z.object({
+  model: z.string().min(1).optional(),
+  effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+}).strict();
+
 const WorkerSchema = z.object({
   id: ID.refine((id) => !["all", "user", "system"].includes(id), "id: all/user/system là tên dành riêng"),
   name: z.string(),
@@ -40,6 +45,8 @@ const WorkerSchema = z.object({
   useSkills: z.array(z.string()).default([]),
   account: z.string(),
   model: z.string().optional(),
+  /** Model and reasoning effort per task level: `levels: { low: { model: ..., effort: low }, high: { model: ..., effort: high } }`. */
+  levels: z.object({ low: LevelSchema.optional(), mid: LevelSchema.optional(), high: LevelSchema.optional() }).strict().optional(),
   /** Accounts to run on, in order, while the worker's own account is limited (rate limit, plan used up, daily budget). */
   fallback: z.array(ID).default([]),
   contextLimit: z.number().int().min(0).optional(),

@@ -1,4 +1,4 @@
-import { Task } from "./types";
+import { Task, TaskLevel } from "./types";
 
 let seq = 0;
 const newId = () => `T${Date.now().toString(36)}${(seq++).toString(36)}`;
@@ -25,7 +25,7 @@ export class TaskBoard {
     return this.tasks.get(id);
   }
 
-  create(input: { title: string; description?: string; assignee?: string; dependsOn?: string[]; createdBy: string }): Task {
+  create(input: { title: string; description?: string; assignee?: string; dependsOn?: string[]; level?: TaskLevel; createdBy: string }): Task {
     const dependsOn = (input.dependsOn ?? []).filter((d) => this.tasks.has(d));
     const task: Task = {
       id: newId(),
@@ -34,6 +34,7 @@ export class TaskBoard {
       assignee: input.assignee,
       dependsOn,
       createdBy: input.createdBy,
+      ...(input.level ? { level: input.level } : {}),
       status: this.depsDone(dependsOn) ? "todo" : "blocked",
       updatedAt: Date.now(),
     };
