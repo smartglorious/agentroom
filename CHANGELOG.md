@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.12
+- **Sửa dừng nhầm account Claude:** `PlanMonitor` tạm dừng cả account khi **bất kỳ** cửa sổ hạn mức nào chạm 100%, kể cả cửa sổ không tên (ví dụ `iguana_necktie`, reset sau 12 ngày) hoặc cửa sổ theo model. Trên máy một người dùng cửa sổ không tên này về 0% và tất cả worker Claude bị dừng đến ngày reset, trong khi `claude -p` với `sonnet` và `haiku` vẫn chạy bình thường (đã kiểm chứng bằng tay). Giờ chỉ các cửa sổ `five_hour` và `seven_day` mới tạm dừng account; cửa sổ khác chỉ báo một dòng ℹ️. Nếu CLI từ chối thật thì lỗi rate limit của nó vẫn được xử lý như trước (chờ hoặc chuyển sang `fallback`).
+
 ## 0.14.11
 - Mục "Context cố định" trong 🔍 (lượt đầu của session Claude mới) giờ được đo **sau phản hồi đầu tiên** của model (CLI báo đúng những gì đã gửi, tổng khớp token thực), thay vì chỉ lúc khởi động. Lý do: trên máy một người dùng, lúc khởi động CLI chỉ thấy ~17–25 nghìn token nhưng mỗi session mới thật ra nhận ~90 nghìn ngay ở lượt đầu, và phần ~60 nghìn chênh lệch chưa rõ nằm ở đâu. Đã kiểm chứng với CLI thật (tổng báo 8.424 khớp usage 8.424 trong một lượt thử). Chi phí thêm: một yêu cầu điều khiển đếm token cho mỗi session mới, không gọi model.
 
