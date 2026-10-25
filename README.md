@@ -39,7 +39,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 ## Cài từ file .vsix
 
 ```bash
-code --install-extension agentroom-0.14.12.vsix
+code --install-extension agentroom-0.14.13.vsix
 ```
 
 Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → chọn file.
@@ -124,4 +124,4 @@ Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1). Mỗi worker còn có 
 
 ## English summary
 
-AgentRoom is a VS Code extension (plus a headless daemon) for a team of AI workers — each a persona running on Claude Code or Codex, several sharing one account — in one group chat. It adds SSH multi-machine workers, Telegram phone control, plan-usage tracking, Manual/Auto/Full autonomy, reply-to-message with option buttons, and token-saving defaults. New in 0.11: a bilingual UI (`agentroom.language`: `vi` default, `en`, `auto`), a local issue collector (`AgentRoom: Report an issue`, `Export issue report`, Telegram `/issues`), and a cleanup tool that **gathers** junk/temp/cache files into `.agentroom/cleanup/` for you to delete yourself — it never deletes anything on its own. Install: `code --install-extension agentroom-0.14.12.vsix`. The docs in `docs/` are in Vietnamese. See `docs/I18N.md` for what is and is not translated.
+AgentRoom is a VS Code extension (plus a headless daemon) for a team of AI workers — each a persona running on Claude Code or Codex, several sharing one account — in one group chat. It adds SSH multi-machine workers, Telegram phone control, plan-usage tracking, Manual/Auto/Full autonomy, reply-to-message with option buttons, and token-saving defaults. New in 0.11: a bilingual UI (`agentroom.language`: `vi` default, `en`, `auto`), a local issue collector (`AgentRoom: Report an issue`, `Export issue report`, Telegram `/issues`), and a cleanup tool that **gathers** junk/temp/cache files into `.agentroom/cleanup/` for you to delete yourself — it never deletes anything on its own. Install: `code --install-extension agentroom-0.14.13.vsix`. The docs in `docs/` are in Vietnamese. See `docs/I18N.md` for what is and is not translated.

@@ -2,7 +2,7 @@
   "name": "agentroom",
   "displayName": "AgentRoom — AI team group chat",
   "description": "%description%",
-  "version": "0.14.12",
+  "version": "0.14.13",
   "publisher": "agentroom",
   "license": "MIT",
   "icon": "media/logo.png",

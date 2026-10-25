@@ -265,3 +265,20 @@ test("measureContext: Claude workers are measured without a turn, others and rem
   assert.ok(text.indexOf("System tools") < text.indexOf("Memory files"));
   assert.match(text, /@dx/);
 });
+
+import { codexConfig } from "../src/adapters/codex";
+
+test("codex: the room's MCP server tools are approved up front (codex exec cannot ask)", () => {
+  assert.deepEqual(codexConfig("http://x/1"), { mcp_servers: { agentroom: { url: "http://x/1", default_tools_approval_mode: "approve" } } });
+});
+
+import { explainCodexError } from "../src/adapters/codex";
+
+test("codex: the Windows sandbox failure gets a hint; other errors pass through untouched", () => {
+  const e = new Error("Codex: CreateProcess ... setup refresh had errors");
+  const out = explainCodexError(e) as Error;
+  assert.match(out.message, /setup refresh had errors/);
+  assert.match(out.message, /unelevated/);
+  const other = new Error("Codex: something else");
+  assert.equal(explainCodexError(other), other, "same object, untouched");
+});
