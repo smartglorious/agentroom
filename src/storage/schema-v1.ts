@@ -230,4 +230,78 @@ const executionFailuresV3: SqliteMigration = {
   `,
 };
 
-export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3];
+const contextBrokerV4: SqliteMigration = {
+  version: 4,
+  name: "context_broker_v4",
+  sql: `
+    CREATE TABLE context_sources (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      kind TEXT NOT NULL,
+      uri TEXT NOT NULL,
+      title TEXT NOT NULL,
+      trust TEXT NOT NULL CHECK (trust IN ('trusted', 'untrusted')),
+      acl_json TEXT NOT NULL CHECK (json_valid(acl_json) AND json_type(acl_json) = 'array'),
+      state TEXT NOT NULL CHECK (state IN ('active', 'unavailable', 'tombstoned')),
+      content_hash TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version >= 1),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+      UNIQUE (workspace_id, uri),
+      UNIQUE (workspace_id, id)
+    ) STRICT;
+
+    CREATE TABLE context_chunks (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      locator TEXT NOT NULL,
+      content TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      token_estimate INTEGER NOT NULL CHECK (token_estimate >= 0),
+      created_at INTEGER NOT NULL,
+      UNIQUE (source_id, ordinal),
+      UNIQUE (workspace_id, id),
+      FOREIGN KEY (workspace_id, source_id) REFERENCES context_sources(workspace_id, id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE VIRTUAL TABLE context_chunks_fts USING fts5(
+      chunk_id UNINDEXED, workspace_id UNINDEXED, source_id UNINDEXED, content,
+      tokenize = 'unicode61 remove_diacritics 2'
+    );
+
+    CREATE TRIGGER context_chunks_fts_insert AFTER INSERT ON context_chunks BEGIN
+      INSERT INTO context_chunks_fts(chunk_id, workspace_id, source_id, content)
+      VALUES (new.id, new.workspace_id, new.source_id, new.content);
+    END;
+    CREATE TRIGGER context_chunks_fts_delete AFTER DELETE ON context_chunks BEGIN
+      DELETE FROM context_chunks_fts WHERE chunk_id = old.id;
+    END;
+    CREATE TRIGGER context_chunks_fts_update AFTER UPDATE ON context_chunks BEGIN
+      DELETE FROM context_chunks_fts WHERE chunk_id = old.id;
+      INSERT INTO context_chunks_fts(chunk_id, workspace_id, source_id, content)
+      VALUES (new.id, new.workspace_id, new.source_id, new.content);
+    END;
+
+    CREATE TABLE task_packets (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      run_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      schema_version TEXT NOT NULL,
+      packet_json TEXT NOT NULL CHECK (json_valid(packet_json)),
+      packet_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE (workspace_id, step_id, packet_hash),
+      FOREIGN KEY (workspace_id, run_id) REFERENCES runs(workspace_id, id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, step_id) REFERENCES steps(workspace_id, id) ON DELETE RESTRICT
+    ) STRICT;
+
+    CREATE INDEX context_sources_workspace_state_idx ON context_sources(workspace_id, state, updated_at);
+    CREATE INDEX context_chunks_source_idx ON context_chunks(workspace_id, source_id, ordinal);
+    CREATE INDEX task_packets_run_idx ON task_packets(workspace_id, run_id, created_at);
+  `,
+};
+
+export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4];
