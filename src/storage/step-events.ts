@@ -17,6 +17,7 @@ export interface StepRecord {
   leaseToken?: string;
   leaseOwner?: string;
   leaseExpiresAt?: number;
+  retryAt?: number;
   error?: unknown;
   createdAt: number;
   updatedAt: number;
@@ -47,10 +48,11 @@ interface StepLeased { owner: string; token: string; expiresAt: number }
 interface StepHeartbeat { token: string; expiresAt: number }
 interface StepToken { token: string }
 interface StepFailed { token: string; error: unknown }
+interface StepRetryScheduled { token: string; error: unknown; retryAt: number }
 interface StepLeaseExpired { token: string }
 interface StepCheckpointed { checkpointId: string; token: string; stateJson: string; stateHash: string; cursor?: string; schemaVersion: number }
 interface EmptyStepPayload { noop?: never }
-type StepPayload = StepCreated | StepLeased | StepHeartbeat | StepToken | StepFailed | StepLeaseExpired | StepCheckpointed | EmptyStepPayload;
+type StepPayload = StepCreated | StepLeased | StepHeartbeat | StepToken | StepFailed | StepRetryScheduled | StepLeaseExpired | StepCheckpointed | EmptyStepPayload;
 
 const projectStep = async (tx: SqliteConnection, event: StoredEvent<StepPayload>) => {
   const prior = event.aggregateVersion - 1;
@@ -68,10 +70,10 @@ const projectStep = async (tx: SqliteConnection, event: StoredEvent<StepPayload>
     const payload = event.payload as StepLeased;
     if (payload.expiresAt <= event.occurredAt) throw new Error("Step lease must expire in the future");
     const result = await tx.run(
-      `UPDATE steps SET status = 'leased', attempt = attempt + 1, lease_owner = ?, lease_token = ?, lease_expires_at = ?, version = ?, updated_at = ?
-       WHERE id = ? AND workspace_id = ? AND version = ? AND status = 'pending'`,
+      `UPDATE steps SET status = 'leased', attempt = attempt + 1, retry_at = NULL, lease_owner = ?, lease_token = ?, lease_expires_at = ?, version = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND version = ? AND status = 'pending' AND (retry_at IS NULL OR retry_at <= ?)`,
       [payload.owner, payload.token, payload.expiresAt, event.aggregateVersion, event.occurredAt,
-        event.aggregateId, event.workspaceId, prior],
+        event.aggregateId, event.workspaceId, prior, event.occurredAt],
     );
     if (result.changes !== 1) throw new Error(`Step ${event.aggregateId} cannot be leased`);
     return;
@@ -120,19 +122,31 @@ const projectStep = async (tx: SqliteConnection, event: StoredEvent<StepPayload>
   if (event.type === "StepSucceeded" || event.type === "StepFailed") {
     const payload = event.payload as StepToken | StepFailed;
     const status = event.type === "StepSucceeded" ? "succeeded" : "failed";
-    const errorJson = event.type === "StepFailed" ? JSON.stringify((payload as StepFailed).error) : null;
+    const errorJson = event.type === "StepFailed" ? (JSON.stringify((payload as StepFailed).error) ?? "null") : null;
     const result = await tx.run(
-      `UPDATE steps SET status = ?, error_json = ?, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, version = ?, updated_at = ?
+      `UPDATE steps SET status = ?, error_json = ?, retry_at = NULL, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, version = ?, updated_at = ?
        WHERE id = ? AND workspace_id = ? AND version = ? AND status = 'running' AND lease_token = ?`,
       [status, errorJson, event.aggregateVersion, event.occurredAt, event.aggregateId, event.workspaceId, prior, payload.token],
     );
     if (result.changes !== 1) throw new Error(`Step ${event.aggregateId} cannot finish with a stale lease`);
     return;
   }
+  if (event.type === "StepRetryScheduled") {
+    const payload = event.payload as StepRetryScheduled;
+    if (payload.retryAt <= event.occurredAt) throw new Error("Step retry must be scheduled in the future");
+    const errorJson = JSON.stringify(payload.error) ?? "null";
+    const result = await tx.run(
+      `UPDATE steps SET status = 'pending', error_json = ?, retry_at = ?, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, version = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND version = ? AND status = 'running' AND lease_token = ?`,
+      [errorJson, payload.retryAt, event.aggregateVersion, event.occurredAt, event.aggregateId, event.workspaceId, prior, payload.token],
+    );
+    if (result.changes !== 1) throw new Error(`Step ${event.aggregateId} cannot retry with a stale lease`);
+    return;
+  }
   if (event.type === "StepLeaseExpired") {
     const payload = event.payload as StepLeaseExpired;
     const result = await tx.run(
-      `UPDATE steps SET status = 'pending', lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, version = ?, updated_at = ?
+      `UPDATE steps SET status = 'pending', retry_at = NULL, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, version = ?, updated_at = ?
        WHERE id = ? AND workspace_id = ? AND version = ? AND status IN ('leased', 'running') AND lease_token = ? AND lease_expires_at <= ?`,
       [event.aggregateVersion, event.occurredAt, event.aggregateId, event.workspaceId, prior, payload.token, event.occurredAt],
     );
@@ -176,6 +190,7 @@ const rowToStep = (row: any): StepRecord => {
   if (row.lease_token !== null) step.leaseToken = row.lease_token;
   if (row.lease_owner !== null) step.leaseOwner = row.lease_owner;
   if (row.lease_expires_at !== null) step.leaseExpiresAt = row.lease_expires_at;
+  if (row.retry_at !== null) step.retryAt = row.retry_at;
   if (row.error_json !== null) step.error = JSON.parse(row.error_json);
   return step;
 };
@@ -211,6 +226,9 @@ export class SqliteStepRepository {
   async fail(workspaceId: string, stepId: string, token: string, error: unknown, meta: StepCommandMeta) {
     return await this.command(workspaceId, stepId, "StepFailed", { token, error }, meta);
   }
+  async retry(workspaceId: string, stepId: string, token: string, error: unknown, retryAt: number, meta: StepCommandMeta) {
+    return await this.command(workspaceId, stepId, "StepRetryScheduled", { token, error, retryAt }, meta);
+  }
   async expireLease(workspaceId: string, stepId: string, token: string, meta: StepCommandMeta) {
     return await this.command(workspaceId, stepId, "StepLeaseExpired", { token }, meta);
   }
@@ -232,6 +250,26 @@ export class SqliteStepRepository {
   async get(workspaceId: string, stepId: string): Promise<StepRecord | undefined> {
     const row = await this.db.get<any>("SELECT * FROM steps WHERE workspace_id = ? AND id = ?", [workspaceId, stepId]);
     return row ? rowToStep(row) : undefined;
+  }
+
+  async listForRun(workspaceId: string, runId: string): Promise<StepRecord[]> {
+    return (await this.db.all<any>("SELECT * FROM steps WHERE workspace_id = ? AND run_id = ? ORDER BY ordinal", [workspaceId, runId])).map(rowToStep);
+  }
+
+  async pending(workspaceId: string, now: number, limit = 100): Promise<StepRecord[]> {
+    return (await this.db.all<any>(
+      `SELECT steps.* FROM steps JOIN runs ON runs.id = steps.run_id
+       WHERE steps.workspace_id = ? AND runs.status = 'running' AND steps.status = 'pending'
+         AND (steps.retry_at IS NULL OR steps.retry_at <= ?) ORDER BY steps.created_at, steps.ordinal LIMIT ?`,
+      [workspaceId, now, limit],
+    )).map(rowToStep);
+  }
+
+  async expiredLeases(workspaceId: string, now: number): Promise<StepRecord[]> {
+    return (await this.db.all<any>(
+      "SELECT * FROM steps WHERE workspace_id = ? AND status IN ('leased', 'running') AND lease_expires_at <= ? ORDER BY lease_expires_at",
+      [workspaceId, now],
+    )).map(rowToStep);
   }
 
   async latestCheckpoint(workspaceId: string, stepId: string): Promise<CheckpointRecord | undefined> {

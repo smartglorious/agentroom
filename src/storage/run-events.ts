@@ -112,6 +112,14 @@ export class SqliteRunRepository {
     return row ? rowToRun(row) : undefined;
   }
 
+  async active(workspaceId: string): Promise<RunRecord[]> {
+    const rows = await this.db.all<Parameters<typeof rowToRun>[0]>(
+      "SELECT * FROM runs WHERE workspace_id = ? AND status IN ('queued', 'running', 'paused') ORDER BY created_at",
+      [workspaceId],
+    );
+    return rows.map(rowToRun);
+  }
+
   async rebuild(workspaceId: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       const events: StoredEvent<RunPayload>[] = [];

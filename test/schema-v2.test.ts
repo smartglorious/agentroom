@@ -17,7 +17,7 @@ test("schema v2: adds durable execution tables and lease columns", async () => {
       assert.equal(tables.some((table) => table.name === name), true);
     }
     const columns = await db.all<{ name: string }>("PRAGMA table_info(steps)");
-    for (const name of ["attempt", "lease_token", "lease_owner", "lease_expires_at", "error_json"]) {
+    for (const name of ["attempt", "lease_token", "lease_owner", "lease_expires_at", "error_json", "retry_at"]) {
       assert.equal(columns.some((column) => column.name === name), true);
     }
   } finally {

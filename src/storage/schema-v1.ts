@@ -144,6 +144,7 @@ const durableExecutionV2: SqliteMigration = {
     ALTER TABLE steps ADD COLUMN lease_owner TEXT;
     ALTER TABLE steps ADD COLUMN lease_expires_at INTEGER;
     ALTER TABLE steps ADD COLUMN error_json TEXT CHECK (error_json IS NULL OR json_valid(error_json));
+    ALTER TABLE steps ADD COLUMN retry_at INTEGER;
 
     CREATE TABLE checkpoints (
       id TEXT PRIMARY KEY,
@@ -191,6 +192,7 @@ const durableExecutionV2: SqliteMigration = {
     ) STRICT;
 
     CREATE INDEX steps_lease_expiry_idx ON steps(status, lease_expires_at) WHERE lease_expires_at IS NOT NULL;
+    CREATE INDEX steps_retry_idx ON steps(status, retry_at, ordinal) WHERE status = 'pending';
     CREATE INDEX checkpoints_run_step_idx ON checkpoints(run_id, step_id, created_at);
     CREATE INDEX tool_receipts_step_status_idx ON tool_receipts(step_id, status);
     CREATE INDEX execution_outbox_pending_idx ON execution_outbox(available_at, seq) WHERE delivered_at IS NULL;
