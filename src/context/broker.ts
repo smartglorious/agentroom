@@ -48,10 +48,20 @@ export class ContextBroker {
 
   async compile(input: CompileTaskPacketInput): Promise<TaskPacketV1> {
     if (!input.objective.trim()) throw new Error("TaskPacket objective is empty");
+    if (input.packetId) {
+      const existing = await this.get(input.workspaceId, input.packetId);
+      if (existing) return existing;
+    }
     const segments = allocatePacketTokens(input.inputTokens);
-    const retrieved = await this.sources.search({
-      workspaceId: input.workspaceId, agentId: input.agentId, query: input.query ?? input.objective, limit: 100,
-    });
+    let retrieved: RetrievedContext[];
+    try {
+      retrieved = await this.sources.search({
+        workspaceId: input.workspaceId, agentId: input.agentId, query: input.query ?? input.objective, limit: 100,
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || !/no searchable terms/.test(error.message)) throw error;
+      retrieved = [];
+    }
     const ranked = rankContext(retrieved, input.maxPerSource);
     const selected = fitContextToBudget(ranked.map((item) => ({ ...item, content: item.content })), segments.sources);
     const packet = sealTaskPacketV1({

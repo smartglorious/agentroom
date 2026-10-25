@@ -31,6 +31,7 @@ import { RoomStore } from "./core/store";
 import { prepareStorage, type StorageMode } from "./storage/bootstrap";
 import type { SqliteConnection } from "./storage/sqlite";
 import { DurableTurnQueue } from "./storage/turn-queue";
+import { ContextBroker } from "./context/broker";
 import { SYSTEM } from "./core/types";
 import { UsageStore } from "./core/usage";
 import type { RoomConfig } from "./core/types";
@@ -259,6 +260,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
         issues,
         plugins,
         turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
+        contextBroker: storage.connection ? new ContextBroker(storage.connection) : undefined,
         planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
         planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });

@@ -28,6 +28,7 @@ import type { HostDef } from "../core/types";
 import { RoomStore } from "../core/store";
 import { prepareStorage } from "../storage/bootstrap";
 import { DurableTurnQueue } from "../storage/turn-queue";
+import { ContextBroker } from "../context/broker";
 import { SYSTEM } from "../core/types";
 import { UsageStore } from "../core/usage";
 import { WebhookHandler, WebhookServer } from "../core/webhooks";
@@ -181,6 +182,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       issues,
       plugins,
       turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
+      contextBroker: storage.connection ? new ContextBroker(storage.connection) : undefined,
       autonomyStore: {
         get: (id) => store.read().autonomy?.[`${o.root}|${id}`],
         set: (id, m) => store.update((f) => { f.autonomy = { ...f.autonomy, [`${o.root}|${id}`]: m }; }),

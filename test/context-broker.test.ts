@@ -47,6 +47,11 @@ test("context broker: compiles, budgets, seals and persists an ACL-filtered Task
     assert.deepEqual(packet.context.map((item) => item.source_id), ["s-public"]);
     assert.deepEqual(packet.policy.allowed_tools, ["fs.read"]);
     assert.deepEqual(await broker.get("w1", "tp1"), packet);
+    await sources.setState("w1", "s-public", "tombstoned", 30);
+    assert.deepEqual(await broker.compile({ packetId: "tp1", workspaceId: "w1", agentId: "qa", runId: "r1", stepId: "s1",
+      objective: "changed objective", autonomy: "manual", allowedTools: [], inputTokens: 500, outputTokens: 100,
+      costUsd: 0, attempt: 2, createdAt: new Date("2026-10-26T01:00:00.000Z") }), packet,
+    "a sealed packet is reused across retry even when sources and policy inputs later change");
     await db.exec("UPDATE task_packets SET packet_hash = 'bad' WHERE id = 'tp1'");
     await assert.rejects(broker.get("w1", "tp1"), /ledger hash mismatch/);
   } finally {

@@ -8,6 +8,8 @@ import { SqliteMigrationRunner } from "../src/storage/migrations";
 import { schemaMigrations } from "../src/storage/schema-v1";
 import { SqliteConnection } from "../src/storage/sqlite";
 import { DurableTurnQueue } from "../src/storage/turn-queue";
+import { ContextBroker } from "../src/context/broker";
+import { SqliteContextSources } from "../src/context/sources";
 import { Fake, idle, makeRoom } from "./helpers";
 
 const open = async (file: string) => {
@@ -125,5 +127,25 @@ test("Room bridge: startup waits for a live lease and automatically recovers whe
   } finally {
     room.stopAll();
     await secondDb.close();
+  }
+});
+
+test("Room bridge: a durable model turn receives its sealed ACL-filtered context packet", async () => {
+  const file = join(mkdtempSync(join(tmpdir(), "ar-room-packet-")), "agentroom.db");
+  const db = await open(file);
+  try {
+    await new SqliteContextSources(db).replace({ id: "guide", workspaceId: "w1", kind: "file", uri: "file:///guide", title: "Guide",
+      trust: "untrusted", acl: ["lead"], chunks: [{ id: "guide-1", locator: "guide.md#L1", content: "migration checkpoint evidence" }], at: 10 });
+    const queue = new DurableTurnQueue(db, "w1");
+    const fake = new Fake(() => "used packet");
+    const { room } = makeRoom(fake, { turnQueue: queue, contextBroker: new ContextBroker(db) });
+    room.post("user", "@lead review migration checkpoint");
+    await idle(room);
+    assert.match(fake.calls[0].prompt, /<task_packet/);
+    assert.match(fake.calls[0].prompt, /migration checkpoint evidence/);
+    assert.match(fake.calls[0].prompt, /trust=untrusted/);
+    assert.equal((await db.get<{ count: number }>("SELECT count(*) AS count FROM task_packets"))?.count, 1);
+  } finally {
+    await db.close();
   }
 });
