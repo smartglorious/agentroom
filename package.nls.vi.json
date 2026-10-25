@@ -23,7 +23,7 @@
   "cfg.codexPath": "Đường dẫn tới CLI codex (bỏ trống = tìm trong PATH).",
   "cfg.contextMessages": "Số tin nhắn gần nhất đưa vào prompt mỗi lượt.",
   "cfg.memoryBudgetChars": "Số ký tự tối đa của SOUL + trí nhớ + nhật ký đưa vào persona mỗi lượt.",
-  "cfg.storage.mode": "Cổng migration storage. legacy chỉ dùng file. verify tạo backup đã xác minh và snapshot SQLite bóng, còn file vẫn là nguồn chính.",
+  "cfg.storage.mode": "Cổng migration storage. legacy chỉ dùng file; verify tạo SQLite bóng đã kiểm tra; durable bật thêm Run/Step phục hồi qua restart sau khi verify thành công.",
   "cfg.inspector.keepTurns": "Số lượt gần nhất lưu cho Context Inspector (0 = tắt). Thư mục lưu chứa code nên bị git ignore.",
   "cfg.pricing": "Bảng giá để ước tính chi phí Codex, USD cho 1 triệu token. Ví dụ: {\"gpt-5.4\": {\"input\": 2.5, \"cachedInput\": 0.25, \"output\": 10}}. Model không có trong bảng sẽ không có chi phí.",
   "cfg.hookPort": "Cổng webhook (chỉ nghe trên 127.0.0.1).",

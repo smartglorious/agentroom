@@ -8,11 +8,13 @@ import { SqliteMigrationRunner } from "./migrations";
 import { schemaMigrations } from "./schema-v1";
 import { SqliteConnection, type SqliteHealth } from "./sqlite";
 
-export type StorageMode = "legacy" | "verify";
+export type StorageMode = "legacy" | "verify" | "durable";
 
 export interface StorageBootstrapResult {
   requested: StorageMode;
-  active: "legacy";
+  active: "legacy" | "durable";
+  workspaceId?: string;
+  connection?: SqliteConnection;
   database?: string;
   backupId?: string;
   health?: SqliteHealth;
@@ -20,7 +22,7 @@ export interface StorageBootstrapResult {
   error?: string;
 }
 
-const identity = (root: string) => createHash("sha256").update(resolve(root).toLowerCase()).digest("hex");
+export const workspaceIdentity = (root: string) => createHash("sha256").update(resolve(root).toLowerCase()).digest("hex");
 
 /**
  * M1 feature gate. `verify` prepares and verifies SQLite but deliberately keeps
@@ -29,11 +31,12 @@ const identity = (root: string) => createHash("sha256").update(resolve(root).toL
 export const prepareStorage = async (workspaceRoot: string, stateDir: string, mode: StorageMode): Promise<StorageBootstrapResult> => {
   if (mode === "legacy") return { requested: mode, active: "legacy" };
   const database = join(stateDir, "agentroom.db");
-  const workspaceId = identity(workspaceRoot);
+  const workspaceId = workspaceIdentity(workspaceRoot);
   const inventory = inventoryLegacyState(stateDir);
   const sourceDigest = createHash("sha256").update(inventory.files.map((file) => `${file.path}:${file.sha256}`).join("\n")).digest("hex");
   const backupId = `m1-${sourceDigest.slice(0, 16)}`;
   let db: SqliteConnection | undefined;
+  let keepOpen = false;
   try {
     const backupDir = join(workspaceRoot, ".agentroom", "backups", backupId);
     if (!existsSync(backupDir)) createLegacyBackup(stateDir, join(workspaceRoot, ".agentroom", "backups"), backupId);
@@ -51,10 +54,14 @@ export const prepareStorage = async (workspaceRoot: string, stateDir: string, mo
     await importLegacyState(db, workspaceId, scan, now);
     const verification = await verifyLegacyImport(db, workspaceId, scan);
     if (!verification.ok) throw new Error(`SQLite verification failed: ${verification.mismatches.join(", ") || "integrity mismatch"}`);
-    return { requested: mode, active: "legacy", database, backupId, health: db.health, verification };
+    if (mode === "durable") {
+      keepOpen = true;
+      return { requested: mode, active: "durable", database, backupId, workspaceId, connection: db, health: db.health, verification };
+    }
+    return { requested: mode, active: "legacy", database, backupId, workspaceId, health: db.health, verification };
   } catch (error) {
     return { requested: mode, active: "legacy", database, backupId, error: error instanceof Error ? error.message : String(error) };
   } finally {
-    await db?.close().catch(() => undefined);
+    if (!keepOpen) await db?.close().catch(() => undefined);
   }
 };

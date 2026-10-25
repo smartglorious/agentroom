@@ -138,7 +138,8 @@
           "type": "string",
           "enum": [
             "legacy",
-            "verify"
+            "verify",
+            "durable"
           ],
           "default": "legacy",
           "scope": "resource",

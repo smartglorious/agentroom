@@ -46,3 +46,17 @@ test("storage bootstrap: corrupt legacy input falls back clearly without creatin
   assert.match(result.error ?? "", /parse error/);
   assert.equal(existsSync(join(state, "agentroom.db")), false);
 });
+
+test("storage bootstrap: durable mode returns a verified live connection", async () => {
+  const { root, state } = workspace();
+  const result = await prepareStorage(root, state, "durable");
+  assert.equal(result.error, undefined);
+  assert.equal(result.active, "durable");
+  assert.ok(result.workspaceId);
+  assert.ok(result.connection);
+  try {
+    assert.deepEqual(await result.connection!.get("SELECT status FROM tasks WHERE id = 't1'"), { status: "todo" });
+  } finally {
+    await result.connection!.close();
+  }
+});

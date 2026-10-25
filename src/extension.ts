@@ -29,6 +29,8 @@ import { Scheduler } from "./core/scheduler";
 import { SKILL_NAME, SKILL_TEMPLATE, SkillDrafts, SkillRegistry, checkWorkerSkills, skillSources } from "./core/skills";
 import { RoomStore } from "./core/store";
 import { prepareStorage, type StorageMode } from "./storage/bootstrap";
+import type { SqliteConnection } from "./storage/sqlite";
+import { DurableTurnQueue } from "./storage/turn-queue";
 import { SYSTEM } from "./core/types";
 import { UsageStore } from "./core/usage";
 import type { RoomConfig } from "./core/types";
@@ -68,6 +70,7 @@ interface Live {
   usage: UsageStore;
   config: RoomConfig;
   plugins: PluginManager;
+  storage?: SqliteConnection;
 }
 
 let live: Live | undefined;
@@ -83,6 +86,7 @@ function dispose() {
   live.hosts?.closeAll();
   live.mcp.dispose();
   live.lock.release();
+  void live.storage?.close();
   live = undefined;
 }
 
@@ -189,17 +193,21 @@ export async function activate(ctx: vscode.ExtensionContext) {
       view.attachLocked(lock.peek());
       vscode.window.showWarningMessage(tr("AgentRoom: một cửa sổ khác đã chiếm quyền điều phối thư mục này, nên cửa sổ này đã dừng."));
     });
+    let storageConnection: SqliteConnection | undefined;
     try {
       const cfg = settings();
       const config = parseConfig(readFileSync(file, "utf8"));
       const agentroomDir = join(ws, ".agentroom");
       const stateDir = join(agentroomDir, "state");
       const storage = await prepareStorage(ws, stateDir, cfg.get<StorageMode>("storage.mode", "legacy"));
+      storageConnection = storage.connection;
       if (storage.error) {
         out.appendLine(`[storage] ${storage.error}`);
         void vscode.window.showWarningMessage(`AgentRoom storage verify failed; using legacy files: ${storage.error}`);
       } else if (storage.verification) {
-        out.appendLine(`[storage] SQLite shadow verified (${storage.verification.ledgerRecords} records); legacy files remain authoritative.`);
+        out.appendLine(storage.active === "durable"
+          ? `[storage] SQLite durable execution enabled (${storage.verification.ledgerRecords} legacy records verified).`
+          : `[storage] SQLite shadow verified (${storage.verification.ledgerRecords} records); legacy files remain authoritative.`);
       }
       const store = new RoomStore(stateDir);
       const skills = new SkillRegistry(skillSources(ws, homedir()));
@@ -250,12 +258,15 @@ export async function activate(ctx: vscode.ExtensionContext) {
         home: homedir(),
         issues,
         plugins,
+        turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
         planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
         planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });
       room.plan?.start();
       const mcp = (server.current = new AgentRoomMcp(room));
       await mcp.start();
+      const recovered = await room.recoverDurableTurns();
+      if (recovered) out.appendLine(`[storage] Recovered ${recovered} durable inbox message(s).`);
 
       const problems = [...checkWorkerSkills(config.workers, skills), ...skills.problems.map((p) => `${p.dir}: ${p.message}`)];
       if (problems.length) vscode.window.showWarningMessage(tr("AgentRoom: {n} vấn đề với skills — {p}", { n: problems.length, p: problems[0] }));
@@ -303,11 +314,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
       }
 
       plugins.activate({ room, config, root: ws, log: (t) => out.appendLine(`[plugin] ${t}`) });
-      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config, plugins };
+      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config, plugins, storage: storageConnection };
+      storageConnection = undefined;
       const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel, plugins };
       view.attach(vctx);
       void startTelegram().catch((e) => { const m = trVi("không khởi động được: {p}", { p: e instanceof Error ? e.message : e }); out.appendLine(`[telegram] ${m}`); live?.room.noteIssue({ kind: "error", source: "telegram", title: m }); });
     } catch (e) {
+      void storageConnection?.close();
       dispose();
       lock.release();
       vscode.window.showErrorMessage(tr("AgentRoom: workers.yaml lỗi — {p}", { p: e instanceof Error ? e.message : e }));

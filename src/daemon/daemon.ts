@@ -27,6 +27,7 @@ import { SkillDrafts, SkillRegistry, checkWorkerSkills, skillSources } from "../
 import type { HostDef } from "../core/types";
 import { RoomStore } from "../core/store";
 import { prepareStorage } from "../storage/bootstrap";
+import { DurableTurnQueue } from "../storage/turn-queue";
 import { SYSTEM } from "../core/types";
 import { UsageStore } from "../core/usage";
 import { WebhookHandler, WebhookServer } from "../core/webhooks";
@@ -129,7 +130,10 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     const plugins = new PluginManager(bundledPlugins);
     const storage = await prepareStorage(o.root, stateDir, s0.storageMode);
     if (storage.error) log(`Storage verify failed; using legacy files: ${storage.error}`);
-    else if (storage.verification) log(`SQLite shadow verified (${storage.verification.ledgerRecords} records); legacy files remain authoritative.`);
+    else if (storage.verification) log(storage.active === "durable"
+      ? `SQLite durable execution enabled (${storage.verification.ledgerRecords} legacy records verified).`
+      : `SQLite shadow verified (${storage.verification.ledgerRecords} records); legacy files remain authoritative.`);
+    if (storage.connection) disposers.push(() => { void storage.connection!.close(); });
     const roomStore = new RoomStore(stateDir);
     const server: { current?: AgentRoomMcp } = {};
 
@@ -176,6 +180,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       home,
       issues,
       plugins,
+      turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
       autonomyStore: {
         get: (id) => store.read().autonomy?.[`${o.root}|${id}`],
         set: (id, m) => store.update((f) => { f.autonomy = { ...f.autonomy, [`${o.root}|${id}`]: m }; }),
@@ -191,6 +196,8 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
 
     const mcp = (server.current = new AgentRoomMcp(room));
     await mcp.start();
+    const recovered = await room.recoverDurableTurns();
+    if (recovered) log(`Recovered ${recovered} durable inbox message(s).`);
     disposers.push(() => mcp.dispose());
 
     const problems = [...checkWorkerSkills(config.workers, skills), ...skills.problems.map((p) => `${p.dir}: ${p.message}`)];

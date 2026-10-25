@@ -12,7 +12,7 @@ export interface DaemonSettings extends TelegramSettings {
   inspectorKeepTurns: number;
   agentDebounceMs: number;
   planPollMinutes: number;
-  storageMode: "legacy" | "verify";
+  storageMode: "legacy" | "verify" | "durable";
   /** vi | en | auto (auto follows $LANG). AGENTROOM_LANG overrides. */
   language: string;
   claudePath: string;
@@ -56,7 +56,7 @@ export const SETTING_PARSERS: Record<keyof DaemonSettings, Parse> = {
   inspectorKeepTurns: int(0, 5000),
   agentDebounceMs: int(0, 60000),
   planPollMinutes: int(0, 1440),
-  storageMode: oneOf("legacy", "verify"),
+  storageMode: oneOf("legacy", "verify", "durable"),
   language: oneOf("vi", "en", "auto"),
   claudePath: (v) => v,
   codexPath: (v) => v,
