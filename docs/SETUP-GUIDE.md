@@ -286,6 +286,8 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `chainTurns` | số nguyên 2–100 | `6` | Số lượt worker tối đa mà MỘT tin nhắn của người dùng (hoặc một lịch/webhook) được phép kéo theo. Hết thì tạm dừng và báo |
 | `maxFanout` | số nguyên 1–20 | `3` | Số worker tối đa mà MỘT tin của worker được đánh thức (những người được @mention đầu tiên). Tin của người dùng không bị giới hạn. Mỗi worker được gọi phải đọc lại cả session nên đây là khoản tốn nhất |
 | `turnIdleMinutes` | số nguyên 0–720 | `20` | Một lượt không có hoạt động nào quá số phút này thì bị dừng và báo (CLI treo, chờ mạng). Thẻ duyệt đang chờ người không tính là im lặng. `0` = tắt |
+| `idleFreshMinutes` | số nguyên 0–1440 | `55` | Cache của Claude trên gói hết hạn sau khoảng 1 giờ nghỉ; lúc đó nối lại một session to là ghi lại TOÀN BỘ context (hạn mức gói tính các lần ghi này). Quá số phút này mà session đã ≳ 66k token thì lượt sau mở session mới (trí nhớ, nhật ký, 30 tin gần nhất được nạp lại) và báo 🕒. Không áp cho account có `baseUrl`. Với API key (cache 5 phút) đặt nhỏ hơn, ví dụ `5`. `0` = tắt |
+| `maxModelTurns` | số nguyên 0–1000 | `60` | Số lần gọi model tối đa trong MỘT lượt Claude. Chạm thì lượt dừng, giữ nguyên phần đã làm và chi phí, kèm dòng báo; nhắn "tiếp tục" để làm tiếp. `0` = không giới hạn |
 | `usdPerTask` | số > 0 | không giới hạn | Task đã tốn bằng này (USD) thì các worker thôi làm tiếp việc đó với nhau; bạn vẫn nhắn vào task để tiếp tục |
 
 **`schedules[]`** (tùy chọn)
@@ -783,12 +785,14 @@ for (const [i, s] of (Array.isArray(schedules) ? schedules : []).entries()) {
 // ---- limits ----
 if (cfg.limits !== undefined) {
   const l = cfg.limits;
-  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, maxFanout, turnIdleMinutes, usdPerTask }");
+  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, maxFanout, turnIdleMinutes, idleFreshMinutes, maxModelTurns, usdPerTask }");
   else {
-    for (const k of Object.keys(l)) if (!["chainTurns", "maxFanout", "turnIdleMinutes", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
+    for (const k of Object.keys(l)) if (!["chainTurns", "maxFanout", "turnIdleMinutes", "idleFreshMinutes", "maxModelTurns", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
     if (l.chainTurns !== undefined && !(Number.isInteger(l.chainTurns) && l.chainTurns >= 2 && l.chainTurns <= 100)) errors.push("limits.chainTurns phải là số nguyên từ 2 đến 100");
     if (l.maxFanout !== undefined && !(Number.isInteger(l.maxFanout) && l.maxFanout >= 1 && l.maxFanout <= 20)) errors.push("limits.maxFanout phải là số nguyên 1-20");
     if (l.turnIdleMinutes !== undefined && !(Number.isInteger(l.turnIdleMinutes) && l.turnIdleMinutes >= 0 && l.turnIdleMinutes <= 720)) errors.push("limits.turnIdleMinutes phải là số nguyên 0-720");
+    if (l.idleFreshMinutes !== undefined && !(Number.isInteger(l.idleFreshMinutes) && l.idleFreshMinutes >= 0 && l.idleFreshMinutes <= 1440)) errors.push("limits.idleFreshMinutes phải là số nguyên 0-1440");
+    if (l.maxModelTurns !== undefined && !(Number.isInteger(l.maxModelTurns) && l.maxModelTurns >= 0 && l.maxModelTurns <= 1000)) errors.push("limits.maxModelTurns phải là số nguyên 0-1000");
     if (l.usdPerTask !== undefined && !(typeof l.usdPerTask === "number" && l.usdPerTask > 0)) errors.push("limits.usdPerTask phải là số > 0");
   }
 }

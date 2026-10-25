@@ -35,6 +35,8 @@ export interface TurnRequest {
   approve(tool: string, input: unknown): Promise<ApprovalResult>;
   /** The worker's current autonomy (Codex maps it to its sandbox). */
   autonomy?: Autonomy;
+  /** Claude: stop the turn after this many model calls and return what it has (undefined or 0 = no limit). */
+  maxTurns?: number;
 }
 
 export interface ContextBreakdown {

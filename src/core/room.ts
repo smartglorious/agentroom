@@ -12,7 +12,7 @@ import { Autonomy, PolicyContext, absolutePath, decide, describeCall, toolPaths 
 import { PlanMonitor, PlanProbe } from "./plan";
 import type { IssueInput, IssueStore } from "./issues";
 import type { GuardVerdict, PluginManager } from "./plugins";
-import { RoomStore } from "./store";
+import { RoomStore, SessionMeta } from "./store";
 import { TaskBoard } from "./tasks";
 import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
 import { nextMidnight, UsageStore } from "./usage";
@@ -87,6 +87,8 @@ export interface PostOptions {
   replyTo?: string;
   options?: ChoiceSet;
   choice?: { message: string; option: string };
+  /** Workers this sender already woke earlier in the same turn (through post_message): the @mentions of this message do not wake them a second time. */
+  alreadyWoken?: string[];
 }
 
 export interface WorkerProfile {
@@ -117,13 +119,18 @@ export const isNoop = (t: string) => /^\s*\[NOOP\]/i.test(t) || /^\s*NOOP\s*[.!]
 
 /** Tokens of context after which a worker's Claude session is replaced (see Room.rotateIfLarge). */
 export const DEFAULT_CONTEXT_LIMIT = 150_000;
+/** A session smaller than this is not worth replacing when it has been idle: a new one already weighs about two thirds of it. */
+export const IDLE_FRESH_MIN_CTX = 66_000;
+
+/** Context size a Claude turn ended with, as far as its totals tell: the average per model call is a lower bound. */
+const contextOf = (usage: TurnUsage) => Math.round((usage.input + usage.cacheRead + usage.cacheWrite) / Math.max(1, usage.numTurns ?? 1));
 
 export class Room extends EventEmitter<RoomEvents> {
   readonly tasks: TaskBoard;
   get memory() { return this.deps.memory; }
   private messages: ChatMessage[];
   private sessions: Record<string, string>;
-  private sessionMeta: Record<string, { persona: string; mem: string }>;
+  private sessionMeta: Record<string, SessionMeta>;
   private cursors: Record<string, number>;
   private inbox = new Map<string, ChatMessage[]>();
   private scheduled = new Set<string>();
@@ -257,7 +264,9 @@ export class Room extends EventEmitter<RoomEvents> {
     const replyBack = from === HUMAN && target && this.hasWorker(target.from) && !parseMentions(text, this.workers).length ? [target.from] : undefined;
     // A slash command registered by a plugin is for the plugin, not for the workers.
     const command = from === HUMAN && !opts.to ? this.deps.plugins?.matchCommand(text) : undefined;
-    const to = command ? [] : opts.to ? opts.to.filter((id) => this.hasWorker(id)) : replyBack ?? (readOnly ? [] : route({ from, text, depth }, this.workers, { ...this.deps.options, maxFanout: this.deps.config.limits.maxFanout }));
+    const routed = command ? [] : opts.to ? opts.to.filter((id) => this.hasWorker(id)) : replyBack ?? (readOnly ? [] : route({ from, text, depth }, this.workers, { ...this.deps.options, maxFanout: this.deps.config.limits.maxFanout }));
+    // A worker that already woke somebody with post_message and then says the same in its final answer would wake them twice: once is enough.
+    const to = opts.alreadyWoken?.length && !opts.to ? routed.filter((id) => !opts.alreadyWoken!.includes(id)) : routed;
     const taskId = opts.taskId ?? (from === HUMAN ? target?.taskId : undefined);
     const id = randomUUID();
     // A human or trigger message starts a conversation; a worker's messages belong to the one its running turn is part of.
@@ -700,14 +709,15 @@ export class Room extends EventEmitter<RoomEvents> {
     watchdog?.unref?.();
 
     const finish = (usage: TurnUsage | undefined, error?: string, context?: TurnRecord["context"]) => {
-      if (record) this.deps.inspector.save({ ...record, usage, error, context });
-      this.deps.usage.append({
+      const stored = this.deps.usage.append({
         ts: this.now(), turnId, worker: worker.id, account: account.id, provider: worker.provider,
         model: usage?.model ?? runWorker.model, sessionKey: key, sessionId: this.sessions[sessKey], taskId,
         input: usage?.input ?? 0, output: usage?.output ?? 0, cacheRead: usage?.cacheRead ?? 0, cacheWrite: usage?.cacheWrite ?? 0,
         costUsd: usage?.costUsd, estimated: usage?.estimated ?? false, numTurns: usage?.numTurns,
         durationMs: this.now() - startedAt, tools, error: error ?? null,
       });
+      // The Inspector shows what THIS turn cost: the store turns Claude's cumulative session cost into that difference.
+      if (record) this.deps.inspector.save({ ...record, usage: usage && stored.costUsd !== undefined ? { ...usage, costUsd: stored.costUsd } : usage, error, context });
     };
 
     try {
@@ -730,6 +740,7 @@ export class Room extends EventEmitter<RoomEvents> {
         delete this.sessions[sessKey];
         delete this.cursors[key];
       }
+      this.dropIfIdle(worker, key, sessKey, account);
       const fresh = !this.sessions[sessKey];
       const sendMemory = fresh || !meta || meta.mem !== persona.memoryKey;
       // A new session (also on a fallback account) starts from the recent chat, not only from what came after the last turn.
@@ -766,6 +777,7 @@ export class Room extends EventEmitter<RoomEvents> {
         onCwd: (c) => { approvalCwd = c; },
         onRateLimit: () => this.plan?.touch(account.id),
         autonomy: this.autonomyOf(worker.id),
+        maxTurns: worker.provider === "claude" ? this.deps.config.limits.maxModelTurns || undefined : undefined,
         onActivity: (a) => {
           lastActive = this.now();
           const [tool, ...rest] = a.split(" ");
@@ -779,7 +791,7 @@ export class Room extends EventEmitter<RoomEvents> {
       if (result.sessionId) {
         this.sessions[sessKey] = result.sessionId;
         this.deps.store.saveSessions(this.sessions);
-        this.sessionMeta[sessKey] = { persona: personaHash, mem: persona.memoryKey };
+        this.sessionMeta[sessKey] = { persona: personaHash, mem: persona.memoryKey, end: this.now(), ...(result.usage && worker.provider === "claude" ? { ctx: contextOf(result.usage) } : {}) };
         this.deps.store.saveSessionMeta(this.sessionMeta);
       }
       if (result.cwd && record) record.cwd = host ? `${host}:${result.cwd}` : result.cwd;
@@ -799,7 +811,10 @@ export class Room extends EventEmitter<RoomEvents> {
       if (!noop) this.writeJournal(worker.id, taskId, result.text, edited);
       this.checkBudget(account.id);
       this.emit("usage");
-      if (text && !noop && !repeat) this.post(worker.id, text, { taskId, depth: depth + 1, turnId, readOnly });
+      if (text && !noop && !repeat) {
+        const woken = this.messages.filter((m) => m.from === worker.id && m.ts >= startedAt && !m.turnId).flatMap((m) => m.to);
+        this.post(worker.id, text, { taskId, depth: depth + 1, turnId, readOnly, alreadyWoken: woken });
+      }
       // Nothing came back for a person's message and the worker said nothing through its tools either: say so instead of staying silent.
       else if (!text && !noop && batch.some((m) => m.from === HUMAN) && !this.messages.some((m) => m.from === worker.id && m.ts >= startedAt)) {
         this.post(SYSTEM, tr("ℹ️ {name} chạy xong nhưng không có nội dung trả lời (token vào {i}, ra {o}). Xem 🔍 để biết lượt đó, hoặc nhắn lại.", { name: worker.name, i: (result.usage?.input ?? 0) + (result.usage?.cacheRead ?? 0) + (result.usage?.cacheWrite ?? 0), o: result.usage?.output ?? 0 }), { to: [], alert: true });
@@ -846,7 +861,7 @@ export class Room extends EventEmitter<RoomEvents> {
     const limit = worker.contextLimit ?? (worker.coordinator ? 0 : DEFAULT_CONTEXT_LIMIT);
     if (!usage || worker.provider !== "claude" || !limit || !this.sessions[sessKey]) return;
     // The totals add up every call of the turn, so the average per call is a lower bound of the context at its end.
-    const ctx = Math.round((usage.input + usage.cacheRead + usage.cacheWrite) / Math.max(1, usage.numTurns ?? 1));
+    const ctx = contextOf(usage);
     if (fresh) this.freshCtx.set(sessKey, ctx);
     // A new session already weighs `base` before it does anything. Replacing a session that is not clearly bigger than that only pays the
     // whole base again (cache writes are what a plan limit counts), so it is kept until it has grown well past it.
@@ -860,6 +875,27 @@ export class Room extends EventEmitter<RoomEvents> {
     this.deps.store.saveSessionMeta(this.sessionMeta);
     this.deps.store.saveCursors(this.cursors);
     this.post(SYSTEM, tr("♻️ Session của {name} đã lên ~{k}k token context nên lượt sau bắt đầu session mới (trí nhớ và nhật ký được nạp lại) để tiết kiệm hạn mức.", { name: worker.name, k: Math.round(ctx / 1000) }), { to: [] });
+  }
+
+  /**
+   * A Claude session that has been idle for about an hour has lost its prompt cache: resuming it writes ALL of its context again
+   * (a plan limit counts those writes), and a big session costs far more to wake than a new one that starts from the memory,
+   * the journal and the recent chat. So a big session is replaced when it is woken after limits.idleFreshMinutes.
+   */
+  private dropIfIdle(worker: Worker, key: string, sessKey: string, account: { baseUrl?: string }) {
+    const minutes = this.deps.config.limits.idleFreshMinutes;
+    const meta = this.sessionMeta[sessKey];
+    if (!minutes || worker.provider !== "claude" || account.baseUrl || !this.sessions[sessKey] || !meta?.end || !meta.ctx) return;
+    const idle = this.now() - meta.end;
+    if (idle < minutes * 60_000 || meta.ctx < IDLE_FRESH_MIN_CTX) return;
+    delete this.sessions[sessKey];
+    delete this.sessionMeta[sessKey];
+    delete this.cursors[key];
+    this.freshCtx.delete(sessKey);
+    this.deps.store.saveSessions(this.sessions);
+    this.deps.store.saveSessionMeta(this.sessionMeta);
+    this.deps.store.saveCursors(this.cursors);
+    this.post(SYSTEM, tr("🕒 Session của {name} đã nghỉ {m} phút (cache hết hạn, context ~{k}k token) nên lượt này bắt đầu session mới thay vì nạp lại toàn bộ; trí nhớ và nhật ký được nạp lại. Đổi bằng limits.idleFreshMinutes (0 = tắt).", { name: worker.name, m: Math.round(idle / 60_000), k: Math.round(meta.ctx / 1000) }), { to: [] });
   }
 
   private writeJournal(workerId: string, taskId: string | undefined, text: string, edited: Set<string>) {

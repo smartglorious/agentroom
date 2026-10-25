@@ -181,12 +181,14 @@ for (const [i, s] of (Array.isArray(schedules) ? schedules : []).entries()) {
 // ---- limits ----
 if (cfg.limits !== undefined) {
   const l = cfg.limits;
-  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, maxFanout, turnIdleMinutes, usdPerTask }");
+  if (!l || typeof l !== "object" || Array.isArray(l)) errors.push("limits: phải là object { chainTurns, maxFanout, turnIdleMinutes, idleFreshMinutes, maxModelTurns, usdPerTask }");
   else {
-    for (const k of Object.keys(l)) if (!["chainTurns", "maxFanout", "turnIdleMinutes", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
+    for (const k of Object.keys(l)) if (!["chainTurns", "maxFanout", "turnIdleMinutes", "idleFreshMinutes", "maxModelTurns", "usdPerTask"].includes(k)) warns.push(`limits.${k} không được dùng (bị bỏ qua)`);
     if (l.chainTurns !== undefined && !(Number.isInteger(l.chainTurns) && l.chainTurns >= 2 && l.chainTurns <= 100)) errors.push("limits.chainTurns phải là số nguyên từ 2 đến 100");
     if (l.maxFanout !== undefined && !(Number.isInteger(l.maxFanout) && l.maxFanout >= 1 && l.maxFanout <= 20)) errors.push("limits.maxFanout phải là số nguyên 1-20");
     if (l.turnIdleMinutes !== undefined && !(Number.isInteger(l.turnIdleMinutes) && l.turnIdleMinutes >= 0 && l.turnIdleMinutes <= 720)) errors.push("limits.turnIdleMinutes phải là số nguyên 0-720");
+    if (l.idleFreshMinutes !== undefined && !(Number.isInteger(l.idleFreshMinutes) && l.idleFreshMinutes >= 0 && l.idleFreshMinutes <= 1440)) errors.push("limits.idleFreshMinutes phải là số nguyên 0-1440");
+    if (l.maxModelTurns !== undefined && !(Number.isInteger(l.maxModelTurns) && l.maxModelTurns >= 0 && l.maxModelTurns <= 1000)) errors.push("limits.maxModelTurns phải là số nguyên 0-1000");
     if (l.usdPerTask !== undefined && !(typeof l.usdPerTask === "number" && l.usdPerTask > 0)) errors.push("limits.usdPerTask phải là số > 0");
   }
 }

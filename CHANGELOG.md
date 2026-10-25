@@ -2,6 +2,15 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.15
+Gói giảm đốt hạn mức, rút ra từ số đo thật của một dự án 23 giờ (374 lượt): 81% lượng ghi cache nằm ở 72 lượt, và 22 lượt nối lại session to sau hơn 60 phút nghỉ chiếm 42%. Phép kiểm trên log cho thấy cache sống khoảng **1 giờ** trên gói (nghỉ 5–60 phút chỉ nguội ~10% số lượt, trên 60 phút nguội 100%), không phải 5 phút như đã giả định trước đây.
+- **`limits.idleFreshMinutes` (mặc định 55):** session Claude to (≳ 66k token) bị đánh thức sau thời gian nghỉ này thì lượt sau mở **session mới** thay vì nạp lại toàn bộ, kèm thông báo 🕒. Áp dụng cho cả điều phối viên (vốn không bị xoay theo `contextLimit`). Không áp cho account `baseUrl`. Mô phỏng trên dữ liệu thật ước tính tiết kiệm khoảng 2,2M token ghi cache (~30%), **chưa đo thật sau thay đổi**. Đổi lại worker mất hội thoại chi tiết, chỉ còn trí nhớ, nhật ký và 30 tin gần nhất.
+- **`limits.maxModelTurns` (mặc định 60):** giới hạn số lần gọi model trong một lượt Claude (có lượt thật lên tới 33). Chạm giới hạn thì lượt dừng nhưng **giữ lại** phần đã làm, chi phí và session (trước đây `error_max_turns` sẽ bị coi là lỗi); nhắn "tiếp tục" để làm tiếp. Truyền qua cả worker chạy trên máy SSH. `0` = tắt.
+- **Mention không còn đánh thức nhầm:** trong tin của worker, tên trong **dòng bảng markdown** (`| @be | … |`) và trong **dòng mở đầu bằng điều kiện** ("Nếu…", "If…", "Trường hợp…") không gọi ai nữa (như `cc:`). Tin của người dùng không bị lọc. Lưu ý: bảng giao việc dạng `| @be | làm X |` giờ không đánh thức; muốn gọi thì @mention ngoài bảng.
+- **Không đánh thức hai lần:** người mà worker đã gọi bằng `post_message` trong lượt không bị gọi lại bởi câu trả lời cuối của chính lượt đó (tin vẫn đăng, chỉ không đánh thức).
+- **Số đo:** 🔍 Inspector hiện chi phí **của lượt** (trước đây là chi phí cộng dồn của session, lệch với nhật ký usage).
+- Còn lại chưa làm: `modelUsage` của subagent, lưu usage khi lượt lỗi hoặc bị hủy, gom session theo task.
+
 ## 0.14.14
 - **Account Codex: `windowsSandbox: unelevated`** ghi đè `[windows] sandbox` của `~/.codex/config.toml` chỉ cho các lượt của AgentRoom, để khắc phục lỗi `CreateProcess … setup refresh had errors` mà không phải sửa cấu hình toàn cục (ảnh hưởng cả Codex app). Kiểm chứng với `codex-cli 0.164.0` rằng khóa `windows.sandbox` nhận `elevated`, `unelevated`, `mxc` qua `-c`. **Chưa kiểm chứng trên Codex Windows của người dùng** (và trên một số máy `unelevated` cũng lỗi theo báo cáo cộng đồng).
 

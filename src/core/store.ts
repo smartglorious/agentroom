@@ -3,6 +3,15 @@ import { join } from "node:path";
 import type { ScheduleState } from "./cron";
 import { ChatMessage, Task } from "./types";
 
+/** What the room remembers about a session besides its id. */
+export interface SessionMeta {
+  persona: string;
+  mem: string;
+  /** When the last turn of the session ended, and how big its context was then (tokens, per model call): enough to tell whether resuming it would pay to write the whole context again. */
+  end?: number;
+  ctx?: number;
+}
+
 /**
  * Persists the room under <workspace>/.agentroom:
  *   chat.jsonl     — append-only message log
@@ -44,8 +53,8 @@ export class RoomStore {
   saveSessions(s: Record<string, string>) { this.writeJson("sessions.json", s); }
 
   /** Per session: hash of the persona it was started with, and of the memory it last saw. */
-  loadSessionMeta(): Record<string, { persona: string; mem: string }> { return this.readJson("sessionmeta.json", {}); }
-  saveSessionMeta(m: Record<string, { persona: string; mem: string }>) { this.writeJson("sessionmeta.json", m); }
+  loadSessionMeta(): Record<string, SessionMeta> { return this.readJson("sessionmeta.json", {}); }
+  saveSessionMeta(m: Record<string, SessionMeta>) { this.writeJson("sessionmeta.json", m); }
 
   loadCursors(): Record<string, number> { return this.readJson("cursors.json", {}); }
   saveCursors(c: Record<string, number>) { this.writeJson("cursors.json", c); }

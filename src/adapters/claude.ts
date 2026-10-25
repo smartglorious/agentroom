@@ -19,7 +19,7 @@ export const READ_ONLY_DENY = ["Edit", "Write", "MultiEdit", "NotebookEdit", "Ba
  * only the second line of defence.
  */
 export function buildClaudeOptions(
-  req: Pick<TurnRequest, "worker" | "cwd" | "sessionId" | "systemAppend" | "mcpUrl" | "account" | "readOnly" | "claudeSkills" | "approve">,
+  req: Pick<TurnRequest, "worker" | "cwd" | "sessionId" | "systemAppend" | "mcpUrl" | "account" | "readOnly" | "claudeSkills" | "approve" | "maxTurns">,
   executable: string | undefined,
   abortController: AbortController,
 ): Options {
@@ -41,6 +41,7 @@ export function buildClaudeOptions(
     ...(process.env.AGENTROOM_KEEP_CONNECTORS === "1" ? {} : { strictMcpConfig: true, settings: { disableClaudeAiConnectors: true } }),
     env: { BASH_MAX_OUTPUT_LENGTH: BASH_OUTPUT_CHARS, ...accountEnv(req.account, "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY") },
     abortController,
+    ...(req.maxTurns ? { maxTurns: req.maxTurns } : {}),
     ...(req.claudeSkills ? { plugins: req.claudeSkills.plugins, skills: req.claudeSkills.skills } : {}),
     canUseTool: async (toolName, input) => {
       if (req.readOnly && !READ_ONLY_TOOLS.includes(toolName) && !isRoomTool(toolName)) {
@@ -56,6 +57,9 @@ export function buildClaudeOptions(
 
 /** Claude Code cuts the middle out of a Bash result longer than this (default 30000). Every kept character is paid for again on each later call of the session, so a lower cap saves a lot; a value the person already set in the environment wins. */
 export const BASH_OUTPUT_CHARS = "15000";
+
+/** Appended to what a turn had said when it was stopped at limits.maxModelTurns. No @, so it wakes nobody. */
+export const MAX_TURNS_NOTE = (n: number) => `⚠️ Lượt này dừng ở giới hạn ${n} lần gọi model (limits.maxModelTurns). Nhắn "tiếp tục" để làm tiếp.`;
 
 /** Reduces an SDK result message to normalised usage; the cost is the CLI's own number. */
 export function claudeUsage(m: {
@@ -152,6 +156,8 @@ export class ClaudeAdapter implements AgentAdapter {
       } else if (m.type === "result") {
         sessionId = m.session_id;
         if (m.subtype === "success") return { sessionId, text: m.result || lastText, usage: claudeUsage(m), context };
+        // The turn hit limits.maxModelTurns: keep what it did and what it paid, and say so, instead of throwing both away as an error.
+        if (m.subtype === "error_max_turns") return { sessionId, text: `${lastText}${lastText ? "\n\n" : ""}${MAX_TURNS_NOTE(req.maxTurns ?? m.num_turns)}`, usage: claudeUsage(m), context };
         throw new Error(`Claude: ${m.subtype}: ${m.errors.join("; ")}`);
       }
     }
