@@ -601,6 +601,7 @@ test("unpair: stops everything; later messages from that phone are ignored", asy
   try {
     r.tg.userSays(USER, "/unpair");
     await until(() => r.paired() === undefined, 3000, "unpaired");
+    await until(() => r.tg.texts(USER).some((t) => /Đã ngắt ghép cặp/.test(t)), 3000, "unpair confirmation");
     const n = r.tg.sent.length;
     r.room.post("be", "không gửi nữa");
     r.tg.userSays(USER, "còn ai không");

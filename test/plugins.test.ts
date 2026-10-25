@@ -31,7 +31,7 @@ function rig(calls: [string, unknown][], guards: Guard[], mode?: Autonomy) {
 }
 const run = async (r: ReturnType<typeof rig>) => { r.room.post("user", "@be làm"); await new Promise((x) => setTimeout(x, 80)); };
 const finish = async (r: ReturnType<typeof rig>) => { for (const a of r.room.snapshot().approvals) r.room.respondApproval(a.id, true); await idle(r.room); await new Promise((x) => setTimeout(x, 40)); };
-const locked: Guard = (c) => (c.paths.some((p) => p.includes("/locked/")) ? { action: "ask", reason: "area of another team" } : undefined);
+const locked: Guard = (c) => (c.paths.some((p) => p.split(/[\\/]/).includes("locked")) ? { action: "ask", reason: "area of another team" } : undefined);
 const audit = (r: ReturnType<typeof rig>) => { const f = join(r.dir, ".agentroom", "state", "audit.jsonl"); return existsSync(f) ? readFileSync(f, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : []; };
 
 test("guard: in Auto, a call the policy allows becomes a card when a guard says ask; other calls still run unasked", async () => {
