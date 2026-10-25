@@ -146,6 +146,7 @@ export class Room extends EventEmitter<RoomEvents> {
   private freshCtx = new Map<string, number>();
   private budgetNotes = new Set<string>();
   private readonly dispatcherId = `room-${randomUUID()}`;
+  private recoveryTimer?: NodeJS.Timeout;
 
   constructor(private deps: RoomDeps) {
     super();
@@ -211,6 +212,7 @@ export class Room extends EventEmitter<RoomEvents> {
   /** Rehydrates batches whose process died after dequeueing but before the durable step completed. */
   async recoverDurableTurns(): Promise<number> {
     if (!this.deps.turnQueue) return 0;
+    if (this.recoveryTimer) { clearTimeout(this.recoveryTimer); this.recoveryTimer = undefined; }
     let restored = 0;
     for (const turn of await this.deps.turnQueue.recoverable()) {
       const expectedKey = `${turn.workerId}:${turn.taskId.startsWith("room-main:") ? "main" : turn.taskId}`;
@@ -222,6 +224,11 @@ export class Room extends EventEmitter<RoomEvents> {
       this.inbox.set(turn.sessionKey, [...current, ...messages]);
       restored += messages.length;
       this.schedule(turn.sessionKey);
+    }
+    const next = await this.deps.turnQueue.nextRecoveryAt();
+    if (next !== undefined) {
+      this.recoveryTimer = setTimeout(() => { void this.recoverDurableTurns(); }, Math.max(1, next - this.now() + 1));
+      this.recoveryTimer.unref?.();
     }
     return restored;
   }
@@ -399,7 +406,10 @@ export class Room extends EventEmitter<RoomEvents> {
     for (const [id, a] of this.approvals) if (a.req.workerId === workerId) this.respondApproval(id, false);
   }
 
-  stopAll() { this.workers.forEach((w) => this.stop(w.id)); }
+  stopAll() {
+    if (this.recoveryTimer) { clearTimeout(this.recoveryTimer); this.recoveryTimer = undefined; }
+    this.workers.forEach((w) => this.stop(w.id));
+  }
 
   /** True while any session whose key starts with `prefix` is running, queued or has mail waiting. */
   isActive(prefix: string): boolean {

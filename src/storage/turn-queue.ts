@@ -101,6 +101,17 @@ export class DurableTurnQueue {
     return result;
   }
 
+  async nextRecoveryAt(): Promise<number | undefined> {
+    const row = await this.db.get<{ at: number | null }>(
+      `SELECT MIN(steps.lease_expires_at) AS at FROM steps
+       JOIN runs ON runs.id = steps.run_id
+       WHERE steps.workspace_id = ? AND runs.status = 'running'
+         AND steps.status IN ('leased', 'running') AND steps.lease_expires_at IS NOT NULL`,
+      [this.workspaceId],
+    );
+    return row?.at ?? undefined;
+  }
+
   private async ensureTask(id: string, title: string): Promise<void> {
     const at = this.now();
     await this.db.run(

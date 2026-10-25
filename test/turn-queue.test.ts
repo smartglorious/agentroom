@@ -101,3 +101,29 @@ test("Room bridge: startup restores an expired in-flight batch and finishes it o
     await secondDb.close();
   }
 });
+
+test("Room bridge: startup waits for a live lease and automatically recovers when it expires", async () => {
+  const file = join(mkdtempSync(join(tmpdir(), "ar-room-live-lease-")), "agentroom.db");
+  let now = 100;
+  const firstDb = await open(file);
+  const firstQueue = new DurableTurnQueue(firstDb, "w1", { now: () => now, leaseMs: 30 });
+  const turn = await firstQueue.enqueue({ workerId: "lead", sessionKey: "lead:main", messages: [message] });
+  await firstQueue.claim(turn, "still-live");
+  await firstDb.close();
+
+  const secondDb = await open(file);
+  const queue = new DurableTurnQueue(secondDb, "w1", { now: () => now, leaseMs: 30 });
+  const fake = new Fake(() => "after-expiry");
+  const { room } = makeRoom(fake, { turnQueue: queue, now: () => now });
+  try {
+    assert.equal(await room.recoverDurableTurns(), 0);
+    assert.equal(fake.calls.length, 0);
+    now = 131;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await idle(room);
+    assert.equal(fake.calls.length, 1);
+  } finally {
+    room.stopAll();
+    await secondDb.close();
+  }
+});
