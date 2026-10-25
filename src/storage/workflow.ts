@@ -90,8 +90,22 @@ export class DurableWorkflowService {
     await this.recover(workspaceId);
     const step = (await this.steps.pending(workspaceId, this.now(), 1))[0];
     if (!step) return undefined;
+    return await this.claimPending(step, owner);
+  }
+
+  /** Claims one known step without letting a per-session dispatcher consume another session's work. */
+  async claim(workspaceId: string, stepId: string, owner: string): Promise<StepRecord | undefined> {
+    await this.recover(workspaceId);
+    const step = await this.steps.get(workspaceId, stepId);
+    if (!step || step.status !== "pending" || (step.retryAt !== undefined && step.retryAt > this.now())) return undefined;
+    const run = await this.runs.get(workspaceId, step.runId);
+    if (run?.status !== "running") return undefined;
+    return await this.claimPending(step, owner);
+  }
+
+  private async claimPending(step: StepRecord, owner: string): Promise<StepRecord> {
     const at = this.now();
-    return await this.steps.lease(workspaceId, step.id, owner, this.id("lease"), at + this.leaseMs, {
+    return await this.steps.lease(step.workspaceId, step.id, owner, this.id("lease"), at + this.leaseMs, {
       eventId: this.id("step-leased"), occurredAt: at, expectedVersion: step.version,
     });
   }
