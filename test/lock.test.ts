@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { RoomLock } from "../src/core/lock";
 import { ensureWorktree, expandHome, localBase } from "../src/core/worktree";
 
@@ -98,9 +98,9 @@ function repo() {
 
 test("workdir: relative, absolute and ~ paths resolve; the workspace is the default", () => {
   assert.equal(localBase("/ws", {}), "/ws");
-  assert.equal(localBase("/ws", { workdir: "../other" }), "/other");
+  assert.equal(localBase("/ws", { workdir: "../other" }), resolve("/ws", "../other"));
   assert.equal(localBase("/ws", { workdir: "/abs/clone" }), "/abs/clone");
-  assert.equal(localBase("/ws", { workdir: "~/code/app" }, "/home/u"), "/home/u/code/app");
+  assert.equal(localBase("/ws", { workdir: "~/code/app" }, "/home/u"), join("/home/u", "code/app"));
   assert.equal(expandHome("~", "/home/u"), "/home/u");
   assert.equal(expandHome("~x/y", "/home/u"), "~x/y");
 });

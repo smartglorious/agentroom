@@ -38,6 +38,7 @@ export interface PolicyContext {
 
 const SYSTEM_DIRS = ["/etc", "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/boot", "/dev", "/proc", "/sys", "/var", "/root", "/opt", "/srv", "/mnt", "/media", "/run", "/snap", "/System", "/Library", "/Applications", "/private", "/Volumes"];
 const SYSTEM_WIN = /^[a-z]:[\\/](windows|program files|program files \(x86\)|programdata|users[\\/][^\\/]+[\\/]appdata)/i;
+const USER_TEMP_WIN = /^[a-z]:[\\/]users[\\/][^\\/]+[\\/]appdata[\\/]local[\\/]temp(?:[\\/]|$)/i;
 const HOME_SECRET_DIRS = [".ssh", ".aws", ".gnupg", ".kube", ".docker", ".config", ".azure", ".gcloud", ".npm", ".claude", ".codex", ".agentroom"];
 const HOME_RC = /^\.(bashrc|bash_profile|bash_login|zshrc|zprofile|profile|zshenv|netrc|npmrc|pypirc|gitconfig|git-credentials)$/;
 const SENSITIVE_SEGMENT = /^(\.git|\.github|\.agentroom|\.claude|\.ssh|\.husky|\.vscode|\.aws|\.gnupg|\.kube)$/i;
@@ -52,13 +53,25 @@ const isWin = (p: string) => /^[a-z]:[\\/]/i.test(p) || p.startsWith("\\\\");
 /** Resolves `p` against `cwd` without touching the disk. Returns undefined when the text cannot be resolved statically. */
 function resolveIn(p: string, cwd: string, home?: string): string | undefined {
   if (/[$`]|%[A-Za-z_]+%/.test(p)) return undefined;
-  const lib = isWin(cwd) ? win32 : posix;
   let q = p;
   if (q === "~" || q.startsWith("~/") || q.startsWith("~\\")) {
     if (!home) return undefined;
-    q = lib.join(home, q.slice(1));
+    const homeLib = isWin(home) ? win32 : posix;
+    q = homeLib.join(home, q.slice(1));
   } else if (q.startsWith("~")) return undefined;
-  return lib.isAbsolute(q) ? lib.normalize(q) : lib.resolve(cwd, q);
+  // Tool paths describe the worker's machine, which can differ from the
+  // extension host. Preserve an explicit path's own flavour before using cwd.
+  if (isWin(q)) return win32.normalize(q);
+  if (posix.isAbsolute(q)) return posix.normalize(q);
+  const lib = isWin(cwd) ? win32 : posix;
+  return lib.resolve(cwd, q);
+}
+
+function insidePath(abs: string, root: string): boolean {
+  if (isWin(abs) !== isWin(root)) return false;
+  const lib = isWin(abs) ? win32 : posix;
+  const rel = lib.relative(root, abs);
+  return rel === "" || (!rel.startsWith("..") && !lib.isAbsolute(rel));
 }
 
 /** Absolute form of `p` for `written`-style bookkeeping; undefined when it cannot be resolved statically. */
@@ -79,21 +92,25 @@ export function classifyPath(p: string, ctx: PolicyContext): PathClass {
   if (!abs) return "unknown";
   const lib = isWin(abs) ? win32 : posix;
   const norm = isWin(abs) ? abs.replace(/\//g, "\\") : abs;
-  // system locations first: they win even if the worker's folder happens to be below one
+  const insideCwd = !!known && insidePath(abs, known);
+  // System locations outside the explicitly selected worker folder are never
+  // touched automatically. A workspace itself may legitimately live below
+  // AppData/Temp on Windows (including test and remote-runner worktrees).
   const sys = isWin(abs)
-    ? SYSTEM_WIN.test(norm)
-    : SYSTEM_DIRS.some((d) => norm === d || norm.startsWith(d + "/")) && !(known && (norm === known || norm.startsWith(known.replace(/\/$/, "") + "/")));
+    ? SYSTEM_WIN.test(norm) && !USER_TEMP_WIN.test(norm) && !insideCwd
+    : SYSTEM_DIRS.some((d) => norm === d || norm.startsWith(d + "/")) && !insideCwd;
   if (sys) return "system";
   const home = ctx.home;
-  if (home && !isWin(abs)) {
-    const rel = posix.relative(home, norm);
-    if (!rel.startsWith("..") && !posix.isAbsolute(rel)) {
-      const first = rel.split("/")[0];
-      const insideCwd = known && (norm === known || norm.startsWith(known.replace(/\/$/, "") + "/"));
+  if (home && isWin(home) === isWin(abs)) {
+    const homeLib = isWin(abs) ? win32 : posix;
+    const rel = homeLib.relative(home, norm);
+    if (!rel.startsWith("..") && !homeLib.isAbsolute(rel)) {
+      const first = rel.split(/[\\/]/)[0];
       if (!insideCwd && (HOME_SECRET_DIRS.includes(first) || HOME_RC.test(first))) return "system";
     }
   }
   if (!known) return "unknown";
+  if (isWin(abs) !== isWin(known)) return "outside";
   const rel = lib.relative(known, abs);
   if (rel === "" ) return "inside";
   if (rel.startsWith("..") || lib.isAbsolute(rel)) return "outside";
