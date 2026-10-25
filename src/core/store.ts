@@ -3,6 +3,23 @@ import { join } from "node:path";
 import type { ScheduleState } from "./cron";
 import { ChatMessage, Task } from "./types";
 
+/** Persistence boundary used by Room. Implementations may be file-, memory-, or database-backed. */
+export interface RoomStateStore {
+  loadMessages(): ChatMessage[];
+  appendMessage(message: ChatMessage): void;
+  appendAudit(entry: object): void;
+  loadTasks(): Task[];
+  saveTasks(tasks: Task[]): void;
+  loadSessions(): Record<string, string>;
+  saveSessions(sessions: Record<string, string>): void;
+  loadSessionMeta(): Record<string, { persona: string; mem: string }>;
+  saveSessionMeta(metadata: Record<string, { persona: string; mem: string }>): void;
+  loadCursors(): Record<string, number>;
+  saveCursors(cursors: Record<string, number>): void;
+  loadSchedules(): ScheduleState;
+  saveSchedules(state: ScheduleState): void;
+}
+
 /**
  * Persists the room under <workspace>/.agentroom:
  *   chat.jsonl     — append-only message log
@@ -11,7 +28,7 @@ import { ChatMessage, Task } from "./types";
  *   cursors.json   — last message id each worker has seen
  *   schedules.json — cron bookkeeping (last runs, disabled schedules)
  */
-export class RoomStore {
+export class RoomStore implements RoomStateStore {
   constructor(readonly dir: string) {
     mkdirSync(dir, { recursive: true });
   }

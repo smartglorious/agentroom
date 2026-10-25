@@ -12,7 +12,7 @@ import { Autonomy, PolicyContext, absolutePath, decide, describeCall, toolPaths 
 import { PlanMonitor, PlanProbe } from "./plan";
 import type { IssueInput, IssueStore } from "./issues";
 import type { GuardVerdict, PluginManager } from "./plugins";
-import { RoomStore } from "./store";
+import type { RoomStateStore } from "./store";
 import { TaskBoard } from "./tasks";
 import { ApprovalRequest, ChatMessage, ChoiceSet, HUMAN, Provider, RoomConfig, SYSTEM, Task, TurnUsage, Worker, WorkerStatus } from "./types";
 import { nextMidnight, UsageStore } from "./usage";
@@ -30,7 +30,7 @@ export interface RoomOptions {
 
 export interface RoomDeps {
   config: RoomConfig;
-  store: RoomStore;
+  store: RoomStateStore;
   adapters: Record<Provider, AgentAdapter>;
   /** Runs turns for accounts that live on another machine (see `hosts`). */
   remote?: AgentAdapter;
