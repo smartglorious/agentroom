@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { createLegacyBackup, inventoryLegacyState } from "./legacy-backup";
 import { importLegacyState, scanLegacyState, verifyLegacyImport, type LegacyVerification } from "./legacy-importer";
 import { SqliteMigrationRunner } from "./migrations";
-import { schemaV1Migrations } from "./schema-v1";
+import { schemaMigrations } from "./schema-v1";
 import { SqliteConnection, type SqliteHealth } from "./sqlite";
 
 export type StorageMode = "legacy" | "verify";
@@ -40,7 +40,7 @@ export const prepareStorage = async (workspaceRoot: string, stateDir: string, mo
     const scan = scanLegacyState(stateDir);
     if (scan.errors.length) throw new Error(`Legacy state has ${scan.errors.length} parse error(s)`);
     db = await SqliteConnection.open(database);
-    await new SqliteMigrationRunner(db, schemaV1Migrations).apply();
+    await new SqliteMigrationRunner(db, schemaMigrations).apply();
     const now = Date.now();
     await db.run(
       `INSERT INTO workspaces(id, name, root_uri, created_at, updated_at)

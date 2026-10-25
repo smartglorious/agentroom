@@ -67,9 +67,9 @@ test("schema v1: enforces workspace boundaries, state, JSON and idempotency", as
     await assert.rejects(db.run("INSERT INTO task_dependencies VALUES ('w1', 't1', 'other', 100)"), /FOREIGN KEY/i);
 
     await db.run("INSERT INTO runs(id, workspace_id, task_id, status, attempt, created_at, updated_at) VALUES ('r1', 'w1', 't1', 'queued', 1, 100, 100)");
-    await db.run("INSERT INTO steps(id, run_id, ordinal, kind, status, idempotency_key, created_at, updated_at) VALUES ('s1', 'r1', 0, 'model', 'pending', 'model:0', 100, 100)");
+    await db.run("INSERT INTO steps(id, workspace_id, run_id, ordinal, kind, status, idempotency_key, created_at, updated_at) VALUES ('s1', 'w1', 'r1', 0, 'model', 'pending', 'model:0', 100, 100)");
     await assert.rejects(
-      db.run("INSERT INTO steps(id, run_id, ordinal, kind, status, idempotency_key, created_at, updated_at) VALUES ('s2', 'r1', 1, 'model', 'pending', 'model:0', 100, 100)"),
+      db.run("INSERT INTO steps(id, workspace_id, run_id, ordinal, kind, status, idempotency_key, created_at, updated_at) VALUES ('s2', 'w1', 'r1', 1, 'model', 'pending', 'model:0', 100, 100)"),
       /UNIQUE constraint/i,
     );
   } finally {

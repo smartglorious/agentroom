@@ -76,7 +76,8 @@ export const schemaV1Migrations: readonly SqliteMigration[] = [{
 
     CREATE TABLE steps (
       id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
+      workspace_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
       ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
       kind TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('pending', 'leased', 'running', 'waiting_approval', 'succeeded', 'failed', 'cancelled')),
@@ -84,8 +85,10 @@ export const schemaV1Migrations: readonly SqliteMigration[] = [{
       version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+      UNIQUE (workspace_id, id),
       UNIQUE (run_id, ordinal),
-      UNIQUE (run_id, idempotency_key)
+      UNIQUE (run_id, idempotency_key),
+      FOREIGN KEY (workspace_id, run_id) REFERENCES runs(workspace_id, id) ON DELETE RESTRICT
     ) STRICT;
 
     CREATE TABLE events (
@@ -131,3 +134,72 @@ export const schemaV1Migrations: readonly SqliteMigration[] = [{
       BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
   `,
 }];
+
+const durableExecutionV2: SqliteMigration = {
+  version: 2,
+  name: "durable_execution_v2",
+  sql: `
+    ALTER TABLE steps ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0);
+    ALTER TABLE steps ADD COLUMN lease_token TEXT;
+    ALTER TABLE steps ADD COLUMN lease_owner TEXT;
+    ALTER TABLE steps ADD COLUMN lease_expires_at INTEGER;
+    ALTER TABLE steps ADD COLUMN error_json TEXT CHECK (error_json IS NULL OR json_valid(error_json));
+
+    CREATE TABLE checkpoints (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      step_version INTEGER NOT NULL CHECK (step_version >= 1),
+      state_hash TEXT NOT NULL,
+      state_json TEXT NOT NULL CHECK (json_valid(state_json)),
+      cursor TEXT,
+      schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+      created_at INTEGER NOT NULL,
+      UNIQUE (step_id, step_version),
+      FOREIGN KEY (workspace_id, run_id) REFERENCES runs(workspace_id, id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, step_id) REFERENCES steps(workspace_id, id) ON DELETE RESTRICT
+    ) STRICT;
+
+    CREATE TABLE tool_receipts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      semantic_key TEXT NOT NULL,
+      tool_id TEXT NOT NULL,
+      args_hash TEXT NOT NULL,
+      risk TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('intent', 'succeeded', 'failed', 'unknown')),
+      receipt_json TEXT CHECK (receipt_json IS NULL OR json_valid(receipt_json)),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+      UNIQUE (step_id, semantic_key),
+      FOREIGN KEY (workspace_id, step_id) REFERENCES steps(workspace_id, id) ON DELETE RESTRICT
+    ) STRICT;
+
+    CREATE TABLE execution_outbox (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE RESTRICT,
+      destination TEXT NOT NULL,
+      payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+      available_at INTEGER NOT NULL,
+      delivered_at INTEGER,
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+      last_error TEXT,
+      UNIQUE (event_id, destination)
+    ) STRICT;
+
+    CREATE INDEX steps_lease_expiry_idx ON steps(status, lease_expires_at) WHERE lease_expires_at IS NOT NULL;
+    CREATE INDEX checkpoints_run_step_idx ON checkpoints(run_id, step_id, created_at);
+    CREATE INDEX tool_receipts_step_status_idx ON tool_receipts(step_id, status);
+    CREATE INDEX execution_outbox_pending_idx ON execution_outbox(available_at, seq) WHERE delivered_at IS NULL;
+
+    CREATE TRIGGER checkpoints_no_update
+      BEFORE UPDATE ON checkpoints BEGIN SELECT RAISE(ABORT, 'checkpoints are immutable'); END;
+    CREATE TRIGGER checkpoints_no_delete
+      BEFORE DELETE ON checkpoints BEGIN SELECT RAISE(ABORT, 'checkpoints are immutable'); END;
+  `,
+};
+
+export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2];
