@@ -160,6 +160,12 @@
           "default": 47321,
           "description": "%cfg.hookPort%"
         },
+        "agentroom.localApi.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "%cfg.localApiEnabled%"
+        },
         "agentroom.telegram.enabled": {
           "type": "boolean",
           "default": false,
@@ -239,6 +245,8 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node esbuild.mjs --tests && node --test out-test/*.test.js",
+    "bench:gateway": "node scripts/benchmark-gateway.mjs",
+    "security:sbom": "npm sbom --sbom-format cyclonedx",
     "package": "npm run build && npx -y @vscode/vsce package",
     "test:live": "node scripts/live/run.mjs",
     "test:ssh": "node scripts/live/run.mjs ssh",

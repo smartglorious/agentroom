@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { SqliteConnection } from "../src/storage/sqlite";
 import { SqliteMigrationRunner } from "../src/storage/migrations";
 import { schemaMigrations } from "../src/storage/schema-v1";
+import { ModelGateway } from "../src/gateway/dispatcher";
 
 const request = ModelCallRequestV1Schema.parse({
   schema_version: 1, request_id: "req-1", provider: "claude", account_id: "a1", worker_id: "be", model: "strong",
@@ -28,6 +29,8 @@ test("model gateway contract: versioned request/response/usage and safe ledger p
   assert.equal(JSON.stringify(metadata).includes("private"), false);
   assert.throws(() => ModelCallResponseV1Schema.parse({ schema_version: 1, request_id: "req-1", text: "ok", finish_reason: "completed",
     usage: { ...usage, cost_provenance: "unknown", cost_micros: 0 } }), /unknown cost/);
+  assert.throws(() => ModelCallResponseV1Schema.parse({ schema_version: 1, request_id: "req-1", text: "ok", finish_reason: "completed",
+    usage: { ...usage, token_provenance: "unknown" } }), /unknown token usage/);
 });
 
 const profile = (over: Partial<ModelCapabilityProfile>): ModelCapabilityProfile => ({
@@ -76,5 +79,31 @@ test("model cost ledger: reservations enforce hard caps and preserve unknown ver
     assert.deepEqual(await db.get("SELECT status, token_provenance, cost_provenance, cost_micros FROM model_calls WHERE request_id = 'req-3'"),
       { status: "failed", token_provenance: "unknown", cost_provenance: "unknown", cost_micros: null });
     assert.equal(JSON.stringify(await db.get("SELECT * FROM model_calls WHERE request_id = 'req-1'")).includes("private prompt"), false);
+  } finally { await db.close(); }
+});
+
+test("model gateway: reserves before dispatch, records error usage and uses compatible fallback", async () => {
+  const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-dispatch-")), "agentroom.db"));
+  await new SqliteMigrationRunner(db, schemaMigrations).apply();
+  await db.run("INSERT INTO workspaces(id, name, root_uri, created_at, updated_at) VALUES ('w1', 'One', 'file:///one', 1, 1)");
+  try {
+    const profiles = [profile({ id: "primary", provider: "claude", model: "strong", quality: .9, estimatedCostMicros: 20 }),
+      profile({ id: "fallback", provider: "codex", model: "safe", quality: .8, estimatedCostMicros: 30 })];
+    const invoked: string[] = [];
+    const gateway = new ModelGateway(profiles, new ModelCostLedger(db), async (selected) => {
+      invoked.push(selected.id);
+      if (selected.id === "primary") throw new Error("provider outage");
+      return { text: "ok", usage: { model: selected.model, input: 8, output: 2, cacheRead: 0, cacheWrite: 0,
+        costUsd: .00003, estimated: true, tokenProvenance: "provider", costProvenance: "catalog_estimate", unitPriceVersion: "test-v1" } };
+    });
+    const turn = { worker: { id: "be", provider: "claude", model: "strong", allowedTools: [], useSkills: [] },
+      account: { id: "a1" }, systemAppend: "system", prompt: "prompt", signal: new AbortController().signal } as any;
+    const result = await gateway.dispatch({ workspaceId: "w1", turn, requirements: { modalities: ["text"], contextTokens: 100,
+      minimumQuality: .7, sensitivity: "internal" }, budget: { runMicros: 100, dayStartsAt: 0 } });
+    assert.equal(result.text, "ok");
+    assert.deepEqual(invoked, ["primary", "fallback"]);
+    const calls = await db.all<any>("SELECT status, error_code, fallback_of, cost_provenance FROM model_calls ORDER BY created_at, rowid");
+    assert.equal(calls[0].status, "failed"); assert.equal(calls[0].error_code, "provider");
+    assert.equal(calls[1].status, "completed"); assert.ok(calls[1].fallback_of); assert.equal(calls[1].cost_provenance, "catalog_estimate");
   } finally { await db.close(); }
 });

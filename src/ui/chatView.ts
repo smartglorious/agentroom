@@ -11,6 +11,7 @@ import type { WebhookHandler } from "../core/webhooks";
 import type { HostManager } from "../remote/host";
 import type { PluginManager } from "../core/plugins";
 import type { TelegramPanel } from "./telegramPanel";
+import type { AgentRoomApiClient } from "../api/client";
 
 /** Messages the webview sends to the extension. */
 type FromWebview =
@@ -48,6 +49,8 @@ export interface ViewContext {
   hosts?: HostManager;
   telegram?: TelegramPanel;
   plugins?: PluginManager;
+  /** When present, user commands cross the authenticated loopback boundary. */
+  apiClient?: AgentRoomApiClient;
 }
 
 export interface ViewHandlers {
@@ -178,13 +181,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void c.plugins.invokePanelAction(panel, action, m.values).then((r) => this.post({ type: "panelResult", panel, action, ...r }));
         break;
       }
-      case "send": if (typeof m.text === "string" && m.text.trim()) room.post("user", m.text.trim(), typeof m.replyTo === "string" ? { replyTo: m.replyTo } : {}); break;
+      case "send": if (typeof m.text === "string" && m.text.trim()) {
+        if (c.apiClient) void c.apiClient.post(m.text.trim(), undefined, m.replyTo).catch((e) => vscode.window.showWarningMessage(String(e)));
+        else room.post("user", m.text.trim(), typeof m.replyTo === "string" ? { replyTo: m.replyTo } : {});
+      } break;
       case "answerOption":
         try { room.answerOption(String(m.messageId), String(m.optionId)); }
         catch (e) { vscode.window.showWarningMessage(String(e instanceof Error ? e.message : e)); this.post({ type: "optionError", messageId: String(m.messageId) }); }
         break;
-      case "approve": room.respondApproval(String(m.id), !!m.allow); break;
-      case "stop": room.stop(String(m.workerId)); break;
+      case "approve": if (c.apiClient) void c.apiClient.request(`/approvals/${encodeURIComponent(String(m.id))}`, { method: "POST", body: JSON.stringify({ allow: !!m.allow }) }).catch((e) => vscode.window.showWarningMessage(String(e))); else room.respondApproval(String(m.id), !!m.allow); break;
+      case "stop": if (c.apiClient) void c.apiClient.command(String(m.workerId), "cancel").catch((e) => vscode.window.showWarningMessage(String(e))); else room.stop(String(m.workerId)); break;
       case "reportIssue": void vscode.commands.executeCommand("agentroom.reportIssue"); break;
       case "inspect": void this.handlers?.inspect(String(m.turnId)); break;
       case "getProfile": { const profile = room.profile(String(m.workerId)); if (profile) this.post({ type: "profile", profile }); break; }

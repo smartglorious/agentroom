@@ -37,6 +37,7 @@ import { ensureWorktree, localBase } from "../core/worktree";
 import { AgentRoomMcp } from "../mcp/server";
 import { HostManager, fingerprint } from "../remote/host";
 import { DaemonStore, defaultStoreFile, pairingFile } from "./store";
+import { DeviceTokenStore, LocalApiServer } from "../api/local";
 
 export const EXIT = { ok: 0, config: 2, locked: 3 } as const;
 
@@ -67,6 +68,8 @@ export interface DaemonOptions {
 export interface DaemonHandle {
   room: Room;
   telegram?: TelegramService;
+  /** Authenticated loopback API used by thin clients. */
+  apiUrl: string;
   /** Resolves when another process took the room over; the daemon has already shut down by then. */
   lost: Promise<void>;
   /** New 10-minute pairing code, also written to the pairing file for `agentroom-daemon pair`. */
@@ -205,6 +208,13 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     if (recovered) log(`Recovered ${recovered} durable inbox message(s).`);
     disposers.push(() => mcp.dispose());
 
+    const deviceToken = new DeviceTokenStore(join(home, ".agentroom", "local-api.token"));
+    deviceToken.loadOrCreate();
+    const localApi = new LocalApiServer({ room, token: () => deviceToken.loadOrCreate() });
+    await localApi.start();
+    disposers.push(() => localApi.dispose());
+    log(`local API: ${localApi.url()}`);
+
     const problems = [...checkWorkerSkills(config.workers, skills), ...skills.problems.map((p) => `${p.dir}: ${p.message}`)];
     for (const p of problems) log(`skill: ${p}`);
 
@@ -283,7 +293,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     if (telegram && !telegram.status().paired) requestPairing();
 
     log(tr("daemon đang điều phối {root} ({n} worker)", { root: o.root, n: config.workers.length }));
-    return { room, telegram, lost, requestPairing, stop };
+    return { room, telegram, apiUrl: localApi.url(), lost, requestPairing, stop };
   } catch (e) {
     stop();
     throw e;

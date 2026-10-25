@@ -84,7 +84,7 @@ export class ModelCostLedger {
       `UPDATE model_calls SET status = 'completed', input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?,
         token_provenance = ?, cost_micros = ?, cost_provenance = ?, unit_price_version = ?, provider_request_id = ?, completed_at = ?
        WHERE workspace_id = ? AND request_id = ? AND status = 'reserved'`,
-      [receipt.input_tokens, receipt.output_tokens, receipt.cache_read_tokens, receipt.cache_write_tokens, receipt.token_provenance,
+      [receipt.input_tokens ?? null, receipt.output_tokens ?? null, receipt.cache_read_tokens ?? null, receipt.cache_write_tokens ?? null, receipt.token_provenance,
         receipt.cost_micros ?? null, receipt.cost_provenance, receipt.unit_price_version ?? null, receipt.provider_request_id ?? null,
         at, workspaceId, receipt.request_id],
     );

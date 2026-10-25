@@ -12,10 +12,10 @@ export const UsageReceiptV1Schema = z.object({
   provider: z.enum(["claude", "codex"]),
   model: z.string().min(1).optional(),
   provider_request_id: z.string().min(1).optional(),
-  input_tokens: TokenCount,
-  output_tokens: TokenCount,
-  cache_read_tokens: TokenCount,
-  cache_write_tokens: TokenCount,
+  input_tokens: TokenCount.optional(),
+  output_tokens: TokenCount.optional(),
+  cache_read_tokens: TokenCount.optional(),
+  cache_write_tokens: TokenCount.optional(),
   token_provenance: z.enum(["provider", "estimated", "unknown"]),
   cost_micros: z.number().int().nonnegative().optional(),
   cost_provenance: z.enum(["provider", "catalog_estimate", "unknown"]),
@@ -24,6 +24,13 @@ export const UsageReceiptV1Schema = z.object({
   retry_of: z.string().min(1).optional(),
   fallback_of: z.string().min(1).optional(),
 }).strict().superRefine((value, ctx) => {
+  const tokenFields = ["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"] as const;
+  if (value.token_provenance === "unknown" && tokenFields.some((field) => value[field] !== undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["input_tokens"], message: "unknown token usage cannot carry numeric values" });
+  }
+  if (value.token_provenance !== "unknown" && tokenFields.some((field) => value[field] === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["input_tokens"], message: "known token usage requires every token count" });
+  }
   if (value.cost_provenance === "unknown" && value.cost_micros !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cost_micros"], message: "unknown cost cannot carry a numeric value" });
   }

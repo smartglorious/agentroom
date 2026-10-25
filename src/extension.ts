@@ -44,6 +44,8 @@ import { ChatViewProvider, ViewContext } from "./ui/chatView";
 import { TelegramPanel } from "./ui/telegramPanel";
 import { createHash } from "node:crypto";
 import { Autonomy, isAutonomy } from "./core/autonomy";
+import { DeviceTokenStore, LocalApiServer } from "./api/local";
+import { AgentRoomApiClient } from "./api/client";
 
 const fullWarning = () => [
   tr("Worker này sẽ KHÔNG còn hỏi bạn trước khi: sửa hoặc xóa bất kỳ file nào (kể cả ngoài dự án), chạy lệnh tùy ý, tải rồi chạy mã từ Internet, cài gói, git push --force, gửi dữ liệu ra ngoài."),
@@ -73,6 +75,7 @@ interface Live {
   config: RoomConfig;
   plugins: PluginManager;
   storage?: SqliteConnection;
+  localApi?: LocalApiServer;
 }
 
 let live: Live | undefined;
@@ -87,6 +90,7 @@ function dispose() {
   live.telegram?.stop();
   live.hosts?.closeAll();
   live.mcp.dispose();
+  live.localApi?.dispose();
   live.lock.release();
   void live.storage?.close();
   live = undefined;
@@ -196,6 +200,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
       vscode.window.showWarningMessage(tr("AgentRoom: một cửa sổ khác đã chiếm quyền điều phối thư mục này, nên cửa sổ này đã dừng."));
     });
     let storageConnection: SqliteConnection | undefined;
+    let localApiConnection: LocalApiServer | undefined;
     try {
       const cfg = settings();
       const config = parseConfig(readFileSync(file, "utf8"));
@@ -272,6 +277,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
       await mcp.start();
       const recovered = await room.recoverDurableTurns();
       if (recovered) out.appendLine(`[storage] Recovered ${recovered} durable inbox message(s).`);
+      let localApi: LocalApiServer | undefined;
+      let apiClient: AgentRoomApiClient | undefined;
+      if (cfg.get<boolean>("localApi.enabled", true)) {
+        const deviceToken = new DeviceTokenStore(join(ctx.globalStorageUri.fsPath, "local-api.token"));
+        deviceToken.loadOrCreate();
+        localApi = new LocalApiServer({ room, token: () => deviceToken.loadOrCreate() });
+        await localApi.start();
+        localApiConnection = localApi;
+        apiClient = new AgentRoomApiClient(localApi.url(), () => deviceToken.loadOrCreate());
+        out.appendLine(`[api] ${localApi.url()}`);
+      }
 
       const problems = [...checkWorkerSkills(config.workers, skills), ...skills.problems.map((p) => `${p.dir}: ${p.message}`)];
       if (problems.length) vscode.window.showWarningMessage(tr("AgentRoom: {n} vấn đề với skills — {p}", { n: problems.length, p: problems[0] }));
@@ -319,13 +335,15 @@ export async function activate(ctx: vscode.ExtensionContext) {
       }
 
       plugins.activate({ room, config, root: ws, log: (t) => out.appendLine(`[plugin] ${t}`) });
-      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config, plugins, storage: storageConnection };
+      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config, plugins, storage: storageConnection, localApi };
       storageConnection = undefined;
-      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel, plugins };
+      localApiConnection = undefined;
+      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel, plugins, apiClient };
       view.attach(vctx);
       void startTelegram().catch((e) => { const m = trVi("không khởi động được: {p}", { p: e instanceof Error ? e.message : e }); out.appendLine(`[telegram] ${m}`); live?.room.noteIssue({ kind: "error", source: "telegram", title: m }); });
     } catch (e) {
       void storageConnection?.close();
+      localApiConnection?.dispose();
       dispose();
       lock.release();
       vscode.window.showErrorMessage(tr("AgentRoom: workers.yaml lỗi — {p}", { p: e instanceof Error ? e.message : e }));

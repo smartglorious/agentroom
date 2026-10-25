@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
+import type { SqliteToolReceiptStore, ToolReceipt } from "../storage/tool-receipts";
 
 export const ToolManifestV1Schema = z.object({
   schema_version: z.literal(1),
@@ -77,6 +79,36 @@ export async function executeToolWithLimits<T>(manifest: ToolManifestV1, run: (s
     return { value, outputBytes, truncated: false };
   } finally {
     if (timer) clearTimeout(timer);
+  }
+}
+
+/** Durable side-effect boundary: an intent is committed before execution and every outcome gets a receipt. */
+export class DurableToolGateway {
+  constructor(private readonly registry: ToolManifestRegistry, private readonly receipts: SqliteToolReceiptStore) {}
+
+  async execute<T>(input: {
+    workspaceId: string; stepId: string; semanticKey: string; toolId: string; args: unknown; at?: number;
+    run(signal: AbortSignal): Promise<T>; timeoutMs?: number; maxOutputBytes?: number;
+  }): Promise<{ execution: ToolExecutionResult<T>; receipt: ToolReceipt }> {
+    const manifest = this.registry.get(input.toolId);
+    if (!manifest) throw new Error(`Unknown tool ${input.toolId}; deny by default`);
+    const at = input.at ?? Date.now();
+    const begun = await this.receipts.begin({ id: randomUUID(), workspaceId: input.workspaceId, stepId: input.stepId,
+      semanticKey: input.semanticKey, toolId: manifest.id, args: input.args, risk: manifest.risk, at });
+    if (!begun.execute) throw new Error(`Tool intent ${input.semanticKey} already exists with ${begun.receipt.status} outcome; reconcile before retry`);
+    try {
+      const execution = await executeToolWithLimits(manifest, input.run, { timeoutMs: input.timeoutMs, maxOutputBytes: input.maxOutputBytes });
+      const receipt = await this.receipts.resolve(begun.receipt.id, "succeeded", {
+        policy_input: this.registry.policyInput(manifest.id), output_bytes: execution.outputBytes,
+      }, Date.now());
+      return { execution, receipt };
+    } catch (error) {
+      const unknown = error instanceof ToolRuntimeError && error.code === "timeout_unknown_effect";
+      await this.receipts.resolve(begun.receipt.id, unknown ? "unknown" : "failed", {
+        policy_input: this.registry.policyInput(manifest.id), code: error instanceof ToolRuntimeError ? error.code : "tool_error",
+      }, Date.now());
+      throw error;
+    }
   }
 }
 

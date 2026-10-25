@@ -437,4 +437,25 @@ const modelCostLedgerV6: SqliteMigration = {
   `,
 };
 
-export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5, modelCostLedgerV6];
+const persistentApprovalsV7: SqliteMigration = {
+  version: 7,
+  name: "persistent_approvals_v7",
+  sql: `
+    CREATE TABLE approvals (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      step_id TEXT NOT NULL,
+      action_hash TEXT NOT NULL CHECK (length(action_hash) = 64),
+      scope TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending', 'allowed', 'denied', 'expired')),
+      reason TEXT,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL CHECK (expires_at > created_at),
+      decided_at INTEGER,
+      UNIQUE (workspace_id, step_id, action_hash, scope, state)
+    ) STRICT;
+    CREATE INDEX approvals_pending_idx ON approvals(workspace_id, state, expires_at);
+  `,
+};
+
+export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5, modelCostLedgerV6, persistentApprovalsV7];

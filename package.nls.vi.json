@@ -1,4 +1,5 @@
 {
+  "cfg.localApiEnabled": "Gửi lệnh từ VS Code qua API loopback có xác thực. Tắt để dùng đường tương thích gọi Room trực tiếp.",
   "description": "Nhiều AI worker (Claude Code / Codex) với vai trò riêng cùng làm việc trong một group chat ngay trong VS Code.",
   "untrusted": "AgentRoom chạy agent, lệnh và kết nối SSH theo cấu hình nằm trong repo, nên chỉ hoạt động trong workspace bạn tin tưởng.",
   "cmd.init": "AgentRoom: Tạo cấu hình workers mẫu",
