@@ -28,6 +28,7 @@ import { Room } from "./core/room";
 import { Scheduler } from "./core/scheduler";
 import { SKILL_NAME, SKILL_TEMPLATE, SkillDrafts, SkillRegistry, checkWorkerSkills, skillSources } from "./core/skills";
 import { RoomStore } from "./core/store";
+import { prepareStorage, type StorageMode } from "./storage/bootstrap";
 import { SYSTEM } from "./core/types";
 import { UsageStore } from "./core/usage";
 import type { RoomConfig } from "./core/types";
@@ -193,6 +194,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
       const config = parseConfig(readFileSync(file, "utf8"));
       const agentroomDir = join(ws, ".agentroom");
       const stateDir = join(agentroomDir, "state");
+      const storage = await prepareStorage(ws, stateDir, cfg.get<StorageMode>("storage.mode", "legacy"));
+      if (storage.error) {
+        out.appendLine(`[storage] ${storage.error}`);
+        void vscode.window.showWarningMessage(`AgentRoom storage verify failed; using legacy files: ${storage.error}`);
+      } else if (storage.verification) {
+        out.appendLine(`[storage] SQLite shadow verified (${storage.verification.ledgerRecords} records); legacy files remain authoritative.`);
+      }
       const store = new RoomStore(stateDir);
       const skills = new SkillRegistry(skillSources(ws, homedir()));
       const server: { current?: AgentRoomMcp } = {};

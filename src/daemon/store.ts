@@ -12,6 +12,7 @@ export interface DaemonSettings extends TelegramSettings {
   inspectorKeepTurns: number;
   agentDebounceMs: number;
   planPollMinutes: number;
+  storageMode: "legacy" | "verify";
   /** vi | en | auto (auto follows $LANG). AGENTROOM_LANG overrides. */
   language: string;
   claudePath: string;
@@ -30,7 +31,7 @@ export interface DaemonFile {
 
 export const DEFAULT_SETTINGS: DaemonSettings = {
   detail: "summary", approveFromPhone: "safe", summaryChars: 600, quietHours: "",
-  hookPort: 47321, maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12000, inspectorKeepTurns: 300, agentDebounceMs: 8000, planPollMinutes: 10,
+  hookPort: 47321, maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12000, inspectorKeepTurns: 300, agentDebounceMs: 8000, planPollMinutes: 10, storageMode: "legacy",
   language: "vi", claudePath: "", codexPath: "", pricing: {},
 };
 
@@ -55,6 +56,7 @@ export const SETTING_PARSERS: Record<keyof DaemonSettings, Parse> = {
   inspectorKeepTurns: int(0, 5000),
   agentDebounceMs: int(0, 60000),
   planPollMinutes: int(0, 1440),
+  storageMode: oneOf("legacy", "verify"),
   language: oneOf("vi", "en", "auto"),
   claudePath: (v) => v,
   codexPath: (v) => v,

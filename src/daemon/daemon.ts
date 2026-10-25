@@ -26,6 +26,7 @@ import { Scheduler } from "../core/scheduler";
 import { SkillDrafts, SkillRegistry, checkWorkerSkills, skillSources } from "../core/skills";
 import type { HostDef } from "../core/types";
 import { RoomStore } from "../core/store";
+import { prepareStorage } from "../storage/bootstrap";
 import { SYSTEM } from "../core/types";
 import { UsageStore } from "../core/usage";
 import { WebhookHandler, WebhookServer } from "../core/webhooks";
@@ -126,6 +127,9 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     const usage = new UsageStore(stateDir);
     const issues = new IssueStore(join(stateDir, "issues.json"), { version: VERSION, platform: process.platform, node: process.version, scrub: [[o.root, "<project>"], [home, "~"]] });
     const plugins = new PluginManager(bundledPlugins);
+    const storage = await prepareStorage(o.root, stateDir, s0.storageMode);
+    if (storage.error) log(`Storage verify failed; using legacy files: ${storage.error}`);
+    else if (storage.verification) log(`SQLite shadow verified (${storage.verification.ledgerRecords} records); legacy files remain authoritative.`);
     const roomStore = new RoomStore(stateDir);
     const server: { current?: AgentRoomMcp } = {};
 

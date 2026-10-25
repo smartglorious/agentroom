@@ -134,6 +134,16 @@
           "default": 12000,
           "description": "%cfg.memoryBudgetChars%"
         },
+        "agentroom.storage.mode": {
+          "type": "string",
+          "enum": [
+            "legacy",
+            "verify"
+          ],
+          "default": "legacy",
+          "scope": "resource",
+          "description": "%cfg.storage.mode%"
+        },
         "agentroom.inspector.keepTurns": {
           "type": "number",
           "default": 300,

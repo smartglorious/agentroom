@@ -23,6 +23,7 @@
   "cfg.codexPath": "Path to the codex CLI (empty = look in PATH).",
   "cfg.contextMessages": "Number of recent messages put in the prompt each turn.",
   "cfg.memoryBudgetChars": "Maximum characters of SOUL + memory + journal put into the persona each turn.",
+  "cfg.storage.mode": "Storage migration gate. legacy uses files only. verify creates a verified backup and SQLite shadow snapshot, while files remain authoritative.",
   "cfg.inspector.keepTurns": "Number of most recent turns kept for the Context Inspector (0 = off). The folder holds code, so it is git-ignored.",
   "cfg.pricing": "Price table to estimate Codex cost, USD per 1 million tokens. Example: {\"gpt-5.4\": {\"input\": 2.5, \"cachedInput\": 0.25, \"output\": 10}}. Models not in the table get no cost.",
   "cfg.hookPort": "Webhook port (listens on 127.0.0.1 only).",
