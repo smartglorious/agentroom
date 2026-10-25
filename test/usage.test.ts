@@ -270,6 +270,9 @@ import { codexConfig } from "../src/adapters/codex";
 
 test("codex: the room's MCP server tools are approved up front (codex exec cannot ask)", () => {
   assert.deepEqual(codexConfig("http://x/1"), { mcp_servers: { agentroom: { url: "http://x/1", default_tools_approval_mode: "approve" } } });
+  assert.deepEqual(codexConfig("http://x/1", "unelevated").windows, { sandbox: "unelevated" }, "per-run Windows sandbox override");
+  assert.equal(parseConfig(`accounts: { c: { provider: codex, windowsSandbox: unelevated } }\nworkers:\n  - { id: d, name: D, role: R, account: c }\n`).accounts[0].windowsSandbox, "unelevated");
+  assert.throws(() => parseConfig(`accounts: { c: { provider: codex, windowsSandbox: bogus } }\nworkers:\n  - { id: d, name: D, role: R, account: c }\n`));
 });
 
 import { explainCodexError } from "../src/adapters/codex";

@@ -32,6 +32,7 @@ export interface WireAccount {
   /** Name of an environment variable *on the host* that holds an API key. */
   apiKeyEnv?: string;
   baseUrl?: string;
+  windowsSandbox?: "elevated" | "unelevated";
   /** Name of an environment variable *on the host* that holds the endpoint's token. */
   authTokenEnv?: string;
 }

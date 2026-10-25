@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.14
+- **Account Codex: `windowsSandbox: unelevated`** ghi đè `[windows] sandbox` của `~/.codex/config.toml` chỉ cho các lượt của AgentRoom, để khắc phục lỗi `CreateProcess … setup refresh had errors` mà không phải sửa cấu hình toàn cục (ảnh hưởng cả Codex app). Kiểm chứng với `codex-cli 0.164.0` rằng khóa `windows.sandbox` nhận `elevated`, `unelevated`, `mxc` qua `-c`. **Chưa kiểm chứng trên Codex Windows của người dùng** (và trên một số máy `unelevated` cũng lỗi theo báo cáo cộng đồng).
+
 ## 0.14.13
 - **Codex: công cụ của phòng được duyệt sẵn.** `codex exec` không hỏi được ai nên các lệnh gọi `post_message`, `claim_task`… của máy chủ MCP `agentroom` bị từ chối vì cần duyệt, dù `approvalPolicy` là `never`. Giờ cấu hình thread có `default_tools_approval_mode = "approve"` cho máy chủ này (Claude vốn đã duyệt sẵn). Kiểm chứng với `codex-cli 0.164.0`: giá trị hợp lệ, khóa lạ bị bỏ qua nên bản cũ không lỗi. **Chưa kiểm chứng trên Codex của người dùng** (Windows).
 - **Codex trên Windows:** lỗi `CreateProcess … setup refresh had errors` (sandbox lỗi dựng) giờ kèm gợi ý đặt `[windows] sandbox = "unelevated"` trong `~/.codex/config.toml` (theo báo cáo cộng đồng, chưa kiểm chứng), hoặc `sandbox: danger-full-access` cho worker như phương án cuối.

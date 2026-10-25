@@ -78,6 +78,7 @@ for (const [id, a] of Object.entries(accounts)) {
   if (a?.warnAtPercent !== undefined && !(typeof a.warnAtPercent === "number" && a.warnAtPercent >= 1 && a.warnAtPercent <= 100)) errors.push(`accounts.${id}.warnAtPercent phải nằm trong 1–100`);
   if (a?.host !== undefined && !hosts?.[a.host]) errors.push(`accounts.${id}.host "${a.host}" không có trong hosts`);
   if (a?.host && a?.home) warns.push(`accounts.${id}: home là đường dẫn TRÊN máy "${a.host}"`);
+  if (a?.windowsSandbox !== undefined && !["elevated", "unelevated"].includes(a.windowsSandbox)) errors.push(`accounts.${id}.windowsSandbox phải là elevated hoặc unelevated`);
   if (a?.baseUrl !== undefined && !/^https?:\/\/\S+$/.test(String(a.baseUrl))) errors.push(`accounts.${id}.baseUrl phải là URL http(s)`);
   if (a?.authTokenEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(a.authTokenEnv))) errors.push(`accounts.${id}.authTokenEnv phải là TÊN biến môi trường, không phải token`);
   if ((a?.baseUrl || a?.authTokenEnv) && a?.provider !== "claude") warns.push(`accounts.${id}: baseUrl/authTokenEnv chỉ dùng cho provider claude`);

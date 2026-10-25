@@ -45,8 +45,12 @@ export function explainCodexError(e: unknown): unknown {
   return hint === raw ? e : new Error(hint);
 }
 
-export function codexConfig(mcpUrl: string) {
-  return { mcp_servers: { agentroom: { url: mcpUrl, default_tools_approval_mode: "approve" } } };
+export function codexConfig(mcpUrl: string, windowsSandbox?: "elevated" | "unelevated") {
+  return {
+    mcp_servers: { agentroom: { url: mcpUrl, default_tools_approval_mode: "approve" } },
+    // Checked with codex-cli 0.164.0: `windows.sandbox` accepts elevated, unelevated and mxc; a per-run override leaves ~/.codex/config.toml alone.
+    ...(windowsSandbox ? { windows: { sandbox: windowsSandbox } } : {}),
+  };
 }
 
 /**
@@ -70,7 +74,7 @@ export class CodexAdapter implements AgentAdapter {
     const codex = new Codex({
       codexPathOverride: this.executable(),
       env: accountEnv(req.account, "CODEX_HOME", "OPENAI_API_KEY"),
-      config: codexConfig(req.mcpUrl),
+      config: codexConfig(req.mcpUrl, req.account.windowsSandbox),
     });
     const threadOpts: ThreadOptions = {
       workingDirectory: req.cwd,
