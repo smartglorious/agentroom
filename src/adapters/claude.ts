@@ -74,6 +74,8 @@ export function claudeUsage(m: {
     costUsd: m.total_cost_usd,
     estimated: false,
     numTurns: m.num_turns,
+    tokenProvenance: "provider",
+    costProvenance: "provider",
   };
 }
 

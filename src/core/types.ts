@@ -213,4 +213,9 @@ export interface TurnUsage {
   costUsd?: number;
   estimated: boolean;
   numTurns?: number;
+  /** Provenance is explicit so missing usage/cost is never silently treated as zero or actual. */
+  tokenProvenance?: "provider" | "estimated" | "unknown";
+  costProvenance?: "provider" | "catalog_estimate" | "unknown";
+  unitPriceVersion?: string;
+  providerRequestId?: string;
 }

@@ -841,6 +841,9 @@ export class Room extends EventEmitter<RoomEvents> {
         model: usage?.model ?? runWorker.model, sessionKey: key, sessionId: this.sessions[sessKey], taskId,
         input: usage?.input ?? 0, output: usage?.output ?? 0, cacheRead: usage?.cacheRead ?? 0, cacheWrite: usage?.cacheWrite ?? 0,
         costUsd: usage?.costUsd, estimated: usage?.estimated ?? false, numTurns: usage?.numTurns,
+        tokenProvenance: usage?.tokenProvenance ?? (usage ? "unknown" : undefined),
+        costProvenance: usage?.costProvenance ?? (usage?.costUsd === undefined ? "unknown" : usage.estimated ? "catalog_estimate" : "provider"),
+        unitPriceVersion: usage?.unitPriceVersion, providerRequestId: usage?.providerRequestId,
         durationMs: this.now() - startedAt, tools, error: error ?? null,
       });
     };
