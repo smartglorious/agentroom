@@ -29,7 +29,7 @@ test("schema v1: creates the execution spine and survives reopen", async () => {
   await new SqliteMigrationRunner(first, schemaV1Migrations).apply();
   const tables = await first.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
   assert.deepEqual(tables.map((row) => row.name), [
-    "_agentroom_migrations", "agents", "events", "runs", "steps", "task_dependencies", "tasks", "workspaces",
+    "_agentroom_migrations", "agents", "events", "legacy_imports", "runs", "steps", "task_dependencies", "tasks", "workspaces",
   ]);
   await seedWorkspace(first);
   await seedTask(first, "t1");

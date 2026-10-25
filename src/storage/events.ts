@@ -74,51 +74,54 @@ export class SqliteEventStore {
   constructor(private readonly db: SqliteConnection) {}
 
   async append<T>(event: NewEvent<T>, project?: (tx: SqliteConnection, stored: StoredEvent<T>) => Promise<void>): Promise<StoredEvent<T>> {
+    return await this.db.transaction((tx) => this.appendWithin(tx, event, project));
+  }
+
+  /** Appends inside a transaction already owned by a higher-level command such as an importer. */
+  async appendWithin<T>(tx: SqliteConnection, event: NewEvent<T>, project?: (tx: SqliteConnection, stored: StoredEvent<T>) => Promise<void>): Promise<StoredEvent<T>> {
     if (!Number.isSafeInteger(event.expectedVersion) || event.expectedVersion < 0) throw new Error("Expected event version must be a non-negative integer");
     if (!Number.isSafeInteger(event.schemaVersion) || event.schemaVersion < 1) throw new Error("Event schema version must be a positive integer");
     const payloadJson = JSON.stringify(event.payload);
     if (payloadJson === undefined) throw new Error("Event payload is not JSON serializable");
 
-    return await this.db.transaction(async (tx) => {
-      const duplicate = await tx.get<EventRow>("SELECT * FROM events WHERE event_id = ?", [event.eventId]);
-      if (duplicate) {
-        if (!sameIdentity(duplicate, event, payloadJson)) throw new Error(`Event ID ${event.eventId} already has different content`);
-        return fromRow<T>(duplicate);
-      }
+    const duplicate = await tx.get<EventRow>("SELECT * FROM events WHERE event_id = ?", [event.eventId]);
+    if (duplicate) {
+      if (!sameIdentity(duplicate, event, payloadJson)) throw new Error(`Event ID ${event.eventId} already has different content`);
+      return fromRow<T>(duplicate);
+    }
 
-      const current = await tx.get<{ version: number }>(
-        "SELECT COALESCE(MAX(aggregate_version), 0) AS version FROM events WHERE aggregate_type = ? AND aggregate_id = ?",
-        [event.aggregateType, event.aggregateId],
-      );
-      const actual = current?.version ?? 0;
-      if (actual !== event.expectedVersion) throw new OptimisticConcurrencyError(event.expectedVersion, actual);
+    const current = await tx.get<{ version: number }>(
+      "SELECT COALESCE(MAX(aggregate_version), 0) AS version FROM events WHERE aggregate_type = ? AND aggregate_id = ?",
+      [event.aggregateType, event.aggregateId],
+    );
+    const actual = current?.version ?? 0;
+    if (actual !== event.expectedVersion) throw new OptimisticConcurrencyError(event.expectedVersion, actual);
 
-      const aggregateVersion = actual + 1;
-      const result = await tx.run(
-        `INSERT INTO events(
-          event_id, workspace_id, aggregate_type, aggregate_id, aggregate_version, type,
-          schema_version, payload_json, occurred_at, causation_event_id, correlation_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [event.eventId, event.workspaceId, event.aggregateType, event.aggregateId, aggregateVersion, event.type,
-          event.schemaVersion, payloadJson, event.occurredAt, event.causationEventId ?? null, event.correlationId ?? null],
-      );
-      const stored: StoredEvent<T> = {
-        seq: result.lastId,
-        eventId: event.eventId,
-        workspaceId: event.workspaceId,
-        aggregateType: event.aggregateType,
-        aggregateId: event.aggregateId,
-        aggregateVersion,
-        type: event.type,
-        schemaVersion: event.schemaVersion,
-        payload: event.payload,
-        occurredAt: event.occurredAt,
-        causationEventId: event.causationEventId,
-        correlationId: event.correlationId,
-      };
-      await project?.(tx, stored);
-      return stored;
-    });
+    const aggregateVersion = actual + 1;
+    const result = await tx.run(
+      `INSERT INTO events(
+        event_id, workspace_id, aggregate_type, aggregate_id, aggregate_version, type,
+        schema_version, payload_json, occurred_at, causation_event_id, correlation_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [event.eventId, event.workspaceId, event.aggregateType, event.aggregateId, aggregateVersion, event.type,
+        event.schemaVersion, payloadJson, event.occurredAt, event.causationEventId ?? null, event.correlationId ?? null],
+    );
+    const stored: StoredEvent<T> = {
+      seq: result.lastId,
+      eventId: event.eventId,
+      workspaceId: event.workspaceId,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+      aggregateVersion,
+      type: event.type,
+      schemaVersion: event.schemaVersion,
+      payload: event.payload,
+      occurredAt: event.occurredAt,
+      causationEventId: event.causationEventId,
+      correlationId: event.correlationId,
+    };
+    await project?.(tx, stored);
+    return stored;
   }
 
   async readAggregate<T = unknown>(aggregateType: AggregateType, aggregateId: string): Promise<StoredEvent<T>[]> {

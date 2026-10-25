@@ -105,12 +105,25 @@ export const schemaV1Migrations: readonly SqliteMigration[] = [{
       FOREIGN KEY (causation_event_id) REFERENCES events(event_id) ON DELETE RESTRICT
     ) STRICT;
 
+    CREATE TABLE legacy_imports (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      source_kind TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+      target_id TEXT,
+      importer_version INTEGER NOT NULL CHECK (importer_version >= 1),
+      imported_at INTEGER NOT NULL,
+      PRIMARY KEY (workspace_id, source_kind, source_key)
+    ) STRICT;
+
     CREATE INDEX tasks_workspace_status_idx ON tasks(workspace_id, status, updated_at);
     CREATE INDEX runs_task_status_idx ON runs(workspace_id, task_id, status, updated_at);
     CREATE INDEX steps_run_status_idx ON steps(run_id, status, ordinal);
     CREATE INDEX events_workspace_seq_idx ON events(workspace_id, seq);
     CREATE INDEX events_aggregate_seq_idx ON events(aggregate_type, aggregate_id, seq);
     CREATE INDEX events_correlation_seq_idx ON events(correlation_id, seq) WHERE correlation_id IS NOT NULL;
+    CREATE INDEX legacy_imports_hash_idx ON legacy_imports(workspace_id, source_hash);
 
     CREATE TRIGGER events_no_update
       BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;

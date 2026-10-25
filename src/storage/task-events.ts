@@ -2,7 +2,7 @@ import type { Task, TaskStatus } from "../core/types";
 import { SqliteEventStore, type StoredEvent } from "./events";
 import type { SqliteConnection } from "./sqlite";
 
-interface TaskCreated {
+export interface TaskCreated {
   title: string;
   description: string;
   assignee?: string;
@@ -12,7 +12,8 @@ interface TaskCreated {
 
 interface TaskClaimed { workerId: string }
 interface TaskCompleted { workerId: string; result: string }
-type TaskPayload = TaskCreated | TaskClaimed | TaskCompleted;
+export interface TaskImported { task: Task }
+type TaskPayload = TaskCreated | TaskClaimed | TaskCompleted | TaskImported;
 
 export interface TaskCommandMeta {
   eventId: string;
@@ -21,7 +22,23 @@ export interface TaskCommandMeta {
   correlationId?: string;
 }
 
-const projectTask = async (tx: SqliteConnection, event: StoredEvent<TaskPayload>) => {
+export const projectTask = async (tx: SqliteConnection, event: StoredEvent<TaskPayload>) => {
+  if (event.type === "TaskImported") {
+    const task = (event.payload as TaskImported).task;
+    await tx.run(
+      `INSERT INTO tasks(id, workspace_id, title, description, status, assignee_agent_id, created_by, result, version, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [task.id, event.workspaceId, task.title, task.description, task.status, task.assignee ?? null,
+        task.createdBy, task.result ?? null, event.aggregateVersion, task.updatedAt, task.updatedAt],
+    );
+    for (const dependency of task.dependsOn) {
+      await tx.run(
+        "INSERT INTO task_dependencies(workspace_id, task_id, depends_on_task_id, created_at) VALUES (?, ?, ?, ?)",
+        [event.workspaceId, task.id, dependency, task.updatedAt],
+      );
+    }
+    return;
+  }
   if (event.type === "TaskCreated") {
     const payload = event.payload as TaskCreated;
     await tx.run(
