@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { classifyExecutionFailure, type ExecutionFailure } from "./execution-errors";
 import { SqliteRunRepository, type RunRecord } from "./run-events";
 import type { SqliteConnection } from "./sqlite";
 import { SqliteStepRepository, type StepRecord } from "./step-events";
@@ -118,21 +119,25 @@ export class DurableWorkflowService {
     return await this.reconcileRun(step.workspaceId, step.runId);
   }
 
-  async fail(step: StepRecord, error: unknown, retryable = true): Promise<RunRecord> {
+  async fail(step: StepRecord, error: unknown, disposition: boolean | ExecutionFailure = classifyExecutionFailure(error)): Promise<RunRecord> {
     if (!step.leaseToken) throw new Error(`Step ${step.id} has no lease`);
     const run = await this.mustRun(step.workspaceId, step.runId);
     const definition = definitionOf(run);
     const at = this.now();
-    if (retryable && step.attempt < definition.maxAttempts) {
+    const failure = typeof disposition === "boolean"
+      ? (disposition ? { classification: "transient", action: "retry_exhausted" } : { classification: "validation", action: "fix_input" }) satisfies ExecutionFailure
+      : disposition;
+    if (failure.classification === "transient" && step.attempt < definition.maxAttempts) {
       const delay = this.retryBaseMs * 2 ** Math.max(0, step.attempt - 1);
       await this.steps.retry(step.workspaceId, step.id, step.leaseToken, error, at + delay, {
         eventId: this.id("step-retry"), occurredAt: at, expectedVersion: step.version,
       });
       return run;
     }
-    await this.steps.fail(step.workspaceId, step.id, step.leaseToken, error, {
-      eventId: this.id("step-failed"), occurredAt: at, expectedVersion: step.version,
-    });
+    await this.steps.deadLetter(step.workspaceId, step.id, step.leaseToken, this.id("dead-letter"), error,
+      failure.classification, failure.action, {
+        eventId: this.id("step-dead-lettered"), occurredAt: at, expectedVersion: step.version,
+      });
     return await this.reconcileRun(step.workspaceId, step.runId);
   }
 

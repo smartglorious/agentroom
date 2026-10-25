@@ -4,6 +4,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteMigrationRunner } from "../src/storage/migrations";
+import { SqliteDeadLetterStore } from "../src/storage/dead-letters";
+import { classifyExecutionFailure } from "../src/storage/execution-errors";
 import { SqliteRunRepository } from "../src/storage/run-events";
 import { schemaMigrations } from "../src/storage/schema-v1";
 import { SqliteConnection } from "../src/storage/sqlite";
@@ -87,6 +89,36 @@ test("workflow: retries use bounded exponential backoff then fail the run", asyn
     const run = await service.fail(second, { code: "TEMP" }, true);
     assert.equal(run.status, "failed");
     assert.equal(await service.claimNext("w1", "worker"), undefined);
+    assert.deepEqual((await new SqliteDeadLetterStore(db).pending("w1")).map((item) => [item.classification, item.action]), [
+      ["transient", "retry_exhausted"],
+    ]);
+  } finally {
+    await db.close();
+  }
+});
+
+test("workflow: deterministic and ambiguous failures dead-letter without blind retry", async () => {
+  assert.deepEqual(classifyExecutionFailure({ status: 401, message: "invalid API key" }),
+    { classification: "auth", action: "fix_credentials" });
+  assert.deepEqual(classifyExecutionFailure(new Error("tool outcome unknown after connection reset")),
+    { classification: "unknown_effect", action: "reconcile_effect" });
+
+  const { db } = await database();
+  try {
+    const service = new DurableWorkflowService(db, { now: () => 100, id: ids() });
+    await service.start({ workspaceId: "w1", runId: "r1", taskId: "t1", maxAttempts: 5,
+      steps: [{ id: "s1", kind: "tool", idempotencyKey: "publish:release" }] });
+    const running = await service.startClaimed((await service.claimNext("w1", "worker"))!);
+    const run = await service.fail(running, new Error("tool outcome unknown after connection reset"));
+    assert.equal(run.status, "failed");
+    const pending = await new SqliteDeadLetterStore(db).pending("w1");
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].classification, "unknown_effect");
+    assert.equal(pending[0].action, "reconcile_effect");
+    assert.equal((await new SqliteStepRepository(db).get("w1", "s1"))?.attempt, 1);
+    const resolved = await new SqliteDeadLetterStore(db).resolve(pending[0].id, "resolved", { receipt: "external-1" }, 200);
+    assert.equal(resolved.status, "resolved");
+    await assert.rejects(new SqliteDeadLetterStore(db).resolve(pending[0].id, "discarded", {}, 201), /already resolved/);
   } finally {
     await db.close();
   }

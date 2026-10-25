@@ -204,4 +204,30 @@ const durableExecutionV2: SqliteMigration = {
   `,
 };
 
-export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2];
+const executionFailuresV3: SqliteMigration = {
+  version: 3,
+  name: "execution_failures_v3",
+  sql: `
+    CREATE TABLE execution_dead_letters (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      classification TEXT NOT NULL CHECK (classification IN ('transient', 'auth', 'validation', 'budget', 'unknown_effect', 'checkpoint')),
+      action TEXT NOT NULL CHECK (action IN ('retry_exhausted', 'fix_credentials', 'fix_input', 'raise_budget', 'reconcile_effect', 'restore_checkpoint')),
+      error_json TEXT NOT NULL CHECK (json_valid(error_json)),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'resolved', 'discarded')),
+      resolution_json TEXT CHECK (resolution_json IS NULL OR json_valid(resolution_json)),
+      created_at INTEGER NOT NULL,
+      resolved_at INTEGER,
+      UNIQUE (step_id),
+      FOREIGN KEY (workspace_id, run_id) REFERENCES runs(workspace_id, id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, step_id) REFERENCES steps(workspace_id, id) ON DELETE RESTRICT
+    ) STRICT;
+
+    CREATE INDEX execution_dead_letters_pending_idx
+      ON execution_dead_letters(workspace_id, created_at) WHERE status = 'pending';
+  `,
+};
+
+export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3];

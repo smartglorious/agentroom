@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { SqliteEventStore, type StoredEvent } from "./events";
+import type { DeadLetterAction, ExecutionFailureClass } from "./execution-errors";
 import type { SqliteConnection } from "./sqlite";
 
 export type StepStatus = "pending" | "leased" | "running" | "waiting_approval" | "succeeded" | "failed" | "cancelled";
@@ -48,11 +49,12 @@ interface StepLeased { owner: string; token: string; expiresAt: number }
 interface StepHeartbeat { token: string; expiresAt: number }
 interface StepToken { token: string }
 interface StepFailed { token: string; error: unknown }
+interface StepDeadLettered extends StepFailed { deadLetterId: string; classification: ExecutionFailureClass; action: DeadLetterAction }
 interface StepRetryScheduled { token: string; error: unknown; retryAt: number }
 interface StepLeaseExpired { token: string }
 interface StepCheckpointed { checkpointId: string; token: string; stateJson: string; stateHash: string; cursor?: string; schemaVersion: number }
 interface EmptyStepPayload { noop?: never }
-type StepPayload = StepCreated | StepLeased | StepHeartbeat | StepToken | StepFailed | StepRetryScheduled | StepLeaseExpired | StepCheckpointed | EmptyStepPayload;
+type StepPayload = StepCreated | StepLeased | StepHeartbeat | StepToken | StepFailed | StepDeadLettered | StepRetryScheduled | StepLeaseExpired | StepCheckpointed | EmptyStepPayload;
 
 const projectStep = async (tx: SqliteConnection, event: StoredEvent<StepPayload>) => {
   const prior = event.aggregateVersion - 1;
@@ -119,16 +121,24 @@ const projectStep = async (tx: SqliteConnection, event: StoredEvent<StepPayload>
     if (result.changes !== 1) throw new Error(`Step ${event.aggregateId} is not waiting for approval`);
     return;
   }
-  if (event.type === "StepSucceeded" || event.type === "StepFailed") {
-    const payload = event.payload as StepToken | StepFailed;
+  if (event.type === "StepSucceeded" || event.type === "StepFailed" || event.type === "StepDeadLettered") {
+    const payload = event.payload as StepToken | StepFailed | StepDeadLettered;
     const status = event.type === "StepSucceeded" ? "succeeded" : "failed";
-    const errorJson = event.type === "StepFailed" ? (JSON.stringify((payload as StepFailed).error) ?? "null") : null;
+    const errorJson = event.type === "StepSucceeded" ? null : (JSON.stringify((payload as StepFailed).error) ?? "null");
     const result = await tx.run(
       `UPDATE steps SET status = ?, error_json = ?, retry_at = NULL, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, version = ?, updated_at = ?
        WHERE id = ? AND workspace_id = ? AND version = ? AND status = 'running' AND lease_token = ?`,
       [status, errorJson, event.aggregateVersion, event.occurredAt, event.aggregateId, event.workspaceId, prior, payload.token],
     );
     if (result.changes !== 1) throw new Error(`Step ${event.aggregateId} cannot finish with a stale lease`);
+    if (event.type === "StepDeadLettered") {
+      const dead = payload as StepDeadLettered;
+      await tx.run(
+        `INSERT INTO execution_dead_letters(id, workspace_id, run_id, step_id, classification, action, error_json, created_at)
+         SELECT ?, workspace_id, run_id, id, ?, ?, ?, ? FROM steps WHERE id = ?`,
+        [dead.deadLetterId, dead.classification, dead.action, errorJson, event.occurredAt, event.aggregateId],
+      );
+    }
     return;
   }
   if (event.type === "StepRetryScheduled") {
@@ -225,6 +235,11 @@ export class SqliteStepRepository {
   }
   async fail(workspaceId: string, stepId: string, token: string, error: unknown, meta: StepCommandMeta) {
     return await this.command(workspaceId, stepId, "StepFailed", { token, error }, meta);
+  }
+  async deadLetter(workspaceId: string, stepId: string, token: string, deadLetterId: string, error: unknown,
+    classification: ExecutionFailureClass, action: DeadLetterAction, meta: StepCommandMeta) {
+    return await this.command(workspaceId, stepId, "StepDeadLettered",
+      { token, deadLetterId, error, classification, action }, meta);
   }
   async retry(workspaceId: string, stepId: string, token: string, error: unknown, retryAt: number, meta: StepCommandMeta) {
     return await this.command(workspaceId, stepId, "StepRetryScheduled", { token, error, retryAt }, meta);
