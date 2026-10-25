@@ -89,7 +89,7 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "fallback", "contextLimit", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "fallback", "contextLimit", "levels", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
 const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
@@ -107,6 +107,18 @@ for (const [i, w] of workers.entries()) {
       else if (f === w.account) errors.push(`${at}.fallback không được là chính account của worker`);
       else if (pa && fa.provider !== pa.provider) errors.push(`${at}.fallback "${f}" phải cùng provider với account "${w.account}"`);
       else if (pa && (fa.host ?? "") !== (pa.host ?? "")) errors.push(`${at}.fallback "${f}" phải chạy trên cùng máy (host) với account "${w.account}"`);
+    }
+  }
+  if (w?.levels !== undefined) {
+    if (!w.levels || typeof w.levels !== "object" || Array.isArray(w.levels)) errors.push(`${at}.levels phải là object { low, mid, high }`);
+    else for (const [lv, s] of Object.entries(w.levels)) {
+      if (!["low", "mid", "high"].includes(lv)) errors.push(`${at}.levels.${lv}: chỉ có low, mid, high`);
+      else if (!s || typeof s !== "object" || Array.isArray(s)) errors.push(`${at}.levels.${lv} phải là object { model, effort }`);
+      else {
+        for (const k of Object.keys(s)) if (!["model", "effort"].includes(k)) errors.push(`${at}.levels.${lv}.${k} không được dùng`);
+        if (s.model !== undefined && !isStr(s.model)) errors.push(`${at}.levels.${lv}.model phải là chuỗi`);
+        if (s.effort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(s.effort)) errors.push(`${at}.levels.${lv}.effort phải là low, medium, high, xhigh hoặc max`);
+      }
     }
   }
   for (const k of ["skills", "useSkills", "allowedTools"]) if (w?.[k] !== undefined && !strList(w[k])) errors.push(`${at}.${k} phải là danh sách chuỗi`);

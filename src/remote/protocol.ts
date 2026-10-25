@@ -64,6 +64,8 @@ export interface TurnMessage {
   autonomy?: "manual" | "auto" | "full";
   /** limits.maxModelTurns for Claude turns. */
   maxTurns?: number;
+  /** Claude reasoning effort for the turn (from the task's level). */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
   skills: WireSkill[];
   claudePath?: string;
   codexPath?: string;

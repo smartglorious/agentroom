@@ -2,7 +2,7 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, tính cách, trí nhớ riêng) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`. Mức tự chủ: `docs/AUTONOMY.md`. Reply và lựa chọn: `docs/REPLY-OPTIONS.md`. Bớt lượt: `docs/FEWER-TURNS.md`. Dọn dẹp: `docs/CLEANUP.md`. Gom lỗi: `docs/ISSUES.md`. Hai ngôn ngữ: `docs/I18N.md`. Điểm mở rộng: `docs/EXTENSIONS.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
+Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`. Mức tự chủ: `docs/AUTONOMY.md`. Reply và lựa chọn: `docs/REPLY-OPTIONS.md`. Bớt lượt: `docs/FEWER-TURNS.md`. Model theo độ khó task: `docs/MODEL-ROUTING.md`. Dọn dẹp: `docs/CLEANUP.md`. Gom lỗi: `docs/ISSUES.md`. Hai ngôn ngữ: `docs/I18N.md`. Điểm mở rộng: `docs/EXTENSIONS.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
 
 ## Tính năng
 
@@ -14,7 +14,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 | **Skills thật** | `useSkills` bật các `SKILL.md` cho đúng worker; agent có thể đề xuất skill mới, chỉ có hiệu lực sau khi bạn duyệt. |
 | **Mức tự chủ** | Mỗi worker chọn 🛡 Manual (hỏi mọi thao tác) · 🤖 Auto (tự duyệt việc an toàn trong thư mục của worker, chặn xóa file/hệ thống/sudo, hỏi khi không chắc) · ⚡ Full (không hỏi, trừ vài hành động phá máy; có hộp thoại cảnh báo, chỉ bạn bật được). Nhật ký quyết định ở `audit.jsonl`. **Auto không phải sandbox.** Xem `docs/AUTONOMY.md`. |
 | **Trả lời đúng tin, lựa chọn bằng nút** | Nút ↩ trên tin của worker: câu trả lời tới đúng tác giả, đúng phiên, kèm trích dẫn. Worker cần bạn chọn thì gọi `ask_user` và hiện nút; bấm là trả lời về đúng phiên đó. Cả trên Telegram. Xem `docs/REPLY-OPTIONS.md`. |
-| **Ít lượt vô ích** | Các worker không còn nhắn qua lại vô tận: giới hạn lượt cho mỗi tin của bạn (`limits.chainTurns`), ngân sách theo task (`limits.usdPerTask`), `[NOOP]` thay cho "không có việc mới", chống lặp, gom tin đến cùng lúc vào một lượt. Xem `docs/FEWER-TURNS.md`. |
+| **Ít lượt vô ích** | Các worker không còn nhắn qua lại vô tận: giới hạn lượt cho mỗi tin của bạn (`limits.chainTurns`), ngân sách theo task (`limits.usdPerTask`), `[NOOP]` thay cho "không có việc mới", chống lặp, gom tin đến cùng lúc vào một lượt. Xem `docs/FEWER-TURNS.md`. Task có thể có độ khó (`level`) để mỗi worker chạy model/effort phù hợp (`levels:`), xem `docs/MODEL-ROUTING.md`. |
 | **Tiếng Việt / English** | `agentroom.language` = `vi` (mặc định) · `en` · `auto`: giao diện chat, hộp thoại, tin hệ thống, Telegram và CLI daemon. Prompt gửi cho AI vẫn tiếng Việt. Xem `docs/I18N.md`. |
 | **Điểm mở rộng** | Plugin gộp vào bản build có thể thêm guard (chỉ làm chặt hơn: hỏi hoặc chặn, không bao giờ nới quyền), tab chỉ-xem, lệnh chat `/tên`, sự kiện sau khi duyệt, tên nhánh worktree và phần `ext:` trong cấu hình. Xem `docs/EXTENSIONS.md`. |
 | **Gom lỗi để cải tiến** | Lỗi lượt, lỗi Telegram, rate limit, chạm ngân sách/giới hạn được ghi cục bộ, gộp trùng, ẩn bí mật; xuất báo cáo Markdown (`AgentRoom: Xuất báo cáo lỗi`, Telegram `/issues`, `agentroom-daemon issues`). Không tự tải lên đâu cả. Xem `docs/ISSUES.md`. |
@@ -39,7 +39,7 @@ Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều 
 ## Cài từ file .vsix
 
 ```bash
-code --install-extension agentroom-0.14.15.vsix
+code --install-extension agentroom-0.14.16.vsix
 ```
 
 Hoặc trong VS Code: Extensions → `…` → **Install from VSIX…** → chọn file.
@@ -124,4 +124,4 @@ Schema đầy đủ: `docs/SETUP-GUIDE.md` (Bước 5.1). Mỗi worker còn có 
 
 ## English summary
 
-AgentRoom is a VS Code extension (plus a headless daemon) for a team of AI workers — each a persona running on Claude Code or Codex, several sharing one account — in one group chat. It adds SSH multi-machine workers, Telegram phone control, plan-usage tracking, Manual/Auto/Full autonomy, reply-to-message with option buttons, and token-saving defaults. New in 0.11: a bilingual UI (`agentroom.language`: `vi` default, `en`, `auto`), a local issue collector (`AgentRoom: Report an issue`, `Export issue report`, Telegram `/issues`), and a cleanup tool that **gathers** junk/temp/cache files into `.agentroom/cleanup/` for you to delete yourself — it never deletes anything on its own. Install: `code --install-extension agentroom-0.14.15.vsix`. The docs in `docs/` are in Vietnamese. See `docs/I18N.md` for what is and is not translated.
+AgentRoom is a VS Code extension (plus a headless daemon) for a team of AI workers — each a persona running on Claude Code or Codex, several sharing one account — in one group chat. It adds SSH multi-machine workers, Telegram phone control, plan-usage tracking, Manual/Auto/Full autonomy, reply-to-message with option buttons, and token-saving defaults. New in 0.11: a bilingual UI (`agentroom.language`: `vi` default, `en`, `auto`), a local issue collector (`AgentRoom: Report an issue`, `Export issue report`, Telegram `/issues`), and a cleanup tool that **gathers** junk/temp/cache files into `.agentroom/cleanup/` for you to delete yourself — it never deletes anything on its own. Install: `code --install-extension agentroom-0.14.16.vsix`. The docs in `docs/` are in Vietnamese. See `docs/I18N.md` for what is and is not translated.

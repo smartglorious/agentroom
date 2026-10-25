@@ -103,6 +103,7 @@ export class AgentRoomMcp {
         description: z.string().default(""),
         assignee: z.string().optional(),
         dependsOn: z.array(z.string()).default([]),
+        level: z.enum(["low", "mid", "high"]).optional().describe("Độ khó; người nhận chạy model tương ứng"),
       },
     }, async (args) => {
       try { return text(JSON.stringify(room.createTask(me, args))); } catch (e) { return fail(e); }

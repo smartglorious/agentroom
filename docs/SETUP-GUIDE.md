@@ -268,6 +268,7 @@ Sửa file ngoài vùng của mình: hãy nhờ người phụ trách qua @menti
 | `useSkills` | | danh sách tên skill | `[]` | skill **thật** được bật (phải tồn tại) |
 | `model` | | chuỗi | mặc định của CLI | |
 | `fallback` | | danh sách account | `[]` | account dự phòng (cùng provider và cùng host) để chạy tiếp **khi account của worker bị giới hạn** (rate limit, gói hết, hết ngân sách ngày). Tự chuyển, báo trong chat, và tự quay về account chính khi nó dùng được. Mỗi account dự phòng có session riêng; `model:` của worker không được gửi sang account có `baseUrl` |
+| `levels` | | object | không có | Model và độ nỗ lực suy luận theo độ khó của task: `levels: { low: { model: claude-haiku-5-5, effort: low }, mid: { model: claude-sonnet-5-5 }, high: { model: claude-opus-5-5, effort: high } }`. Người tạo task (thường là lead) đặt `level: low\|mid\|high` ở `create_task`; các lượt của người nhận trên task đó chạy theo mức tương ứng. Task không có level dùng `model` của worker. Mỗi model có cache riêng nên đổi model thì session của task đó bắt đầu lại (không đọc lại cache cũ); `effort` chỉ áp cho Claude, không gửi tới account `baseUrl`, và trên Opus/Sonnet/Haiku 5.5 đổi effort giữ nguyên cache |
 | `contextLimit` | | số nguyên | `150000` (điều phối viên: tắt) | token context mà sau đó session Claude bị thay bằng session mới để tiết kiệm hạn mức; `0` = không bao giờ |
 | `instructions` | | chuỗi (dùng `\|` cho nhiều dòng) | `""` | |
 | `allowedTools` | | danh sách chuỗi | `[Read, Grep, Glob]` | chỉ Claude |
@@ -693,7 +694,7 @@ for (const [id, a] of Object.entries(accounts)) {
 const workers = Array.isArray(cfg.workers) ? cfg.workers : [];
 if (!workers.length) errors.push("workers: phải có ít nhất 1 worker");
 const ids = new Set();
-const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "fallback", "contextLimit", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
+const known = new Set(["id", "name", "role", "skills", "useSkills", "account", "model", "fallback", "contextLimit", "levels", "instructions", "allowedTools", "worktree", "coordinator", "sandbox", "workdir", "color", "autonomy", "tools"]);
 const baseUsers = new Map();
 for (const [i, w] of workers.entries()) {
   const at = `workers[${i}]${w?.id ? ` (${w.id})` : ""}`;
@@ -711,6 +712,18 @@ for (const [i, w] of workers.entries()) {
       else if (f === w.account) errors.push(`${at}.fallback không được là chính account của worker`);
       else if (pa && fa.provider !== pa.provider) errors.push(`${at}.fallback "${f}" phải cùng provider với account "${w.account}"`);
       else if (pa && (fa.host ?? "") !== (pa.host ?? "")) errors.push(`${at}.fallback "${f}" phải chạy trên cùng máy (host) với account "${w.account}"`);
+    }
+  }
+  if (w?.levels !== undefined) {
+    if (!w.levels || typeof w.levels !== "object" || Array.isArray(w.levels)) errors.push(`${at}.levels phải là object { low, mid, high }`);
+    else for (const [lv, s] of Object.entries(w.levels)) {
+      if (!["low", "mid", "high"].includes(lv)) errors.push(`${at}.levels.${lv}: chỉ có low, mid, high`);
+      else if (!s || typeof s !== "object" || Array.isArray(s)) errors.push(`${at}.levels.${lv} phải là object { model, effort }`);
+      else {
+        for (const k of Object.keys(s)) if (!["model", "effort"].includes(k)) errors.push(`${at}.levels.${lv}.${k} không được dùng`);
+        if (s.model !== undefined && !isStr(s.model)) errors.push(`${at}.levels.${lv}.model phải là chuỗi`);
+        if (s.effort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(s.effort)) errors.push(`${at}.levels.${lv}.effort phải là low, medium, high, xhigh hoặc max`);
+      }
     }
   }
   for (const k of ["skills", "useSkills", "allowedTools"]) if (w?.[k] !== undefined && !strList(w[k])) errors.push(`${at}.${k} phải là danh sách chuỗi`);

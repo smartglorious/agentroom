@@ -25,6 +25,12 @@ export interface Account {
 }
 
 /** A persona: a role with skills, bound to a provider and a shared account. */
+/** How hard a task is. A worker maps each level to the model (and reasoning effort) its turns on that task use. */
+export type TaskLevel = "low" | "mid" | "high";
+export const TASK_LEVELS: TaskLevel[] = ["low", "mid", "high"];
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export interface LevelSetting { model?: string; effort?: Effort }
+
 export interface Worker {
   id: string;
   name: string;
@@ -37,6 +43,8 @@ export interface Worker {
   /** Accounts (same provider and host) to use, in order, while `account` is limited. */
   fallback: string[];
   model?: string;
+  /** Model and effort for turns on a task of each level (a task without a level uses `model` and the CLI default). */
+  levels?: Partial<Record<TaskLevel, LevelSetting>>;
   /** Claude: start a fresh session once a turn's context grows past this many tokens (0 = never). Default 150000; the coordinator is never rotated unless set. */
   contextLimit?: number;
   instructions: string;
@@ -182,6 +190,8 @@ export interface Task {
   status: TaskStatus;
   dependsOn: string[];
   createdBy: string;
+  /** Difficulty, set by whoever creates the task; picks the model of the assignee's turns on it (see Worker.levels). */
+  level?: TaskLevel;
   result?: string;
   updatedAt: number;
 }

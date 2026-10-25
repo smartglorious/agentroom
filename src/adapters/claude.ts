@@ -19,7 +19,7 @@ export const READ_ONLY_DENY = ["Edit", "Write", "MultiEdit", "NotebookEdit", "Ba
  * only the second line of defence.
  */
 export function buildClaudeOptions(
-  req: Pick<TurnRequest, "worker" | "cwd" | "sessionId" | "systemAppend" | "mcpUrl" | "account" | "readOnly" | "claudeSkills" | "approve" | "maxTurns">,
+  req: Pick<TurnRequest, "worker" | "cwd" | "sessionId" | "systemAppend" | "mcpUrl" | "account" | "readOnly" | "claudeSkills" | "approve" | "maxTurns" | "effort">,
   executable: string | undefined,
   abortController: AbortController,
 ): Options {
@@ -42,6 +42,8 @@ export function buildClaudeOptions(
     env: { BASH_MAX_OUTPUT_LENGTH: BASH_OUTPUT_CHARS, ...accountEnv(req.account, "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY") },
     abortController,
     ...(req.maxTurns ? { maxTurns: req.maxTurns } : {}),
+    // Not for another endpoint (a gateway may not know the parameter).
+    ...(req.effort && !req.account.baseUrl ? { effort: req.effort } : {}),
     ...(req.claudeSkills ? { plugins: req.claudeSkills.plugins, skills: req.claudeSkills.skills } : {}),
     canUseTool: async (toolName, input) => {
       if (req.readOnly && !READ_ONLY_TOOLS.includes(toolName) && !isRoomTool(toolName)) {

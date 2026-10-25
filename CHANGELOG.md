@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.16
+- **Model theo độ khó của task.** Task có thêm `level` (`low`/`mid`/`high`, đặt ở `create_task`), worker có `levels: { low: { model, effort }, … }`. Các lượt của người nhận trên task chạy model và `effort` (độ nỗ lực suy luận của Claude) tương ứng. Chọn ở ranh giới task vì mỗi model có cache riêng: session của task không bao giờ được nối sang model khác, đổi model thì bắt đầu session mới. `effort` truyền qua cả worker SSH, không gửi tới account `baseUrl`. Task hoặc worker không khai báo thì không đổi gì. Nghiên cứu cách người khác làm, và điều chưa kiểm chứng, ở `docs/MODEL-ROUTING.md`. **Chưa chạy với Claude thật, chưa đo mức tiết kiệm.**
+
 ## 0.14.15
 Gói giảm đốt hạn mức, rút ra từ số đo thật của một dự án 23 giờ (374 lượt): 81% lượng ghi cache nằm ở 72 lượt, và 22 lượt nối lại session to sau hơn 60 phút nghỉ chiếm 42%. Phép kiểm trên log cho thấy cache sống khoảng **1 giờ** trên gói (nghỉ 5–60 phút chỉ nguội ~10% số lượt, trên 60 phút nguội 100%), không phải 5 phút như đã giả định trước đây.
 - **`limits.idleFreshMinutes` (mặc định 55):** session Claude to (≳ 66k token) bị đánh thức sau thời gian nghỉ này thì lượt sau mở **session mới** thay vì nạp lại toàn bộ, kèm thông báo 🕒. Áp dụng cho cả điều phối viên (vốn không bị xoay theo `contextLimit`). Không áp cho account `baseUrl`. Mô phỏng trên dữ liệu thật ước tính tiết kiệm khoảng 2,2M token ghi cache (~30%), **chưa đo thật sau thay đổi**. Đổi lại worker mất hội thoại chi tiết, chỉ còn trí nhớ, nhật ký và 30 tin gần nhất.

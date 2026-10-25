@@ -160,6 +160,7 @@ export class Runner {
         onActivity: (text) => this.send({ t: "activity", id: m.id, text }),
         autonomy: m.autonomy,
         maxTurns: m.maxTurns,
+        effort: m.effort,
         approve: (tool, input) => new Promise<ApprovalResult>((resolve) => {
           const reqId = randomUUID();
           turn.approvals.set(reqId, resolve);

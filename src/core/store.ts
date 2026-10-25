@@ -10,6 +10,8 @@ export interface SessionMeta {
   /** When the last turn of the session ended, and how big its context was then (tokens, per model call): enough to tell whether resuming it would pay to write the whole context again. */
   end?: number;
   ctx?: number;
+  /** Model the session runs on (a different one would not read this session's cache, so a change starts a new session). */
+  model?: string;
 }
 
 /**

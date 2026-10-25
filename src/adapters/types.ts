@@ -1,6 +1,6 @@
 import { tr } from "../core/i18n";
 import type { Autonomy } from "../core/autonomy";
-import { Account, TurnUsage, Worker } from "../core/types";
+import { Account, Effort, TurnUsage, Worker } from "../core/types";
 
 export type ApprovalResult = boolean | { allow: boolean; reason?: string };
 export const approvalAllowed = (r: ApprovalResult) => (typeof r === "boolean" ? r : r.allow);
@@ -37,6 +37,8 @@ export interface TurnRequest {
   autonomy?: Autonomy;
   /** Claude: stop the turn after this many model calls and return what it has (undefined or 0 = no limit). */
   maxTurns?: number;
+  /** Claude: reasoning effort for this turn (set by the task's level). Not sent to other endpoints. */
+  effort?: Effort;
 }
 
 export interface ContextBreakdown {
