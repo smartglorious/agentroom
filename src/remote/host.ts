@@ -263,7 +263,7 @@ export class HostConnection extends EventEmitter<{ change: [] }> {
     const msg: TurnMessage = {
       t: "turn", id,
       worker: wireWorker(req.worker), account: wireAccount(req.account),
-      base: req.remote.base, systemAppend: req.systemAppend, prompt: req.prompt, sessionId: req.sessionId, readOnly: req.readOnly, autonomy: req.autonomy,
+      base: req.remote.base, systemAppend: req.systemAppend, prompt: req.prompt, sessionId: req.sessionId, readOnly: req.readOnly, autonomy: req.autonomy, maxTurns: req.maxTurns,
       skills, claudePath: this.deps.spec.claudePath, codexPath: this.deps.spec.codexPath, pricing: this.deps.prices?.(),
     };
     return new Promise<TurnResult>((resolve, reject) => {

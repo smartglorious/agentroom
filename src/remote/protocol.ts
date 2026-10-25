@@ -62,6 +62,8 @@ export interface TurnMessage {
   readOnly?: boolean;
   /** The worker's autonomy; the runner only uses it to size the Codex sandbox (approvals are decided on the hub). */
   autonomy?: "manual" | "auto" | "full";
+  /** limits.maxModelTurns for Claude turns. */
+  maxTurns?: number;
   skills: WireSkill[];
   claudePath?: string;
   codexPath?: string;

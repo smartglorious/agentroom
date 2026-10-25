@@ -125,6 +125,10 @@ export interface Limits {
   maxFanout: number;
   /** Minutes without activity after which a running turn is stopped (0 = never). */
   turnIdleMinutes: number;
+  /** A Claude session idle this long has lost its prompt cache (about an hour on a plan), so resuming it would write all of it again: past this many minutes a big session starts fresh instead (0 = never). */
+  idleFreshMinutes: number;
+  /** Most model calls (tool round trips) one Claude turn may make before it is stopped with what it has (0 = no limit). */
+  maxModelTurns: number;
   /** Stop agent-to-agent work on a task that has already cost this much (USD). The user can still continue it. */
   usdPerTask?: number;
 }

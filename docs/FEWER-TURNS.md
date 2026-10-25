@@ -18,6 +18,12 @@ Quy tắc an toàn:
 
 Lưu ý khi nâng cấp: thêm quy tắc `[NOOP]` vào persona làm đổi phần prompt hệ thống ổn định, nên **mỗi worker bắt đầu một session mới một lần** (mất ngữ cảnh hội thoại của session cũ, trí nhớ và nhật ký thì giữ nguyên).
 
+## Thêm ở 0.14.15
+
+- Dòng bảng markdown và dòng mở đầu bằng điều kiện ("Nếu…", "If…") trong tin của worker không đánh thức ai (như `cc:`). Muốn gọi thì @mention ngoài bảng.
+- Người đã được `post_message` đánh thức trong lượt không bị đánh thức lại bởi câu trả lời cuối.
+- `limits.maxModelTurns` (60) chặn một lượt Claude gọi model quá nhiều; `limits.idleFreshMinutes` (55) mở session mới thay vì nạp lại session to khi cache đã hết hạn. Xem `SETUP-GUIDE.md` và `CHANGELOG.md`.
+
 ## Kết quả đo
 
 Cùng kịch bản `npm run bench:tokens`, 3 lần chạy mỗi bản (Claude thật, `haiku`): số lượt **≈ 25 → 16** (−37%), tin worker đăng **≈ 35 → 17** (−52%), tổng token vào **≈ 0,90 → 0,48 triệu** (−47%), chi phí ước tính **$0,093 → $0,036** (−61%). Tính từ bản gốc trước mọi tối ưu: tổng token vào −77%, chi phí −80%. Model làm theo quy tắc `[NOOP]` (2–8 câu trả lời mỗi lần chạy bị chặn không đăng). Chi tiết và giới hạn của phép đo ở `PLAN-v0.8-tokens.md` mục 0.1.

@@ -148,9 +148,9 @@ test("rules: the persona tells workers about [NOOP] and not to @mention just to 
 
 test("config: limits default to 6 turns per conversation, 3 workers woken per worker message and no task budget; bad values are rejected", () => {
   const d = parseConfig(CFG());
-  assert.deepEqual(d.limits, { chainTurns: 6, maxFanout: 3, turnIdleMinutes: 20 });
+  assert.deepEqual(d.limits, { chainTurns: 6, maxFanout: 3, turnIdleMinutes: 20, idleFreshMinutes: 55, maxModelTurns: 60 });
   const c = parseConfig(CFG("limits: { chainTurns: 6, usdPerTask: 0.5 }\n"));
-  assert.deepEqual(c.limits, { chainTurns: 6, maxFanout: 3, turnIdleMinutes: 20, usdPerTask: 0.5 });
+  assert.deepEqual(c.limits, { chainTurns: 6, maxFanout: 3, turnIdleMinutes: 20, idleFreshMinutes: 55, maxModelTurns: 60, usdPerTask: 0.5 });
   assert.equal(parseConfig(CFG("limits: { maxFanout: 1 }\n")).limits.maxFanout, 1);
   assert.throws(() => parseConfig(CFG("limits: { maxFanout: 0 }\n")));
   assert.throws(() => parseConfig(CFG("limits: { chainTurns: 1 }\n")));

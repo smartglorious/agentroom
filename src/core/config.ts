@@ -85,11 +85,15 @@ const LimitsSchema = z.object({
   maxFanout: z.number().int().min(1).max(20).default(3),
   /** A turn that shows no activity for this many minutes is stopped (0 = never). A pending approval does not count as silence. */
   turnIdleMinutes: z.number().int().min(0).max(720).default(20),
+  /** Idle time after which a big Claude session is replaced instead of resumed (its cache is gone; 0 = never). */
+  idleFreshMinutes: z.number().int().min(0).max(1440).default(55),
+  /** Most model calls one Claude turn may make (0 = no limit). */
+  maxModelTurns: z.number().int().min(0).max(1000).default(60),
   usdPerTask: z.number().positive().optional(),
 });
 
 const FileSchema = z.object({
-  limits: LimitsSchema.default(() => ({ chainTurns: 6, maxFanout: 3, turnIdleMinutes: 20 })),
+  limits: LimitsSchema.default(() => ({ chainTurns: 6, maxFanout: 3, turnIdleMinutes: 20, idleFreshMinutes: 55, maxModelTurns: 60 })),
   hosts: z.record(ID, HostSchema).default({}),
   accounts: z.record(z.string(), AccountSchema),
   workers: z.array(WorkerSchema).min(1),

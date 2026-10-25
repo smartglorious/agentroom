@@ -20,6 +20,13 @@ const CC_LINE = /^[ \t]*(?:cc|fyi)[ \t]*[:：].*$/gim;
 const CC_INLINE = /(?<![\w@])cc[ \t]*:?[ \t]*(?:@[\w-]+[ \t,;]*)+/gi;
 export const withoutCc = (text: string) => text.replace(CC_LINE, "").replace(CC_INLINE, "");
 
+/** A row of a markdown table (a status board naming everybody): names in it describe, they do not ask. */
+const TABLE_ROW = /^[ \t]*\|.*$/gm;
+/** A line that opens with a condition ("Nếu …", "If …", "Trường hợp …"): who it names is a possibility, not a request. */
+const CONDITIONAL_LINE = /^[ \t]*(?:[-*•>]+[ \t]*|\d+[.)][ \t]*)?(?:nếu|if|trường hợp|in case|should)\b.*$/gim;
+/** What a worker message actually asks of people: without copies (cc), table rows and conditional lines. */
+export const withoutNonRequests = (text: string) => withoutCc(text).replace(TABLE_ROW, "").replace(CONDITIONAL_LINE, "");
+
 export interface RouteOptions {
   maxAgentHops: number;
   /** Most workers one worker message may wake (the first ones mentioned). Humans are not limited. */
@@ -41,6 +48,6 @@ export function route(msg: Pick<ChatMessage, "from" | "text" | "depth">, workers
   if (msg.from === SYSTEM) return mentioned;
   if (msg.depth >= opts.maxAgentHops) return [];
   // Every worker woken re-reads its whole session, so a worker message wakes only the people it asks something of.
-  const asked = parseMentions(withoutCc(msg.text), workers).filter((id) => id !== msg.from);
+  const asked = parseMentions(withoutNonRequests(msg.text), workers).filter((id) => id !== msg.from);
   return opts.maxFanout ? asked.slice(0, opts.maxFanout) : asked;
 }

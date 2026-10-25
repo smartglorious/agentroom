@@ -159,6 +159,7 @@ export class Runner {
         signal: abort.signal,
         onActivity: (text) => this.send({ t: "activity", id: m.id, text }),
         autonomy: m.autonomy,
+        maxTurns: m.maxTurns,
         approve: (tool, input) => new Promise<ApprovalResult>((resolve) => {
           const reqId = randomUUID();
           turn.approvals.set(reqId, resolve);

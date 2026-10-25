@@ -171,3 +171,12 @@ Từ ba khoảng đo trên log thật của một người dùng (gói Pro, acco
 | C | 17 | 2,10 M | 0,550 M | 15 K |
 
 B và C gần như cùng lượng đọc cache và token ra nhưng khác 11% ↔ chênh 0,41 M **ghi cache** (≈ 27% mỗi triệu token ghi cache), còn A so với B cho thấy đọc cache thêm 2,3 M gần như không đổi phần trăm. Ước lượng thô (3 điểm, có thể lẫn dùng Claude ở nơi khác): **ghi cache và token ra là thứ tiêu hạn mức; đọc cache gần như không**; một token ra ≈ 4–5 token ghi cache. Hệ quả: (1) rút ngắn context chỉ có ích nếu giảm lượng **ghi** (sau thời gian nghỉ vượt TTL cache, lượt đầu của mỗi session ghi lại toàn bộ context); (2) mỗi lần đổi session ghi lại cả phần cố định của session mới, nên đổi session sớm có thể **tốn hơn**; (3) đánh thức ít worker sau một khoảng nghỉ có ích hơn giảm số lượt đọc.
+
+### Số đo 23 giờ trên một dự án thật (374 lượt, 24–25/10, 0.14.x)
+
+- **81%** lượng ghi cache của Claude (5,85M trên 7,19M) nằm ở 72 lượt ghi trên 20K; 22 lượt nối lại session sau **hơn 60 phút nghỉ** chiếm 42%. Prompt do AgentRoom dựng chỉ ~1–9K mỗi lượt: thủ phạm là lịch sử của session, không phải prompt.
+- **TTL thực tế ≈ 1 giờ trên gói** (khớp tài liệu Anthropic ở trên): với lượt nối lại session, "nguội" (ghi lại ≥ nửa context) xảy ra ở 7/196 lượt khi nghỉ dưới 5 phút, 6/60 khi nghỉ 5–60 phút (0/6 ở 30–60 phút), và **17/17 khi nghỉ trên 60 phút**. Một báo cáo trước đó của phiên này đã giả định 5 phút: sai.
+- Session điều phối viên chưa từng xoay (miễn `contextLimit`) và lên 278K; một lần đánh thức nguội ghi 206K.
+- Từ đó có `limits.idleFreshMinutes` (0.14.15). Mô phỏng: nối lại thành session mới ở các lượt nghỉ ≥ 55 phút tiết kiệm ≈ 2,2M ghi cache (~30% tổng), **chưa đo sau thay đổi**; đổi lại mất lịch sử chi tiết của session.
+- Nguồn khác: mention trong bảng trạng thái đánh thức cả đội (9 lượt Claude, 169K ghi cache, 3,8M đọc cache cho một câu hỏi "team đang đợi gì"); mention trong câu điều kiện đánh thức `be` ghi 78K chỉ để trả lời 43 token; báo cáo đăng hai lần (post_message rồi câu trả lời cuối). Có lượt tới 33 lần gọi model.
+

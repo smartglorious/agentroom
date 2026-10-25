@@ -123,7 +123,7 @@ export class UsageStore {
     }
   }
 
-  append(r: UsageRecord) {
+  append(r: UsageRecord): UsageRecord {
     if (isCumulative(r) && r.sessionId && r.costCum === undefined) {
       const prev = this.cum.get(r.sessionId) ?? 0;
       const c = r.costUsd!;
@@ -132,6 +132,7 @@ export class UsageStore {
     }
     this.records.push(r);
     appendFileSync(this.file, JSON.stringify(r) + "\n");
+    return r;
   }
 
   all() { return this.records; }
