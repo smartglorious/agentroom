@@ -46,6 +46,10 @@ import { createHash } from "node:crypto";
 import { Autonomy, isAutonomy } from "./core/autonomy";
 import { DeviceTokenStore, LocalApiServer } from "./api/local";
 import { AgentRoomApiClient } from "./api/client";
+import { RoomGatewayRuntime } from "./gateway/runtime";
+import { PersistentApprovalStore } from "./security/approvals";
+import { AGENTROOM_TOOL_MANIFESTS, DurableToolGateway, ToolManifestRegistry } from "./gateway/tools";
+import { SqliteToolReceiptStore } from "./storage/tool-receipts";
 
 const fullWarning = () => [
   tr("Worker này sẽ KHÔNG còn hỏi bạn trước khi: sửa hoặc xóa bất kỳ file nào (kể cả ngoài dự án), chạy lệnh tùy ý, tải rồi chạy mã từ Internet, cài gói, git push --force, gửi dữ liệu ra ngoài."),
@@ -238,11 +242,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
         });
       }
 
+      const adapters = { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => cfg.get<PriceTable>("pricing", {})) };
+      const approvalStore = storage.connection ? new PersistentApprovalStore(storage.connection) : undefined;
       const room = new Room({
         config,
         store,
         remote: hosts ? new RemoteAdapter(hosts) : undefined,
-        adapters: { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => cfg.get<PriceTable>("pricing", {})) },
+        adapters,
         scheduler: new Scheduler(),
         options: { maxAgentHops: cfg.get("maxAgentHops", 6), contextMessages: cfg.get("contextMessages", 30), memoryBudgetChars: cfg.get("memoryBudgetChars", 12000), agentDebounceMs: Math.max(0, cfg.get<number>("agentDebounceMs", 8000)) },
         memory: new MemoryStore(agentroomDir),
@@ -268,12 +274,21 @@ export async function activate(ctx: vscode.ExtensionContext) {
         turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
         contextBroker: storage.connection ? new ContextBroker(storage.connection) : undefined,
         hybridMemory: storage.connection && storage.workspaceId ? { repository: new HybridMemoryRepository(storage.connection), workspaceId: storage.workspaceId } : undefined,
+        modelGateway: storage.connection && storage.workspaceId ? new RoomGatewayRuntime({ db: storage.connection, workspaceId: storage.workspaceId,
+          config, adapters, prices: () => cfg.get<PriceTable>("pricing", {}) }) : undefined,
+        approvalPersistence: approvalStore && storage.workspaceId ? {
+          request: (input) => approvalStore.request({ workspaceId: storage.workspaceId!, ...input, scope: "once" }),
+          decide: (id, action, allow, reason, at) => approvalStore.decide(id, action, allow, reason, at),
+          pending: (at) => approvalStore.pending(storage.workspaceId!, at),
+        } : undefined,
         planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
         planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });
       await room.initializeHybridMemory();
+      await room.initializePersistentApprovals();
       room.plan?.start();
-      const mcp = (server.current = new AgentRoomMcp(room));
+      const toolGateway = storage.connection ? new DurableToolGateway(new ToolManifestRegistry(AGENTROOM_TOOL_MANIFESTS), new SqliteToolReceiptStore(storage.connection)) : undefined;
+      const mcp = (server.current = new AgentRoomMcp(room, toolGateway));
       await mcp.start();
       const recovered = await room.recoverDurableTurns();
       if (recovered) out.appendLine(`[storage] Recovered ${recovered} durable inbox message(s).`);

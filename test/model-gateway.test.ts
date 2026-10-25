@@ -10,6 +10,9 @@ import { SqliteConnection } from "../src/storage/sqlite";
 import { SqliteMigrationRunner } from "../src/storage/migrations";
 import { schemaMigrations } from "../src/storage/schema-v1";
 import { ModelGateway } from "../src/gateway/dispatcher";
+import { Fake, idle, makeRoom } from "./helpers";
+import { RoomGatewayRuntime } from "../src/gateway/runtime";
+import { parseConfig, SAMPLE_CONFIG } from "../src/core/config";
 
 const request = ModelCallRequestV1Schema.parse({
   schema_version: 1, request_id: "req-1", provider: "claude", account_id: "a1", worker_id: "be", model: "strong",
@@ -105,5 +108,89 @@ test("model gateway: reserves before dispatch, records error usage and uses comp
     const calls = await db.all<any>("SELECT status, error_code, fallback_of, cost_provenance FROM model_calls ORDER BY created_at, rowid");
     assert.equal(calls[0].status, "failed"); assert.equal(calls[0].error_code, "provider");
     assert.equal(calls[1].status, "completed"); assert.ok(calls[1].fallback_of); assert.equal(calls[1].cost_provenance, "catalog_estimate");
+  } finally { await db.close(); }
+});
+
+test("Room runtime: local turns cannot bypass the configured model gateway", async () => {
+  const adapter = new Fake(() => "through gateway");
+  let dispatches = 0;
+  const { room } = makeRoom(adapter, { modelGateway: { dispatch: async ({ turn }) => { dispatches += 1; return adapter.runTurn(turn); } } });
+  room.post("user", "hello");
+  await idle(room);
+  assert.equal(dispatches, 1);
+  assert.equal(room.snapshot().messages.at(-1)?.text, "through gateway");
+});
+
+test("production Room gateway: a real turn is reserved and completed in the model ledger", async () => {
+  const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-room-gateway-")), "agentroom.db"));
+  await new SqliteMigrationRunner(db, schemaMigrations).apply();
+  await db.run("INSERT INTO workspaces(id, name, root_uri, created_at, updated_at) VALUES ('w1', 'One', 'file:///one', 1, 1)");
+  try {
+    const config = parseConfig(SAMPLE_CONFIG); const adapter = new Fake(() => "ledgered");
+    const runtime = new RoomGatewayRuntime({ db, workspaceId: "w1", config, adapters: { claude: adapter, codex: adapter }, prices: () => ({}) });
+    const { room } = makeRoom(adapter, { config, modelGateway: runtime });
+    room.post("user", "hello"); await idle(room);
+    assert.deepEqual(await db.get("SELECT provider, status, token_provenance, input_tokens FROM model_calls"),
+      { provider: "claude", status: "completed", token_provenance: "unknown", input_tokens: null });
+  } finally { await db.close(); }
+});
+
+const twoModelConfig = (budget = "") => parseConfig(`
+accounts:
+  main:
+    provider: claude${budget}
+workers:
+  - id: fw
+    name: Tony
+    role: dev
+    account: main
+    model: claude-sonnet-5-5
+  - id: qafw
+    name: Kevin
+    role: qa
+    account: main
+    model: claude-haiku-5-5
+`);
+
+async function gatewayRoom(config: ReturnType<typeof parseConfig>, adapter: Fake) {
+  const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-room-gateway-")), "agentroom.db"));
+  await new SqliteMigrationRunner(db, schemaMigrations).apply();
+  await db.run("INSERT INTO workspaces(id, name, root_uri, created_at, updated_at) VALUES ('w1', 'One', 'file:///one', 1, 1)");
+  const runtime = new RoomGatewayRuntime({ db, workspaceId: "w1", config, adapters: { claude: adapter, codex: adapter }, prices: () => ({}) });
+  return { db, ...makeRoom(adapter, { config, modelGateway: runtime }) };
+}
+
+test("production Room gateway: each worker keeps its configured model", async () => {
+  const adapter = new Fake(() => "ok");
+  const { db, room } = await gatewayRoom(twoModelConfig(), adapter);
+  try {
+    room.post("user", "@fw hello"); await idle(room);
+    room.post("user", "@qafw hello"); await idle(room);
+    assert.deepEqual(adapter.calls.map((c) => [c.worker.id, c.worker.model]), [["fw", "claude-sonnet-5-5"], ["qafw", "claude-haiku-5-5"]]);
+  } finally { await db.close(); }
+});
+
+test("production Room gateway: an account day budget without a price table does not block every turn", async () => {
+  const adapter = new Fake(() => "ok");
+  const { db, room } = await gatewayRoom(twoModelConfig("\n    budgetUsdPerDay: 20"), adapter);
+  try {
+    room.post("user", "@fw hello"); await idle(room);
+    assert.equal(adapter.calls.length, 1);
+  } finally { await db.close(); }
+});
+
+test("production Room gateway: with a price entry the account day budget is a hard cap before dispatch", async () => {
+  const adapter = new Fake(() => "ok");
+  const config = twoModelConfig("\n    budgetUsdPerDay: 0.000001");
+  const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-room-gateway-")), "agentroom.db"));
+  await new SqliteMigrationRunner(db, schemaMigrations).apply();
+  await db.run("INSERT INTO workspaces(id, name, root_uri, created_at, updated_at) VALUES ('w1', 'One', 'file:///one', 1, 1)");
+  try {
+    const runtime = new RoomGatewayRuntime({ db, workspaceId: "w1", config, adapters: { claude: adapter, codex: adapter },
+      prices: () => ({ "claude-sonnet-5-5": { input: 3, output: 15 } }) });
+    const { room } = makeRoom(adapter, { config, modelGateway: runtime });
+    room.post("user", "@fw hello"); await idle(room);
+    assert.equal(adapter.calls.length, 0, "the provider must not be called once the cap is projected to be exceeded");
+    assert.equal((await db.get<{ status: string }>("SELECT status FROM model_calls"))?.status, "blocked");
   } finally { await db.close(); }
 });

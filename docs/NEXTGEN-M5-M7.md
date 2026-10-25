@@ -18,7 +18,7 @@ Evidence: `test/model-gateway.test.ts`, `test/tool-gateway.test.ts`, `scripts/be
 
 - [x] `PolicyDecision` has allow/deny/require-approval plus stable reason codes.
 - [x] Manual/Auto/Full use the existing compatibility policy; unknown registry actions fail closed.
-- [x] SQLite schema v7 stores action-bound, scoped, expiring approvals across restart. Expired or changed actions require re-evaluation.
+- [x] SQLite schema v7/v8 stores action-bound, scoped, expiring approvals and display-safe pending cards across restart. Expired or changed actions require re-evaluation.
 - [x] Device token is stored with user-only mode where supported; state-changing requests require bearer auth and matching CSRF header; origins are restricted.
 - [x] `/v1` exposes health, state, usage, message/task commands, approval response and worker pause/resume/cancel.
 - [x] SSE retains a bounded cursor window and replays after reconnect.

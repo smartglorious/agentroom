@@ -99,7 +99,7 @@ export class LocalApiServer {
       this.push(`worker_${worker[2]}`, { id }); return json(res, 202, { id, state: worker[2] });
     }
     const approval = /^\/v1\/approvals\/([^/]+)$/.exec(url.pathname);
-    if (req.method === "POST" && approval) { const b = await this.body(req); this.options.room.respondApproval(decodeURIComponent(approval[1]), b.allow === true); return json(res, 200, { ok: true }); }
+    if (req.method === "POST" && approval) { const b = await this.body(req); await this.options.room.respondApproval(decodeURIComponent(approval[1]), b.allow === true); return json(res, 200, { ok: true }); }
     if (req.method === "POST" && url.pathname === "/v1/messages") {
       const b = await this.body(req); const recipients = Array.isArray(b.to) ? b.to.filter((id: unknown) => typeof id === "string" && !this.paused.has(id)) : undefined;
       if (typeof b.text !== "string" || !b.text.trim()) return json(res, 400, { error: "text_required" });

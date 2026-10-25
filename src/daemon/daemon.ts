@@ -38,6 +38,10 @@ import { AgentRoomMcp } from "../mcp/server";
 import { HostManager, fingerprint } from "../remote/host";
 import { DaemonStore, defaultStoreFile, pairingFile } from "./store";
 import { DeviceTokenStore, LocalApiServer } from "../api/local";
+import { RoomGatewayRuntime } from "../gateway/runtime";
+import { PersistentApprovalStore } from "../security/approvals";
+import { AGENTROOM_TOOL_MANIFESTS, DurableToolGateway, ToolManifestRegistry } from "../gateway/tools";
+import { SqliteToolReceiptStore } from "../storage/tool-receipts";
 
 export const EXIT = { ok: 0, config: 2, locked: 3 } as const;
 
@@ -167,11 +171,13 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       return found;
     };
 
+    const adapters = o.adapters ?? { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => settings().pricing) };
+    const approvalStore = storage.connection ? new PersistentApprovalStore(storage.connection) : undefined;
     const room = new Room({
       config,
       store: roomStore,
       remote: hosts ? new RemoteAdapter(hosts) : undefined,
-      adapters: o.adapters ?? { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => settings().pricing) },
+      adapters,
       scheduler: new Scheduler(),
       options: { maxAgentHops: s0.maxAgentHops, contextMessages: s0.contextMessages, memoryBudgetChars: s0.memoryBudgetChars, agentDebounceMs: s0.agentDebounceMs },
       memory: new MemoryStore(agentroomDir),
@@ -188,6 +194,13 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
       contextBroker: storage.connection ? new ContextBroker(storage.connection) : undefined,
       hybridMemory: storage.connection && storage.workspaceId ? { repository: new HybridMemoryRepository(storage.connection), workspaceId: storage.workspaceId } : undefined,
+      modelGateway: storage.connection && storage.workspaceId ? new RoomGatewayRuntime({ db: storage.connection, workspaceId: storage.workspaceId,
+        config, adapters, prices: () => settings().pricing }) : undefined,
+      approvalPersistence: approvalStore && storage.workspaceId ? {
+        request: (input) => approvalStore.request({ workspaceId: storage.workspaceId!, ...input, scope: "once" }),
+        decide: (id, action, allow, reason, at) => approvalStore.decide(id, action, allow, reason, at),
+        pending: (at) => approvalStore.pending(storage.workspaceId!, at),
+      } : undefined,
       autonomyStore: {
         get: (id) => store.read().autonomy?.[`${o.root}|${id}`],
         set: (id, m) => store.update((f) => { f.autonomy = { ...f.autonomy, [`${o.root}|${id}`]: m }; }),
@@ -196,13 +209,15 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       planPollMs: () => settings().planPollMinutes * 60_000,
     });
     await room.initializeHybridMemory();
+    await room.initializePersistentApprovals();
     room.plan?.start();
     plugins.activate({ room, config, root: o.root, log: (t) => log(`[plugin] ${t}`) });
     disposers.push(() => plugins.dispose());
     disposers.push(() => room.plan?.stop());
     disposers.push(() => room.stopAll());
 
-    const mcp = (server.current = new AgentRoomMcp(room));
+    const toolGateway = storage.connection ? new DurableToolGateway(new ToolManifestRegistry(AGENTROOM_TOOL_MANIFESTS), new SqliteToolReceiptStore(storage.connection)) : undefined;
+    const mcp = (server.current = new AgentRoomMcp(room, toolGateway));
     await mcp.start();
     const recovered = await room.recoverDurableTurns();
     if (recovered) log(`Recovered ${recovered} durable inbox message(s).`);

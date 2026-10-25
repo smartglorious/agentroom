@@ -99,13 +99,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       target.on(event as never, h as never);
       this.unsubscribe.push(() => target.off(event as never, h as never));
     };
-    sub(room, "message", (msg) => ({ type: "message", msg }));
-    sub(room, "status", (status) => ({ type: "status", status }));
-    sub(room, "approval", (req) => ({ type: "approval", req }));
-    sub(room, "approvalResolved", (id) => ({ type: "approvalResolved", id }));
-    sub(room, "tasks", (tasks) => ({ type: "tasks", tasks }));
+    if (ctx.apiClient) {
+      const abort = new AbortController();
+      this.unsubscribe.push(() => abort.abort());
+      void this.consumeApiEvents(ctx.apiClient, abort.signal);
+    } else {
+      sub(room, "message", (msg) => ({ type: "message", msg }));
+      sub(room, "status", (status) => ({ type: "status", status }));
+      sub(room, "approval", (req) => ({ type: "approval", req }));
+      sub(room, "approvalResolved", (id) => ({ type: "approvalResolved", id }));
+      sub(room, "tasks", (tasks) => ({ type: "tasks", tasks }));
+      sub(room, "usage", () => this.usagePayload());
+    }
     sub(room, "drafts", (drafts) => ({ type: "drafts", drafts }));
-    sub(room, "usage", () => this.usagePayload());
     sub(room, "autonomy", () => ({ type: "workers", workers: room.snapshot().workers }));
     sub(room, "plan", () => ({ type: "plans", plans: room.plan?.list() ?? [], now: Date.now() }));
     sub(cron, "change", () => ({ type: "schedules", schedules: cron.statuses() }));
@@ -113,12 +119,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (hosts) sub(hosts, "change", () => this.hostsPayload());
     if (telegram) sub(telegram, "change", () => this.telegramPayload());
     if (plugins) sub(plugins, "panels", () => ({ type: "panels", panels: plugins.panels() }));
-    this.post(this.initPayload());
+    this.sendInit();
   }
 
-  private initPayload() {
+  private initPayload(state = this.ctx!.room.snapshot()) {
     const c = this.ctx!;
-    return { type: "init", state: c.room.snapshot(), usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload(), telegram: this.telegramPayload(), panels: c.plugins?.panels() ?? [] };
+    return { type: "init", state, usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload(), telegram: this.telegramPayload(), panels: c.plugins?.panels() ?? [] };
+  }
+
+  private sendInit() {
+    const c = this.ctx;
+    if (!c) return;
+    if (!c.apiClient) return void this.post(this.initPayload());
+    void c.apiClient.state<ReturnType<Room["snapshot"]>>().then((state) => this.post(this.initPayload(state)))
+      .catch(() => this.post(this.initPayload()));
+  }
+
+  private async consumeApiEvents(client: AgentRoomApiClient, signal: AbortSignal) {
+    while (!signal.aborted) {
+      try {
+        await client.events((event) => {
+          if (event.type === "reset") this.sendInit();
+          else if (event.type === "message") this.post({ type: "message", msg: event.data });
+          else if (event.type === "status") this.post({ type: "status", status: event.data });
+          else if (event.type === "approval") this.post({ type: "approval", req: event.data });
+          else if (event.type === "approval_resolved") this.post({ type: "approvalResolved", id: (event.data as { id?: unknown })?.id });
+          else if (event.type === "tasks") this.post({ type: "tasks", tasks: event.data });
+          else if (event.type === "usage") this.post(this.usagePayload());
+        }, signal);
+      } catch { /* reconnect below; cursor replay prevents gaps */ }
+      if (!signal.aborted) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
 
   private telegramPayload() {
@@ -165,7 +196,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private onMessage(m: FromWebview) {
     if (m.type === "ready") {
-      if (this.ctx) return void this.post(this.initPayload());
+      if (this.ctx) return void this.sendInit();
       this.post({ type: "init", state: null });
       return void (this.locked && this.post({ type: "locked", holder: this.locked }));
     }

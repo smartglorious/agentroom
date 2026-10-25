@@ -15,6 +15,12 @@ export class AgentRoomApiClient {
   /** Reconnectable SSE cursor parser usable by VS Code; caller owns retry/backoff. */
   async events(onEvent: (event: { id: number; type: string; data: unknown }) => void, signal?: AbortSignal) {
     const response = await fetch(`${this.baseUrl}/events?cursor=${this.cursor}`, { headers: { authorization: `Bearer ${this.token()}` }, signal });
+    if (response.status === 409) {
+      const detail = await response.json() as { oldest_cursor?: number };
+      this.cursor = Math.max(0, (detail.oldest_cursor ?? 1) - 1);
+      onEvent({ id: this.cursor, type: "reset", data: detail });
+      return;
+    }
     if (!response.ok || !response.body) throw new Error(`AgentRoom SSE ${response.status}`);
     const decoder = new TextDecoder(); let pending = "";
     for await (const chunk of response.body as any) {

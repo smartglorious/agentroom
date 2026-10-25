@@ -1,7 +1,7 @@
 import { tr, trVi } from "./i18n";
 import { EventEmitter } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
-import { AgentAdapter, ApprovalResult } from "../adapters/types";
+import { AgentAdapter, ApprovalResult, type TurnRequest, type TurnResult } from "../adapters/types";
 import { ContextProbe, TurnInspector, TurnRecord, estimateTokens, newTurnId, sectionInfo } from "./inspector";
 import { CONSOLIDATE_PROMPT, type Kind, MemoryEntry, MemoryStore, type RecallHit, redactSecrets, type Scope, ymd } from "./memory";
 import { buildPersona, buildTurn } from "./prompt";
@@ -68,6 +68,14 @@ export interface RoomDeps {
   contextBroker?: ContextBroker;
   /** Durable hybrid-memory shadow. File memory remains the compatibility source during migration. */
   hybridMemory?: { repository: HybridMemoryRepository; workspaceId: string };
+  /** Optional provider-neutral runtime. When present, local turns cannot bypass routing/ledger reservation. */
+  modelGateway?: { dispatch(input: { turn: TurnRequest; runId?: string; stepId?: string; taskId?: string; attempt?: number }): Promise<TurnResult> };
+  /** Durable approval boundary used to restore a pending decision after process restart. */
+  approvalPersistence?: {
+    request(input: { stepId: string; action: unknown; display: unknown; expiresAt: number; at: number }): Promise<{ id: string; state: "pending" | "allowed" | "denied" | "expired" }>;
+    decide(id: string, action: unknown | undefined, allow: boolean, reason: string, at: number): Promise<unknown>;
+    pending(at: number): Promise<Array<{ id: string; display: unknown }>>;
+  };
 }
 
 export interface RoomEvents {
@@ -113,6 +121,8 @@ interface RunningTurn {
   abort: AbortController;
   depth: number;
   readOnly: boolean;
+  workspaceId?: string;
+  stepId?: string;
 }
 
 /**
@@ -143,7 +153,8 @@ export class Room extends EventEmitter<RoomEvents> {
   private debounce = new Map<string, NodeJS.Timeout>();
   /** Replies that were not posted because they carried nothing new. */
   readonly suppressed = { noop: 0, repeat: 0 };
-  private approvals = new Map<string, { req: ApprovalRequest; resolve: (ok: boolean) => void; key: string }>();
+  private approvals = new Map<string, { req: ApprovalRequest; resolve: (ok: boolean) => void; key: string; action: unknown }>();
+  private restoredApprovals = new Map<string, ApprovalRequest>();
   private statuses = new Map<string, WorkerStatus>();
   private budgetPaused = new Set<string>();
   /** Workers currently running on a fallback account (worker id → account id), to announce the switch and the return once. */
@@ -214,6 +225,13 @@ export class Room extends EventEmitter<RoomEvents> {
 
   get workers() { return this.deps.config.workers; }
   hasWorker(id: string) { return this.workers.some((w) => w.id === id); }
+  /** Durable effect identity for an MCP call made by the worker's currently running turn. */
+  toolExecutionContext(workerId: string): { workspaceId: string; stepId: string } | undefined {
+    const matches = [...this.running.entries()].filter(([key]) => key.startsWith(`${workerId}:`));
+    if (matches.length !== 1) return undefined;
+    const running = matches[0][1];
+    return running.workspaceId && running.stepId ? { workspaceId: running.workspaceId, stepId: running.stepId } : undefined;
+  }
   private now() { return this.deps.now?.() ?? Date.now(); }
 
   /** Imports file memory once before durable runtime traffic starts. Safe to call repeatedly. */
@@ -229,6 +247,18 @@ export class Room extends EventEmitter<RoomEvents> {
       await hybrid.repository.importLegacy({ workspaceId: hybrid.workspaceId, agentId: hybrid.workspaceId, scope: "team", entries: this.memory.entries("team", first.id), at });
     }
     this.hybridMemoryInitialized = true;
+  }
+
+  /** Restores display-safe pending approval cards. The retried durable step later reattaches its resolver to the same id. */
+  async initializePersistentApprovals(): Promise<void> {
+    if (!this.deps.approvalPersistence) return;
+    for (const item of await this.deps.approvalPersistence.pending(this.now())) {
+      const d = item.display as Partial<ApprovalRequest> | null;
+      if (!d || typeof d.workerId !== "string" || typeof d.tool !== "string") continue;
+      this.restoredApprovals.set(item.id, { id: item.id, workerId: d.workerId, tool: d.tool, input: d.input,
+        ...(typeof d.cwd === "string" ? { cwd: d.cwd } : {}), ...(typeof d.host === "string" ? { host: d.host } : {}),
+        ...(typeof d.reason === "string" ? { reason: d.reason } : {}) });
+    }
   }
 
   async rememberMemory(workerId: string, scope: Scope, kind: Kind, text: string): Promise<MemoryEntry> {
@@ -323,7 +353,7 @@ export class Room extends EventEmitter<RoomEvents> {
       messages: this.messages.slice(-200),
       statuses: [...this.statuses.values()],
       tasks: this.tasks.list(),
-      approvals: [...this.approvals.values()].map((a) => a.req),
+      approvals: [...this.approvals.values()].map((a) => a.req).concat([...this.restoredApprovals.values()]),
       drafts: this.deps.skillDrafts.list(),
       plans: this.plan?.list() ?? [],
       accounts: this.deps.config.accounts.map((a) => ({
@@ -470,13 +500,25 @@ export class Room extends EventEmitter<RoomEvents> {
     return change;
   }
 
-  respondApproval(id: string, allow: boolean) {
+  async respondApproval(id: string, allow: boolean): Promise<void> {
     const a = this.approvals.get(id);
+    const restored = this.restoredApprovals.get(id);
+    if (!a && !restored) return;
+    let granted = allow;
+    if (this.deps.approvalPersistence) {
+      try { await this.deps.approvalPersistence.decide(id, a?.action, allow, allow ? "user_allowed" : "user_denied", this.now()); }
+      catch { granted = false; }
+    }
+    if (restored) {
+      this.restoredApprovals.delete(id);
+      this.emit("approvalResolved", id);
+      return;
+    }
     if (!a) return;
     this.approvals.delete(id);
     this.emit("approvalResolved", id);
     this.setStatus(a.req.workerId, "working");
-    a.resolve(allow);
+    a.resolve(granted);
   }
 
   /** Stops everything a worker is doing or about to do. */
@@ -485,7 +527,7 @@ export class Room extends EventEmitter<RoomEvents> {
     for (const [key, r] of this.running) if (key.startsWith(`${workerId}:`)) r.abort.abort();
     for (const key of [...this.inbox.keys()]) if (key.startsWith(`${workerId}:`)) this.inbox.delete(key);
     for (const [key, t] of [...this.debounce]) if (key.startsWith(`${workerId}:`)) { clearTimeout(t); this.debounce.delete(key); }
-    for (const [id, a] of this.approvals) if (a.req.workerId === workerId) this.respondApproval(id, false);
+    for (const [id, a] of this.approvals) if (a.req.workerId === workerId) void this.respondApproval(id, false);
   }
 
   stopAll() {
@@ -800,7 +842,7 @@ export class Room extends EventEmitter<RoomEvents> {
     const depth = Math.max(...batch.map((m) => m.depth));
     const readOnly = batch.some((m) => m.readOnly);
     const chain = batch[0].chain ?? batch[0].id;
-    this.running.set(key, { abort, depth, readOnly, chain });
+    this.running.set(key, { abort, depth, readOnly, chain, workspaceId: durable?.step.workspaceId, stepId: durable?.stepId });
     this.chainTurns.set(chain, (this.chainTurns.get(chain) ?? 0) + 1);
     if (this.chainTurns.size > 2000) this.chainTurns.delete(this.chainTurns.keys().next().value!);
     this.budgetPaused.delete(accountId);
@@ -921,7 +963,7 @@ export class Room extends EventEmitter<RoomEvents> {
       };
 
       const adapter = host ? this.deps.remote! : this.deps.adapters[worker.provider];
-      const result = await adapter.runTurn({
+      const turnRequest: TurnRequest = {
         worker: runWorker,
         account,
         cwd,
@@ -944,8 +986,12 @@ export class Room extends EventEmitter<RoomEvents> {
           if ((tool === "Edit" || tool === "Write") && rest.length) rest.join(" ").split(/,\s*/).forEach((f) => edited.add(f.split("/").slice(-2).join("/")));
           this.setStatus(worker.id, "working", a);
         },
-        approve: async (tool, input) => { lastActive = this.now(); try { return await this.requestApproval(worker.id, tool, input, abort.signal, key, { cwd: approvalCwd, host }); } finally { lastActive = this.now(); } },
-      });
+        approve: async (tool, input) => { lastActive = this.now(); try { return await this.requestApproval(worker.id, tool, input, abort.signal, key,
+          { cwd: approvalCwd, host }, durable?.stepId ?? key); } finally { lastActive = this.now(); } },
+      };
+      const result = this.deps.modelGateway && !host
+        ? await this.deps.modelGateway.dispatch({ turn: turnRequest, runId: durable?.runId, stepId: durable?.stepId, taskId, attempt: durable?.step.attempt })
+        : await adapter.runTurn(turnRequest);
 
       if (result.sessionId) {
         this.sessions[sessKey] = result.sessionId;
@@ -1011,7 +1057,7 @@ export class Room extends EventEmitter<RoomEvents> {
       if (watchdog) clearInterval(watchdog);
       this.running.delete(key);
       // A turn that ended without answering (connection lost, crash) must not leave its approval card behind.
-      for (const [id, a] of [...this.approvals]) if (a.key === key) this.respondApproval(id, false);
+      for (const [id, a] of [...this.approvals]) if (a.key === key) void this.respondApproval(id, false);
     }
   }
 
@@ -1082,7 +1128,8 @@ export class Room extends EventEmitter<RoomEvents> {
     this.deps.store.appendAudit({ ts: this.now(), worker: workerId, mode, call: redactSecrets(describeCall(tool, input)), outcome, reason });
   }
 
-  private async requestApproval(workerId: string, tool: string, input: unknown, signal: AbortSignal, key: string, where: { cwd?: string; host?: string } = {}): Promise<ApprovalResult> {
+  private async requestApproval(workerId: string, tool: string, input: unknown, signal: AbortSignal, key: string,
+    where: { cwd?: string; host?: string } = {}, checkpoint = key): Promise<ApprovalResult> {
     const mode = this.autonomyOf(workerId);
     const ctx = this.policyContext(workerId, where);
     let why: string | undefined, authored: string[] | undefined;
@@ -1111,10 +1158,24 @@ export class Room extends EventEmitter<RoomEvents> {
       if (v.kind === "ask") { why = tr("Chế độ {mode}: {why}", { mode, why: v.reason }); authored = v.authored; }
     }
     if (guard) why = [why, tr("Plugin {by}: {reason}", { by: guard.by, reason: guard.reason })].filter(Boolean).join(" · ");
-    const req: ApprovalRequest = { id: randomUUID(), workerId, tool, input, ...where, ...(why ? { reason: why } : {}) };
+    const action = { workerId, tool, input, cwd: where.cwd, host: where.host, mode };
+    let id: string = randomUUID();
+    if (this.deps.approvalPersistence) {
+      const raw = JSON.stringify(input);
+      let safeInput: unknown = {};
+      try { safeInput = raw === undefined ? {} : JSON.parse(redactSecrets(raw)); } catch { safeInput = { redacted: true }; }
+      const persisted = await this.deps.approvalPersistence.request({ stepId: checkpoint, action,
+        display: { workerId, tool, input: safeInput, ...where, ...(why ? { reason: why } : {}) },
+        expiresAt: this.now() + 24 * 60 * 60_000, at: this.now() });
+      id = persisted.id;
+      if (persisted.state === "allowed") return true;
+      if (persisted.state === "denied" || persisted.state === "expired") return { allow: false, reason: "Stored approval is no longer valid; policy must be re-evaluated." };
+      this.restoredApprovals.delete(id);
+    }
+    const req: ApprovalRequest = { id, workerId, tool, input, ...where, ...(why ? { reason: why } : {}) };
     const allowed = await new Promise<boolean>((resolve) => {
-      this.approvals.set(req.id, { req, resolve, key });
-      signal.addEventListener("abort", () => this.respondApproval(req.id, false), { once: true });
+      this.approvals.set(req.id, { req, resolve, key, action });
+      signal.addEventListener("abort", () => { void this.respondApproval(req.id, false); }, { once: true });
       this.setStatus(workerId, "waiting_approval", tool);
       this.emit("approval", req);
     });

@@ -6,7 +6,7 @@ export type DataSensitivity = "public" | "internal" | "restricted";
 export interface ModelCapabilityProfile {
   id: string;
   provider: Provider;
-  model: string;
+  model?: string;
   modalities: Modality[];
   contextWindow: number;
   structuredOutput: boolean;
@@ -19,7 +19,8 @@ export interface ModelCapabilityProfile {
   quality: number;
   reliability: number;
   latencyP95Ms: number;
-  estimatedCostMicros: number;
+  /** Undefined means the route may be selected, but any hard monetary cap must fail closed before dispatch. */
+  estimatedCostMicros?: number;
   available: boolean;
   schemaFamily: string;
   catalogVersion: string;
@@ -71,11 +72,12 @@ export function selectModelRoute(
   if (!Number.isFinite(required.contextTokens) || required.contextTokens < 0) throw new Error("contextTokens must be non-negative");
   const eligible = profiles.filter((profile) => supports(profile, required));
   if (!eligible.length) throw new Error("No model satisfies the routing hard filters and quality floor");
-  const maxCost = Math.max(1, ...eligible.map((profile) => profile.estimatedCostMicros));
+  const knownCosts = eligible.flatMap((profile) => profile.estimatedCostMicros === undefined ? [] : [profile.estimatedCostMicros]);
+  const maxCost = Math.max(1, ...knownCosts);
   const maxLatency = Math.max(1, ...eligible.map((profile) => profile.latencyP95Ms));
   const scored = eligible.map((profile) => ({ profile, score:
     weights.quality * profile.quality
-    - weights.cost * (profile.estimatedCostMicros / maxCost)
+    - weights.cost * (profile.estimatedCostMicros === undefined ? 1 : profile.estimatedCostMicros / maxCost)
     - weights.latency * (profile.latencyP95Ms / maxLatency)
     + weights.reliability * profile.reliability,
   })).sort((a, b) => b.score - a.score || a.profile.id.localeCompare(b.profile.id));

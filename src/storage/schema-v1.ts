@@ -458,4 +458,10 @@ const persistentApprovalsV7: SqliteMigration = {
   `,
 };
 
-export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5, modelCostLedgerV6, persistentApprovalsV7];
+const persistentApprovalDisplayV8: SqliteMigration = {
+  version: 8,
+  name: "persistent_approval_display_v8",
+  sql: `ALTER TABLE approvals ADD COLUMN display_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(display_json));`,
+};
+
+export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5, modelCostLedgerV6, persistentApprovalsV7, persistentApprovalDisplayV8];
