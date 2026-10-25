@@ -1,3 +1,4 @@
+import { tr } from "../core/i18n";
 import { explainSpawnError } from "../core/cli";
 import type { ThreadEvent, ThreadOptions } from "@openai/codex-sdk";
 import { codexSandbox } from "../core/autonomy";
@@ -29,6 +30,26 @@ export function codexUsage(
 }
 
 /**
+ * The room's MCP server for a Codex thread. `codex exec` cannot ask anyone, so without `default_tools_approval_mode = "approve"`
+ * the room's own tools (post_message, claim_task, …) that Codex wants approved are refused. Claude's side already auto-approves them.
+ * Checked with codex-cli 0.164.0: `approve` is a valid value there, and a key an older version does not know is ignored.
+ */
+export const WINDOWS_SANDBOX_HINT = () => tr("Gợi ý: đây là lỗi dựng sandbox của Codex trên Windows. Các báo cáo cộng đồng thường khắc phục bằng cách đặt `[windows] sandbox = \"unelevated\"` trong ~/.codex/config.toml rồi khởi động lại (chưa kiểm chứng trên máy bạn). Cách cuối cùng là đặt `sandbox: danger-full-access` cho worker này, nhưng khi đó worker không còn sandbox.");
+
+/** Spawn problems and the Windows sandbox failure get an explanation; anything else is passed on untouched. */
+export function explainCodexError(e: unknown): unknown {
+  const raw = e instanceof Error ? e.message : String(e);
+  const hint = explainSpawnError(e, "codex");
+  const msg = hint === raw ? raw : hint;
+  if (/setup refresh had errors/i.test(msg)) return new Error(`${msg}\n${WINDOWS_SANDBOX_HINT()}`);
+  return hint === raw ? e : new Error(hint);
+}
+
+export function codexConfig(mcpUrl: string) {
+  return { mcp_servers: { agentroom: { url: mcpUrl, default_tools_approval_mode: "approve" } } };
+}
+
+/**
  * Runs one worker turn as a Codex thread via the Codex SDK (wraps `codex exec`).
  * `codex exec` has no interactive approval hook, so safety comes from the sandbox
  * mode configured per worker instead of AgentRoom's approval cards.
@@ -41,10 +62,7 @@ export class CodexAdapter implements AgentAdapter {
   ) {}
 
   async runTurn(req: TurnRequest): Promise<TurnResult> {
-    try { return await this.run(req); } catch (e) {
-      const hint = explainSpawnError(e, "codex");
-      throw hint === (e instanceof Error ? e.message : String(e)) ? e : new Error(hint);
-    }
+    try { return await this.run(req); } catch (e) { throw explainCodexError(e); }
   }
 
   private async run(req: TurnRequest): Promise<TurnResult> {
@@ -52,7 +70,7 @@ export class CodexAdapter implements AgentAdapter {
     const codex = new Codex({
       codexPathOverride: this.executable(),
       env: accountEnv(req.account, "CODEX_HOME", "OPENAI_API_KEY"),
-      config: { mcp_servers: { agentroom: { url: req.mcpUrl } } },
+      config: codexConfig(req.mcpUrl),
     });
     const threadOpts: ThreadOptions = {
       workingDirectory: req.cwd,
