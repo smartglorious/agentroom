@@ -390,4 +390,51 @@ const hybridMemoryV5: SqliteMigration = {
   `,
 };
 
-export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5];
+const modelCostLedgerV6: SqliteMigration = {
+  version: 6,
+  name: "model_cost_ledger_v6",
+  sql: `
+    CREATE TABLE model_calls (
+      request_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      run_id TEXT,
+      step_id TEXT,
+      task_id TEXT,
+      worker_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      provider TEXT NOT NULL CHECK (provider IN ('claude', 'codex')),
+      model TEXT,
+      attempt INTEGER NOT NULL CHECK (attempt >= 1),
+      prompt_sha256 TEXT NOT NULL CHECK (length(prompt_sha256) = 64),
+      input_token_budget INTEGER NOT NULL CHECK (input_token_budget >= 0),
+      output_token_budget INTEGER NOT NULL CHECK (output_token_budget >= 0),
+      estimated_cost_micros INTEGER CHECK (estimated_cost_micros >= 0),
+      input_tokens INTEGER CHECK (input_tokens >= 0),
+      output_tokens INTEGER CHECK (output_tokens >= 0),
+      cache_read_tokens INTEGER CHECK (cache_read_tokens >= 0),
+      cache_write_tokens INTEGER CHECK (cache_write_tokens >= 0),
+      token_provenance TEXT CHECK (token_provenance IN ('provider', 'estimated', 'unknown')),
+      cost_micros INTEGER CHECK (cost_micros >= 0),
+      cost_provenance TEXT CHECK (cost_provenance IN ('provider', 'catalog_estimate', 'unknown')),
+      currency TEXT NOT NULL DEFAULT 'USD' CHECK (currency = 'USD'),
+      unit_price_version TEXT,
+      provider_request_id TEXT,
+      retry_of TEXT,
+      fallback_of TEXT,
+      route_reason_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(route_reason_json) AND json_type(route_reason_json) = 'array'),
+      status TEXT NOT NULL CHECK (status IN ('reserved', 'completed', 'failed', 'blocked')),
+      block_reason TEXT,
+      error_code TEXT,
+      created_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      FOREIGN KEY (retry_of) REFERENCES model_calls(request_id) ON DELETE RESTRICT,
+      FOREIGN KEY (fallback_of) REFERENCES model_calls(request_id) ON DELETE RESTRICT
+    ) STRICT;
+
+    CREATE INDEX model_calls_run_cost_idx ON model_calls(workspace_id, run_id, status, created_at);
+    CREATE INDEX model_calls_step_cost_idx ON model_calls(workspace_id, step_id, status, created_at);
+    CREATE INDEX model_calls_account_day_idx ON model_calls(workspace_id, account_id, created_at, status);
+  `,
+};
+
+export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5, modelCostLedgerV6];
