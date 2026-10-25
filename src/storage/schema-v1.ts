@@ -61,14 +61,17 @@ export const schemaV1Migrations: readonly SqliteMigration[] = [{
 
     CREATE TABLE runs (
       id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,
+      workspace_id TEXT NOT NULL,
+      task_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'paused', 'succeeded', 'failed', 'cancelled')),
       attempt INTEGER NOT NULL CHECK (attempt >= 1),
       budget_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(budget_json)),
       route_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(route_json)),
       version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL CHECK (updated_at >= created_at)
+      updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+      UNIQUE (workspace_id, id),
+      FOREIGN KEY (workspace_id, task_id) REFERENCES tasks(workspace_id, id) ON DELETE RESTRICT
     ) STRICT;
 
     CREATE TABLE steps (
@@ -103,7 +106,7 @@ export const schemaV1Migrations: readonly SqliteMigration[] = [{
     ) STRICT;
 
     CREATE INDEX tasks_workspace_status_idx ON tasks(workspace_id, status, updated_at);
-    CREATE INDEX runs_task_status_idx ON runs(task_id, status, updated_at);
+    CREATE INDEX runs_task_status_idx ON runs(workspace_id, task_id, status, updated_at);
     CREATE INDEX steps_run_status_idx ON steps(run_id, status, ordinal);
     CREATE INDEX events_workspace_seq_idx ON events(workspace_id, seq);
     CREATE INDEX events_aggregate_seq_idx ON events(aggregate_type, aggregate_id, seq);
