@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 
 export const LEGACY_STATE_FILES = [
@@ -82,5 +82,37 @@ export const createLegacyBackup = (sourceDir: string, backupsDir: string, migrat
   };
   writeFileSync(join(staging, "manifest.json"), JSON.stringify(manifest, null, 2));
   renameSync(staging, destination);
+  return manifest;
+};
+
+/** Verifies every backup byte before copying into a new or empty recovery directory. */
+export const restoreLegacyBackup = (backupDir: string, targetDir: string): BackupManifest => {
+  const manifestPath = join(backupDir, "manifest.json");
+  if (!existsSync(manifestPath)) throw new Error("Backup manifest is missing");
+  let manifest: BackupManifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as BackupManifest;
+  } catch (error) {
+    throw new Error(`Backup manifest is invalid: ${String(error)}`);
+  }
+  if (manifest.formatVersion !== 1 || manifest.complete !== true || !Array.isArray(manifest.files)) {
+    throw new Error("Backup manifest is incomplete or unsupported");
+  }
+  const allowed = new Set<string>(LEGACY_STATE_FILES);
+  for (const file of manifest.files) {
+    if (!allowed.has(file.path) || basename(file.path) !== file.path) throw new Error(`Unsafe backup path: ${file.path}`);
+    const source = join(backupDir, file.path);
+    if (!existsSync(source) || !lstatSync(source).isFile() || lstatSync(source).isSymbolicLink()) {
+      throw new Error(`Backup file is missing or unsafe: ${file.path}`);
+    }
+    const data = readFileSync(source);
+    if (data.length !== file.bytes || hash(data) !== file.sha256) throw new Error(`Backup checksum mismatch: ${file.path}`);
+  }
+  if (existsSync(targetDir) && (!lstatSync(targetDir).isDirectory() || lstatSync(targetDir).isSymbolicLink())) {
+    throw new Error("Restore target is not a safe directory");
+  }
+  if (existsSync(targetDir) && readdirSync(targetDir).length > 0) throw new Error("Restore target is not empty");
+  mkdirSync(targetDir, { recursive: true });
+  for (const file of manifest.files) copyFileSync(join(backupDir, file.path), join(targetDir, file.path));
   return manifest;
 };

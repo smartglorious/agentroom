@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLegacyBackup, inventoryLegacyState } from "../src/storage/legacy-backup";
+import { createLegacyBackup, inventoryLegacyState, restoreLegacyBackup } from "../src/storage/legacy-backup";
+import { RoomStore } from "../src/core/store";
 
 const fixture = () => {
   const root = mkdtempSync(join(tmpdir(), "ar-backup-"));
@@ -52,4 +53,25 @@ test("legacy backup: an interrupted staging directory can be verified and resume
   const manifest = createLegacyBackup(state, backups, "resume");
   assert.equal(manifest.complete, true);
   assert.equal(readFileSync(join(backups, "resume", "tasks.json"), "utf8"), '[{"id":"t1"}]');
+});
+
+test("legacy backup: verified restore opens through the legacy adapter and never overwrites", () => {
+  const { root, state, backups } = fixture();
+  writeFileSync(join(state, "tasks.json"), JSON.stringify([{
+    id: "t1", title: "Restored", description: "", status: "todo", dependsOn: [], createdBy: "user", updatedAt: 1,
+  }]));
+  createLegacyBackup(state, backups, "restore-me");
+  const target = join(root, "restored-state");
+  restoreLegacyBackup(join(backups, "restore-me"), target);
+  assert.equal(new RoomStore(target).loadTasks()[0].title, "Restored");
+  assert.throws(() => restoreLegacyBackup(join(backups, "restore-me"), target), /not empty/);
+});
+
+test("legacy backup: corrupt bytes are rejected before the restore target is created", () => {
+  const { root, state, backups } = fixture();
+  createLegacyBackup(state, backups, "corrupt");
+  writeFileSync(join(backups, "corrupt", "tasks.json"), "tampered");
+  const target = join(root, "must-not-exist");
+  assert.throws(() => restoreLegacyBackup(join(backups, "corrupt"), target), /checksum mismatch/);
+  assert.throws(() => readFileSync(join(target, "tasks.json")), /ENOENT/);
 });
