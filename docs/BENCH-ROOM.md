@@ -53,3 +53,9 @@ node scripts/bench-goal.mjs --goals auth,cart,orders --reps 2 --cap 300000 --mod
 Thẻ duyệt được tự động đồng ý khi là đọc/ghi trong project hoặc lệnh `node --test`, `npm test` kèm lọc đơn giản (`tail`, `head`, `cat`); lệnh khác bị từ chối và đếm là "cần người". Chính sách này khá chặt: lệnh `grep` lọc kết quả test và ghi file bằng `cat > f <<EOF` bị từ chối dù vô hại, nên cột `interventions` đếm thừa; cột `questions` (ask_user) mới là câu hỏi thật.
 
 Kết quả lần chạy đầu (haiku, `durable`, 7 lượt, khoảng 70K cache-write tổng): cả `auth` (3 lỗi), `cart` (4 hành vi) và `orders` (6 lỗi chéo 5 module) đều được `lead` tự giải xong, đạt toàn bộ test ẩn, trong **một lượt model** (6K–16K cache-write, 28–65 giây), 0 câu hỏi cho người dùng. Mục tiêu cỡ này không có chỗ cho planner cải thiện; để thấy chênh lệch cần mục tiêu lớn hơn một lượt, và chưa có phép đo đó.
+
+### Fixture `sortrush`: mô phỏng một task giao việc thực tế
+
+Dựng từ một brief thật (mini game Sort Rush cần thêm vào một nền tảng có sẵn): `scripts/live/fixtures/sortrush/files` là hệ thống nhỏ đã có (tenant, QR, phiên chơi dùng chung, thưởng exactly-once, game mẫu `tapFrenzy`) kèm đặc tả trong `README.md`; `hidden/hidden.test.js` (9 test) kiểm các tiêu chí nghiệm thu: cô lập tenant/QR, không lộ đáp án, `event_id` gửi 10 lần chỉ ghi một hành động, điểm do server tính, thưởng một lần, config xấu bị từ chối. Test ẩn đỏ 8/9 trên bản chưa làm (một test đạt vì kiểu game lạ vốn bị từ chối) và đạt 9/9 với một bản giải tham chiếu.
+
+Kết quả (haiku, `durable`, 3 lượt): cả ba lượt đều đạt 9/9 test ẩn, **một lượt model**, 32K–40K cache-write, 111–129 giây, 0 câu hỏi cho người dùng. Chỉ mô phỏng (project nhỏ, đặc tả tự chứa trong một file): task thật tốn 6–9 ngày kỹ sư trên một codebase lớn hơn nhiều, nên đừng ngoại suy kết quả này sang đó.

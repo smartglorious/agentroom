@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 // Small projects with seeded problems, one per goal. The workers see `files` and `goal`; `hidden` are tests the checker adds after the run.
 export interface GoalFixture { id: string; goal: string; files: Record<string, string>; hidden: Record<string, string>; hiddenTests: number }
 
@@ -180,3 +181,11 @@ FIXTURES.orders = {
   files: { "README.md": ORD_README, "catalog.js": ORD_CATALOG, "stock.js": ORD_STOCK, "pricing.js": ORD_PRICING, "orders.js": ORD_ORDERS, "report.js": ORD_REPORT, "catalog.test.js": ORD_TEST },
   hidden: { "hidden.test.js": ORD_HIDDEN }, hiddenTests: 6,
 };
+
+// A fixture kept as real files: `files/` is the project the workers see, `hidden/` the tests the checker adds.
+const fromDir = (id: string, goal: string, hiddenTests: number): GoalFixture => {
+  const dir = (sub: string) => Object.fromEntries(readdirSync(`scripts/live/fixtures/${id}/${sub}`).map((f) => [f, readFileSync(`scripts/live/fixtures/${id}/${sub}/${f}`, "utf8")]));
+  return { id, goal, files: dir("files"), hidden: dir("hidden"), hiddenTests };
+};
+FIXTURES.sortrush = fromDir("sortrush",
+  "Đọc README.md rồi implement game Sort Rush theo đặc tả vào hệ thống hiện có: làm theo mẫu tapFrenzy.js, dùng gameSessions, rewards, configs đã có, tạo sortRush.js và nạp nó trong index.js. Thêm test (sortRush.test.js), chạy `node --test` cho tới khi xanh rồi báo cáo ngắn gọn.", 9);

@@ -32,7 +32,7 @@ for (const [i, goal] of plan.entries()) {
   const dir = join(out, `${String(i + 1).padStart(2, "0")}-${goal}`);
   mkdirSync(dir, { recursive: true });
   const r = spawnSync(process.execPath, ["out-test/bench-goal.mjs"], {
-    encoding: "utf8", timeout: 14 * 60_000, env: { ...process.env, NODE_NO_WARNINGS: "1", BENCH_GOAL: goal, BENCH_MODE: mode, BENCH_OUT: dir },
+    encoding: "utf8", timeout: 22 * 60_000, env: { ...process.env, NODE_NO_WARNINGS: "1", BENCH_GOAL: goal, BENCH_MODE: mode, BENCH_OUT: dir },
   });
   writeFileSync(join(dir, "stdout.txt"), r.stdout ?? "");
   const line = (r.stdout ?? "").split("\n").find((l) => l.startsWith("RESULT "));
