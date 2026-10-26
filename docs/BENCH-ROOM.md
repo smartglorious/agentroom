@@ -27,3 +27,16 @@ Mã ở `test/bench/`. `test/bench-room.test.ts` chạy cả bốn kịch bản 
 - **Đo:** thời gian thêm của `durable` mỗi lượt, lỗi và lượt dư khi chạy đồng thời, phục hồi sau khi tắt.
 - **Không đo:** token, quota, chất lượng câu trả lời của Claude, độ trễ thật của model. Muốn thế dùng `npm run test:live`, bench-kit và `npm run bench:cachewrite` (tốn quota thật).
 - Số thời gian có nhiễu (máy dùng chung, `idle()` đo theo chu kỳ 10 ms): đọc trung vị với nhiều lần lặp, đừng so từng con số lẻ. Ở lần chạy đầu trên Linux, `durable` thêm khoảng 10 ms mỗi lượt; đó là một lần đo, không phải cam kết.
+
+## Tầng 2: A/B với Claude thật (`npm run bench:ab`) — TỐN QUOTA
+
+Cùng kịch bản ba worker của `npm run bench:tokens` (haiku, project trống), chạy xen kẽ ở `legacy` và `durable` (`BENCH_MODE`), đọc cache-write từ `usage.jsonl` của từng lượt. Dùng `claude` đã đăng nhập trên máy.
+
+```bash
+node scripts/bench-ab.mjs --pilot                         # một lượt legacy, xem một lượt tốn bao nhiêu
+node scripts/bench-ab.mjs --reps 3 --cap 500000 --out <thư mục>   # reps × 2 lượt; dừng nếu lượt kế tiếp có thể vượt trần
+```
+
+Mỗi lượt lưu `usage.jsonl`, `stdout.txt` và `result.json` ở thư mục `--out`.
+
+**Giới hạn khi đọc kết quả:** đầu ra của model thay đổi từ lượt này sang lượt khác (số lượt model 9–15, cache-write 19K–39K cho cùng kịch bản), nên với 3 lượt mỗi bên khoảng dao động của hai chế độ chồng lên nhau. Con số trung vị không đủ để kết luận bên nào tiết kiệm hơn. Muốn kết luận cần nhiều lượt hơn hoặc kịch bản ít phụ thuộc vào ý model. Kịch bản không kiểm tra chất lượng: cột `file ok` chỉ cho biết `be` có ghi được `sub()` vào file hay không, và cả hai chế độ đều có lượt không ghi được (thẻ duyệt bị từ chối vì không có người).
