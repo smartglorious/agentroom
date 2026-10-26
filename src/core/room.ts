@@ -862,6 +862,7 @@ export class Room extends EventEmitter<RoomEvents> {
       }
       durable = claim.turn;
     }
+    const stopKeepAlive = durable ? this.deps.turnQueue!.keepAlive(durable) : undefined;
 
     const abort = new AbortController();
     const depth = Math.max(...batch.map((m) => m.depth));
@@ -1063,8 +1064,9 @@ export class Room extends EventEmitter<RoomEvents> {
       else if (!text && !noop && batch.some((m) => m.from === HUMAN) && !this.messages.some((m) => m.from === worker.id && m.ts >= startedAt)) {
         this.post(SYSTEM, tr("ℹ️ {name} chạy xong nhưng không có nội dung trả lời (token vào {i}, ra {o}). Xem 🔍 để biết lượt đó, hoặc nhắn lại.", { name: worker.name, i: (result.usage?.input ?? 0) + (result.usage?.cacheRead ?? 0) + (result.usage?.cacheWrite ?? 0), o: result.usage?.output ?? 0 }), { to: [], alert: true });
       }
-      if (durable) { await this.deps.turnQueue!.succeed(durable); durableDone = true; }
+      if (durable) { await stopKeepAlive!(); await this.deps.turnQueue!.succeed(durable); durableDone = true; }
     } catch (err) {
+      await stopKeepAlive?.();
       if (durable && !durableDone && !abort.signal.aborted) {
         await this.deps.turnQueue!.fail(durable, err).catch((failure) => this.noteIssue({
           kind: "error", source: "turn", worker: worker.id,
@@ -1097,6 +1099,7 @@ export class Room extends EventEmitter<RoomEvents> {
       throw err;
     } finally {
       if (watchdog) clearInterval(watchdog);
+      void stopKeepAlive?.();
       this.running.delete(key);
       // A turn that ended without answering (connection lost, crash) must not leave its approval card behind.
       for (const [id, a] of [...this.approvals]) if (a.key === key) void this.respondApproval(id, false);

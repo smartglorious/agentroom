@@ -2,6 +2,12 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.21
+- **Sửa lỗi `Event version conflict: expected 3, actual 4` ở chế độ `durable`.** Lease của một lượt chỉ 30 giây và Room không gia hạn trong lúc lượt chạy. Lượt dài hơn 30 giây bị lượt của worker khác thu hồi lease (`claim` → `recover`), nên khi xong thì ghi kết quả vào phiên bản cũ của step và báo lỗi; lượt đó còn có nguy cơ bị chạy lại. Giờ lượt gia hạn lease bằng heartbeat mỗi một phần ba thời hạn và dừng nó trước khi ghi kết quả. Test mới (`test/durable-concurrency.test.ts`) đỏ khi tắt heartbeat và xanh khi bật.
+- **Sửa race khi hai worker cùng sửa một run đang xếp hàng** (`Event ID run:…:started already has different content`): các lần sửa chạy chung một promise và đọc lại run trước khi làm (vốn đã sửa ở bản pro 0.15.18, chưa vào bản công khai).
+- Chỉ ảnh hưởng `durable`; `legacy`/`verify` không dùng lease.
+- **Chưa kiểm chứng:** với Claude thật sau khi cài (đã thấy lỗi trên project thật của chủ dự án ở bản pro); chưa rõ lượt từng bị chạy lại thật; chưa thử gia hạn lease qua daemon/VPS.
+
 ## 0.14.20
 - **Đối chiếu SQLite nói rõ trường nào lệch** (`task-projection:<id>(title,dependsOn…)`) và chỉ so các trường mà bản chiếu thật sự lưu; `dependsOn` so như tập hợp (bảng phụ thuộc không giữ thứ tự và không giữ trùng lặp), khóa thừa do phiên bản cũ ghi vào `tasks.json` không còn làm đối chiếu thất bại; phụ thuộc trùng không làm import lỗi.
 - Đã kiểm chứng trên một project thật (bản pro 0.15.23): 1515 bản ghi cũ đối chiếu đạt và `durable` bật được. Chưa biết trong ba nguyên nhân nghi ngờ (thứ tự, trùng lặp, khóa thừa) cái nào là cái đã gây lỗi ở project đó.

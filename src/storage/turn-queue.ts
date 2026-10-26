@@ -80,6 +80,25 @@ export class DurableTurnQueue {
     return claimed ? { state: "claimed", turn: claimed } : { state: "waiting", turn };
   }
 
+  /**
+   * A turn can take minutes, far longer than a lease. Without renewals another worker's `claim` runs `recover`, which expires the lease
+   * (and would let the turn run twice); the finished turn would then fail with "Event version conflict". So the lease is renewed while the
+   * turn runs, and `turn.step` follows each renewal because every event moves the step's version. `stop` waits for a renewal in flight.
+   */
+  keepAlive(turn: ClaimedTurn): () => Promise<void> {
+    let active: Promise<void> | undefined;
+    let stopped = false;
+    const timer = setInterval(() => {
+      if (stopped || active) return;
+      active = this.workflow.heartbeat(turn.step).then(
+        (step) => { turn.step = step; },
+        () => { stopped = true; clearInterval(timer); },
+      ).finally(() => { active = undefined; });
+    }, Math.max(250, Math.floor(this.workflow.leaseDuration / 3)));
+    timer.unref?.();
+    return async () => { stopped = true; clearInterval(timer); await active; };
+  }
+
   async succeed(turn: ClaimedTurn): Promise<RunRecord> { return await this.workflow.succeed(turn.step); }
 
   async fail(turn: ClaimedTurn, error: unknown): Promise<RunRecord> { return await this.workflow.fail(turn.step, error); }
