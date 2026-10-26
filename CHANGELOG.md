@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.17
+- **Giao task không còn đánh thức người nhận hai lần.** Khi một worker (thường là lead) `create_task` giao việc cho X rồi câu trả lời cuối lại `@X …`, X bị gọi hai lần: một lần bởi thông báo giao task (session của task) và một lần bởi tin @mention (session `main`). Trong benchmark 26/10 (6 tin, 4 task), mỗi task làm X chạy hai lần, tạo hai session mới (mỗi session ~53K cache-write) và kéo theo hai lượt tổng kết của lead: khoảng 79% tổng cache-write nằm ở các session task đó, phần lớn trùng lặp. Giờ người vừa được giao task trong lượt không bị gọi lại bởi câu trả lời cuối của chính lượt đó (tin vẫn đăng; người khác được @mention vẫn bị gọi). Test đỏ trước khi sửa. **Chưa đo mức tiết kiệm thật sau sửa.**
+
 ## 0.14.16
 - **Model theo độ khó của task.** Task có thêm `level` (`low`/`mid`/`high`, đặt ở `create_task`), worker có `levels: { low: { model, effort }, … }`. Các lượt của người nhận trên task chạy model và `effort` (độ nỗ lực suy luận của Claude) tương ứng. Chọn ở ranh giới task vì mỗi model có cache riêng: session của task không bao giờ được nối sang model khác, đổi model thì bắt đầu session mới. `effort` truyền qua cả worker SSH, không gửi tới account `baseUrl`. Task hoặc worker không khai báo thì không đổi gì. Nghiên cứu cách người khác làm, và điều chưa kiểm chứng, ở `docs/MODEL-ROUTING.md`. **Chưa chạy với Claude thật, chưa đo mức tiết kiệm.**
 

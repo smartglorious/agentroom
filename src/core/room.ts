@@ -346,7 +346,10 @@ export class Room extends EventEmitter<RoomEvents> {
     if (args.assignee && !this.hasWorker(args.assignee)) throw new Error(tr("Không có worker \"{assignee}\"", { assignee: args.assignee }));
     const t = this.tasks.create({ ...args, createdBy: me });
     this.saveTasks();
-    if (t.assignee && t.status === "todo" && t.assignee !== me) this.notifyAssignee(t, this.isReadOnlyRunning(me), this.chainOf(me));
+    if (t.assignee && t.status === "todo" && t.assignee !== me) {
+      this.notifyAssignee(t, this.isReadOnlyRunning(me), this.chainOf(me));
+      this.noteAssigned(me, t.assignee);
+    }
     return t;
   }
 
@@ -472,6 +475,17 @@ export class Room extends EventEmitter<RoomEvents> {
   private isReadOnlyRunning(workerId: string): boolean {
     for (const [key, r] of this.running) if (key.startsWith(`${workerId}:`) && r.readOnly) return true;
     return false;
+  }
+
+  /** Whom `workerId` has just woken by giving them a task: the assignment already wakes them, so the same worker's answer must not wake them again. */
+  private assigned = new Map<string, Map<string, number>>();
+  private noteAssigned(workerId: string, assignee: string) {
+    let m = this.assigned.get(workerId);
+    if (!m) this.assigned.set(workerId, (m = new Map()));
+    m.set(assignee, this.now());
+  }
+  private assignedSince(workerId: string, since: number): string[] {
+    return [...(this.assigned.get(workerId) ?? [])].filter(([, at]) => at >= since).map(([id]) => id);
   }
 
   private notifyAssignee(t: Task, readOnly?: boolean, chain?: string) {
@@ -824,7 +838,7 @@ export class Room extends EventEmitter<RoomEvents> {
       this.checkBudget(account.id);
       this.emit("usage");
       if (text && !noop && !repeat) {
-        const woken = this.messages.filter((m) => m.from === worker.id && m.ts >= startedAt && !m.turnId).flatMap((m) => m.to);
+        const woken = [...this.messages.filter((m) => m.from === worker.id && m.ts >= startedAt && !m.turnId).flatMap((m) => m.to), ...this.assignedSince(worker.id, startedAt)];
         this.post(worker.id, text, { taskId, depth: depth + 1, turnId, readOnly, alreadyWoken: woken });
       }
       // Nothing came back for a person's message and the worker said nothing through its tools either: say so instead of staying silent.
