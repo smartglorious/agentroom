@@ -3,7 +3,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { ClaudeAdapter } from "../../src/adapters/claude";
 import { CodexAdapter } from "../../src/adapters/codex";
 import { parseConfig } from "../../src/core/config";
@@ -28,17 +28,25 @@ const deadlineMs = Number(process.env.BENCH_DEADLINE_MIN ?? "10") * 60_000;
 
 const ws = mkdtempSync(join(tmpdir(), "goal-ws-"));
 execFileSync("git", ["init", "-q", "-b", "main"], { cwd: ws });
-for (const [name, text] of Object.entries(fixture.files)) writeFileSync(join(ws, name), text);
+for (const [name, text] of Object.entries(fixture.files)) { mkdirSync(dirname(join(ws, name)), { recursive: true }); writeFileSync(join(ws, name), text); }
 writeFileSync(join(ws, "package.json"), JSON.stringify({ name: "fixture", version: "1.0.0", scripts: { test: "node --test" } }));
 const root = join(ws, ".agentroom"), state = join(root, "state");
 mkdirSync(state, { recursive: true });
 
-const config = parseConfig(`accounts: { c: { provider: claude, maxConcurrent: 3 } }
+const THREE = `accounts: { c: { provider: claude, maxConcurrent: 3 } }
 workers:
   - { id: lead, name: Lan, role: Tech Lead, account: c, model: haiku, coordinator: true, allowedTools: [Read, Grep, Glob] }
   - { id: be, name: Minh, role: Backend Developer, account: c, model: haiku, allowedTools: [Read, Grep, Glob, Write, Edit, Bash] }
   - { id: qa, name: Hà, role: QA, account: c, model: haiku, allowedTools: [Read, Grep, Glob, Bash] }
-`);
+`;
+const FOUR = `accounts: { c: { provider: claude, maxConcurrent: 4 } }
+workers:
+  - { id: lead, name: Lan, role: Tech Lead, account: c, model: haiku, coordinator: true, allowedTools: [Read, Grep, Glob] }
+  - { id: fe, name: Phong, role: Frontend Developer, account: c, model: haiku, allowedTools: [Read, Grep, Glob, Write, Edit, Bash] }
+  - { id: be, name: Minh, role: Backend Developer, account: c, model: haiku, allowedTools: [Read, Grep, Glob, Write, Edit, Bash] }
+  - { id: qa, name: Hà, role: QA, account: c, model: haiku, allowedTools: [Read, Grep, Glob, Bash] }
+`;
+const config = parseConfig(fixture.team ? FOUR : THREE);
 let turnQueue: DurableTurnQueue | undefined;
 if (mode === "durable") {
   const db = await SqliteConnection.open(join(state, "agentroom.db"));
@@ -63,15 +71,22 @@ const inside = (p: unknown) => typeof p === "string" && (resolve(ws, p) + sep).s
 // A shell line is fine when every part is a plain read-only or test command that stays inside the project (no redirects other than 2>&1, no substitution).
 const SAFE_PART = /^(node --test( [\w./-]+)*|npm test|node --version|node [\w./-]+|tail( -n?\s?\d+)?|head( -n?\s?\d+)?|cat [\w./-]+|ls( -[la]+)?( [\w./-]+)?|pwd|echo [\w .-]*)( 2>&1)?$/;
 const safeBash = (c: unknown) => typeof c === "string" && !/[`$()<>]/.test(c.replace(/2>&1/g, "")) && c.split(/&&|\|\||;|\|/).every((part) => SAFE_PART.test(part.trim().replace(new RegExp(resolve(ws).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), ".")));
-let approvalsTotal = 0, approvalsAllowed = 0, approvalsDenied = 0, questions = 0;
+let roleDenied = 0, approvalsTotal = 0, approvalsAllowed = 0, approvalsDenied = 0, questions = 0;
 const denied: string[] = [];
 room.on("approval", (req) => {
   approvalsTotal++;
   const input = (req.input ?? {}) as Record<string, unknown>;
+  const target = String(input.file_path ?? input.path ?? "");
+  const rel = inside(target) ? resolve(ws, target).slice(resolve(ws).length + 1).split(sep).join("/") : "";
+  // In the team run every role writes only its own area; a write elsewhere is refused and counted as a role violation.
+  const roleOk = !fixture.team ? true : req.workerId === "lead" ? false : req.workerId === "fe" ? rel.startsWith("web/") && !rel.endsWith(".test.js")
+    : req.workerId === "be" ? !!rel && !rel.startsWith("web/") && !rel.endsWith(".test.js") : req.workerId === "qa" ? rel.endsWith(".test.js") : false;
+  const write = ["Write", "Edit"].includes(req.tool);
   const ok = ["Read", "Grep", "Glob"].includes(req.tool) ? true
-    : ["Write", "Edit"].includes(req.tool) ? inside(input.file_path ?? input.path)
+    : write ? inside(target) && roleOk
     : req.tool === "Bash" ? safeBash(input.command) : false;
-  if (ok) approvalsAllowed++; else { approvalsDenied++; denied.push(`${req.tool}:${JSON.stringify(input).slice(0, 80)}`); }
+  if (write && inside(target) && !roleOk) { roleDenied++; denied.push(`${req.workerId} wrote ${rel}`); }
+  if (ok) approvalsAllowed++; else { approvalsDenied++; if (!(write && inside(target) && !roleOk)) denied.push(`${req.tool}:${JSON.stringify(input).slice(0, 80)}`); }
   room.respondApproval(req.id, ok);
 });
 room.on("message", (m) => {
@@ -99,15 +114,18 @@ const runTests = () => {
 };
 const own = runTests();
 for (const [name, text] of Object.entries(fixture.hidden)) writeFileSync(join(ws, name), text);
-const hidden = spawnSync("node", ["--test", "hidden.test.js"], { cwd: ws, encoding: "utf8", timeout: 60_000 });
+const hidden = spawnSync("node", ["--test", ...Object.keys(fixture.hidden)], { cwd: ws, encoding: "utf8", timeout: 60_000 });
 const hiddenPass = Number(/# pass (\d+)/.exec(hidden.stdout ?? "")?.[1] ?? 0);
+const hiddenFailed = [...(hidden.stdout ?? "").matchAll(/^not ok \d+ - (.+)$/gm)].map((m) => m[1].slice(0, 100));
 
-const t = usage.summarize("today").totals;
+const summary = usage.summarize("today");
+const t = summary.totals;
+const byWorker = Object.fromEntries(summary.byWorker.map((w) => [w.key, { turns: w.turns, tokens: w.tokens }]));
 const result = {
   goal: fixture.id, mode, timedOut, wallS: +wallS.toFixed(1),
   turns: t.turns, errors: t.errors, cacheWrite: t.cacheWrite, cacheRead: t.cacheRead, output: t.output, costUsd: +t.costUsd.toFixed(4),
-  ownTestsPass: own.pass, ownTestsFail: own.fail, hiddenPass, hiddenTotal: fixture.hiddenTests, solved: hiddenPass === fixture.hiddenTests && own.fail === 0,
-  approvalsTotal, approvalsAllowed, approvalsDenied, questions, interventions: approvalsDenied + questions, denied,
+  ownTestsPass: own.pass, ownTestsFail: own.fail, hiddenPass, hiddenTotal: fixture.hiddenTests, hiddenFailed, solved: hiddenPass === fixture.hiddenTests && own.fail === 0,
+  approvalsTotal, approvalsAllowed, approvalsDenied, roleDenied, questions, byWorker, interventions: approvalsDenied + questions, denied,
   workerMessages: room.snapshot().messages.filter((m) => m.from !== "system" && m.from !== "user").length,
 };
 console.log(`RESULT ${JSON.stringify(result)}`);
