@@ -245,6 +245,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node esbuild.mjs --tests && node --test out-test/*.test.js",
+    "bench:room": "node esbuild.mjs --bench && node out-bench/main.js",
     "bench:gateway": "node scripts/benchmark-gateway.mjs",
     "security:sbom": "npm sbom --sbom-format cyclonedx",
     "package": "npm run build && npx -y @vscode/vsce package",

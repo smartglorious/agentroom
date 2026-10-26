@@ -42,3 +42,20 @@ jobs:
         with:
           name: sbom
           path: agentroom.cdx.json
+
+  room-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Scripted model, legacy against durable: red on errors, repeated turns or failed recovery, or if durable adds over 250 ms per turn.
+      - run: npm run bench:room -- --json --max-overhead-ms=250 > room-harness.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-harness
+          path: room-harness.json
