@@ -73,7 +73,7 @@ await holder.mcp.start();
 // A person would click through ordinary work inside the project; anything else is refused and counted as needing a person.
 const inside = (p: unknown) => typeof p === "string" && (resolve(ws, p) + sep).startsWith(resolve(ws) + sep);
 // A shell line is fine when every part is a plain read-only or test command that stays inside the project (no redirects other than 2>&1, no substitution).
-const SAFE_PART = /^(node --test( [\w./-]+)*|npm (ci|test|run build)|npx jest( [\w./=-]+)*|cd [\w./-]+|git (status|diff|log|add|branch|switch|checkout -b)( [\w./=-]+)*|git commit -m ["\x27][^"\x27]*["\x27]|node --version|node [\w./-]+|tail( -n?\s?\d+)?|head( -n?\s?\d+)?|cat [\w./-]+|ls( -[la]+)?( [\w./-]+)?|pwd|echo [\w .-]*)( 2>&1)?$/;
+const SAFE_PART = /^(node --test( [\w./-]+)*|npm (ci|test|run build)|npx jest( [\w./=-]+)*|cd [\w./-]+|git (status|diff|log|add|branch)( [\w./=-]+)*|git (checkout|switch)( -[qbBcC])*( [\w./=-]+)+|git commit -m ["\x27][^"\x27]*["\x27]|node --version|node [\w./-]+|tail( -n?\s?\d+)?|head( -n?\s?\d+)?|cat [\w./-]+|ls( -[la]+)?( [\w./-]+)?|pwd|echo [\w .-]*)( 2>&1)?$/;
 const safeBash = (c: unknown) => typeof c === "string" && !/[`$()<>]/.test(c.replace(/2>&1/g, "")) && c.split(/&&|\|\||;|\|/).every((part) => SAFE_PART.test(part.trim().replace(new RegExp(resolve(ws).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), ".")));
 let roleDenied = 0, approvalsTotal = 0, approvalsAllowed = 0, approvalsDenied = 0, questions = 0;
 const denied: string[] = [];
@@ -84,7 +84,7 @@ room.on("approval", (req) => {
   const rel = inside(target) ? resolve(ws, target).slice(resolve(ws).length + 1).split(sep).join("/") : "";
   // In the team run every role writes only its own area; a write elsewhere is refused and counted as a role violation.
   const ZONES: Record<string, string[]> = { be: ["rules-service/", "integration-connectors/"], fe: ["play-frontend/", "frontend-dashboard/", "games/"], docs: ["docs/", "WORKING.md", "SNAPSHOT.md", "README.md"] };
-  const roleOk = fixture.zones ? (ZONES[req.workerId] ?? []).some((z) => rel === z || rel.startsWith(z)) : !fixture.team ? true : req.workerId === "lead" ? false : req.workerId === "fe" ? rel.startsWith("web/") && !rel.endsWith(".test.js")
+  const roleOk = fixture.solo ? true : fixture.zones ? (ZONES[req.workerId] ?? []).some((z) => rel === z || rel.startsWith(z)) : !fixture.team ? true : req.workerId === "lead" ? false : req.workerId === "fe" ? rel.startsWith("web/") && !rel.endsWith(".test.js")
     : req.workerId === "be" ? !!rel && !rel.startsWith("web/") && !rel.endsWith(".test.js") : req.workerId === "qa" ? rel.endsWith(".test.js") : false;
   const write = ["Write", "Edit"].includes(req.tool);
   const ok = ["Read", "Grep", "Glob"].includes(req.tool) ? true
@@ -99,7 +99,7 @@ room.on("message", (m) => {
 });
 
 const startedAt = Date.now();
-room.post("user", `@lead ${fixture.goal}`);
+room.post("user", `@${process.env.BENCH_TARGET ?? "lead"} ${fixture.goal}`);
 await new Promise<void>((res) => {
   const tick = () => {
     const quiet = room.snapshot().statuses.every((s) => s.state === "idle" || s.state === "error");

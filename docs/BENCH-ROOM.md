@@ -73,3 +73,11 @@ Cùng bài, bố cục theo vùng như một dự án thật: `rules-service/` (
 Khác thực tế: không có git worktree (cùng một thư mục), không có skill riêng của dự án, project nhỏ, chạy bằng một lượt giao việc; không đo xung đột merge.
 
 Kết quả lần chạy đầu (Sonnet 5.5, `durable`, **1 lượt**): 10 lượt model (fe 4, be 2, lead 2, qa 1, docs 1), **139K cache-write**, 329 giây, 0 câu hỏi cho người dùng, 0 lần ghi sai vùng, 16/16 test ẩn sau khi sửa test như trên (lúc chấm đầu báo 15/16 vì cùng lỗi của test).
+
+### Fixture `sortrush-solo`: một agent làm lần lượt từng giai đoạn (so với đội)
+
+Cùng bài, cùng bố cục `sortrush-zones`, cùng model (Sonnet 5.5) và cùng bộ chấm, nhưng giao cho **một** worker (`BENCH_TARGET=solo`, `BENCH_WORKERS_FILE` trỏ tới file một worker) kèm yêu cầu làm tuần tự: server, client, tự rà soát lại như reviewer độc lập, rồi docs, mỗi giai đoạn một nhánh git và commit.
+
+Kết quả (Sonnet, `durable`): ba lượt hợp lệ đều **16/16**, mỗi lượt một lượt model, **37K–41K cache-write**, 182–221 giây. Cùng bài, đội năm worker bằng file workers thật: **139K** cache-write, 10 lượt model, 329 giây, 16/16 (một lượt). Tức đội tốn khoảng 3,5 lần cache-write và chậm hơn khoảng 1,5 lần, với cùng kết quả ở bài cỡ này. Hai lượt khác bị loại vì bộ đo chặn nhầm lệnh `git checkout -q -b` (agent hỏi lại người dùng rồi dừng); chính sách đã sửa.
+
+Giới hạn: một bài, haiku/Sonnet, đặc tả tự chứa, không worktree thật (nhánh git trong cùng thư mục), `rà soát độc lập` do cùng một agent tự làm nên không đo được giá trị của một reviewer khác; chưa đo bài lớn, nhiều máy, firmware/mobile, hay dùng Codex.
