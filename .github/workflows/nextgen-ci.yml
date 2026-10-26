@@ -53,7 +53,7 @@ jobs:
           cache: npm
       - run: npm ci
       # Scripted model, legacy against durable: red on errors, repeated turns or failed recovery, or if durable adds over 250 ms per turn.
-      - run: npm run bench:room -- --json --max-overhead-ms=250 > room-harness.json
+      - run: npm run -s bench:room -- --json --max-overhead-ms=250 > room-harness.json
       - if: always()
         uses: actions/upload-artifact@v4
         with:
