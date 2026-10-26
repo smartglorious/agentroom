@@ -3,6 +3,7 @@
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
 ## Chưa phát hành
+- **Đề xuất `docs/PLAN-R2.md` (chưa có mã):** chương trình nhiều milestone với gate `auto`/`device`/`human`, thang bằng chứng, báo xong khác với xong, dừng chờ ở gate thiết bị và gate người, trần ngân sách. Cần chủ dự án duyệt trước khi viết mã.
 - **Đo cơ chế của Room tự động:** `npm run bench:room` chạy cùng một phòng với model giả ở `legacy` và `durable` (kịch bản `chat`, `burst`, `longturn`, `crash`): thời gian thêm mỗi lượt, lỗi khi chạy đồng thời, lượt chạy hai lần, phục hồi sau khi tắt đột ngột. Không tốn quota. `test/bench-room.test.ts` chạy cả bốn kịch bản cỡ nhỏ trong `npm test`. Không đo token hay chất lượng câu trả lời. Xem `docs/BENCH-ROOM.md`.
 - **A/B với Claude thật:** `npm run bench:ab` (`scripts/bench-ab.mjs`) chạy cùng kịch bản ba worker của `bench:tokens` ở `legacy` và `durable` xen kẽ, có chế độ `--pilot` và trần cache-write. Tốn quota thật. Kết quả lần chạy đầu: dao động giữa các lượt lớn hơn khác biệt giữa hai chế độ, chưa kết luận được.
 - **Giao một mục tiêu:** `npm run bench:goal` (`scripts/bench-goal.mjs`, ba project nhỏ có lỗi cài sẵn, test ẩn để chấm). Tốn quota thật. Lần chạy đầu: cả ba mục tiêu được `lead` giải xong trong một lượt model, nên chưa có chỗ để đo lợi ích của planner.
