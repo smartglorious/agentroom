@@ -2,6 +2,11 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.18
+- **Tab *Cài đặt* trong giao diện:** đổi các cài đặt `agentroom.*` thường dùng ngay trong sidebar (ngôn ngữ, số tin phát lại cho session mới, ngân sách trí nhớ, số bước agent gọi agent, gom tin, số lượt giữ cho Inspector, chu kỳ đọc hạn mức, đường dẫn `claude`/`codex`). Mỗi mục cho biết giá trị đặt ở project hay ở người dùng, có cần tải lại cửa sổ không (kèm nút *Tải lại cửa sổ*) và có nút *Mặc định*. Host kiểm tra kiểu và khoảng giá trị trước khi ghi và chỉ nhận khóa trong danh sách của nó. `limits`, `levels`, `fallback` vẫn nằm trong `workers.yaml` (chỉ hiển thị, kèm nút mở file). Danh sách chỉ hiện các cài đặt mà bản này khai báo. Chưa thử trong VS Code thật: giao diện đã chạy thử trong trình duyệt headless với host giả.
+- **Sửa xử lý đường dẫn của chế độ tự chủ trên Windows:** workspace dưới `AppData\Local\Temp` không còn bị coi là vị trí hệ thống, đường dẫn POSIX tuyệt đối như `/etc/hosts` giữ đúng kiểu khi `cwd` là Windows, và vẫn bảo vệ `AppData` ngoài workspace; một số test chỉ chạy được trên POSIX/SSH được bỏ qua có điều kiện trên Windows. Đã kiểm chứng bằng test; chưa chạy trên máy Windows của người dùng.
+- **Công cụ đo cache-write** `npm run bench:cachewrite` (`scripts/bench-cachewrite.mjs`, offline) và `docs/BENCH-CACHEWRITE.md`.
+
 ## 0.14.17
 - **Giao task không còn đánh thức người nhận hai lần.** Khi một worker (thường là lead) `create_task` giao việc cho X rồi câu trả lời cuối lại `@X …`, X bị gọi hai lần: một lần bởi thông báo giao task (session của task) và một lần bởi tin @mention (session `main`). Trong benchmark 26/10 (6 tin, 4 task), mỗi task làm X chạy hai lần, tạo hai session mới (mỗi session ~53K cache-write) và kéo theo hai lượt tổng kết của lead: khoảng 79% tổng cache-write nằm ở các session task đó, phần lớn trùng lặp. Giờ người vừa được giao task trong lượt không bị gọi lại bởi câu trả lời cuối của chính lượt đó (tin vẫn đăng; người khác được @mention vẫn bị gọi). Test đỏ trước khi sửa. **Chưa đo mức tiết kiệm thật sau sửa.**
 

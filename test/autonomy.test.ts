@@ -43,6 +43,10 @@ test("paths: inside / sensitive / outside / system / unknown, with .. and ~ reso
   assert.equal(k("C:\\proj\\src\\a.ts", { cwd: "C:\\proj" }), "inside");
   assert.equal(k("C:\\Windows\\System32\\x", { cwd: "C:\\proj" }), "system");
   assert.equal(k("..\\x", { cwd: "C:\\proj" }), "outside");
+  assert.equal(k("src\\a.ts", { cwd: "C:\\Users\\dev\\AppData\\Local\\Temp\\agentroom-x" }), "inside", "the selected workspace remains usable below AppData/Temp");
+  assert.equal(k("..\\agentroom-y\\a.ts", { cwd: "C:\\Users\\dev\\AppData\\Local\\Temp\\agentroom-x" }), "outside", "a sibling below the user temp folder is outside, not a system path");
+  assert.equal(k("C:\\Users\\dev\\AppData\\Local\\other\\x", { cwd: "C:\\Users\\dev\\AppData\\Local\\Temp\\agentroom-x" }), "system", "AppData outside the workspace remains protected");
+  assert.equal(k("/etc/hosts", { cwd: "C:\\work\\app" }), "system", "an explicit POSIX system path keeps its flavour with a Windows cwd");
 });
 
 test("splitShell: operators, quotes, redirects; anything it cannot read safely is refused", () => {

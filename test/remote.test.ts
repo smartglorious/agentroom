@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn as nodeSpawn } from "node:child_process";
+import { execFileSync, spawn as nodeSpawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +22,7 @@ import { scripted } from "./remote-fakes";
 import { Fake, idle, makeRoom } from "./helpers";
 
 const tmp = (p = "rt-") => mkdtempSync(join(tmpdir(), p));
+const hasSh = spawnSync("sh", ["-c", "exit 0"], { stdio: "ignore" }).status === 0;
 const git = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
 function repo() {
   const d = tmp();
@@ -438,7 +439,7 @@ test("ssh: failures are explained in terms the user can act on", () => {
   assert.match(explainFailure(s, "weird", 9, false), /mã 9\): weird/);
 });
 
-test("ssh: quoting survives awkward paths", () => {
+test("ssh: quoting survives awkward paths", { skip: !hasSh }, () => {
   assert.equal(sq("it's"), `'it'\\''s'`);
   const out = execFileSync("sh", ["-c", `printf %s ${sq("a b'c$HOME\"d")}`], { encoding: "utf8" });
   assert.equal(out, `a b'c$HOME"d`);
@@ -454,7 +455,7 @@ const shellSpawner = (home: string, specOver: Partial<HostDef> = {}, runner = ru
   return { s, runner, spawn: (): ProcessLike => nodeSpawn("sh", ["-c", remoteCommand(bootstrapScript(s, runnerHash(runner), runner.length))], { env: { ...process.env, HOME: home, AR_TEST_HOME: home }, stdio: ["pipe", "pipe", "pipe"] }) as unknown as ProcessLike };
 };
 
-test("bootstrap: first connect installs the runner on the host, later connects reuse it, and it works end to end", async () => {
+test("bootstrap: first connect installs the runner on the host, later connects reuse it, and it works end to end", { skip: !hasSh }, async () => {
   const home = tmp("home-");
   const base = repo();
   let uploads = 0;
@@ -472,7 +473,7 @@ test("bootstrap: first connect installs the runner on the host, later connects r
   c2.close();
 });
 
-test("bootstrap: a login banner on the host does not disturb the protocol", async () => {
+test("bootstrap: a login banner on the host does not disturb the protocol", { skip: !hasSh }, async () => {
   const home = tmp("home-");
   writeFileSync(join(home, ".profile"), 'echo "Welcome to box — last login yesterday"\n');
   const t = shellSpawner(home);
@@ -482,7 +483,7 @@ test("bootstrap: a login banner on the host does not disturb the protocol", asyn
   c.close();
 });
 
-test("bootstrap: old Node and missing Node give specific advice, with the exit code from the host", async () => {
+test("bootstrap: old Node and missing Node give specific advice, with the exit code from the host", { skip: !hasSh }, async () => {
   const home = tmp("home-");
   const oldNode = join(home, "node-old");
   writeFileSync(oldNode, "#!/bin/sh\nexit 42\n"); chmodSync(oldNode, 0o755);
@@ -492,7 +493,7 @@ test("bootstrap: old Node and missing Node give specific advice, with the exit c
   await assert.rejects(new HostConnection({ spec: b.s, spawn: b.spawn, runner: b.runner }).connect(), /Không tìm thấy node/);
 });
 
-test("bootstrap: a node path with spaces and quotes still works", async () => {
+test("bootstrap: a node path with spaces and quotes still works", { skip: !hasSh }, async () => {
   const home = tmp("home-");
   const dir = join(home, "my tools 'x'");
   mkdirSync(dir);
@@ -515,7 +516,7 @@ test("room: when the connection to a host dies while an approval is pending, the
   room.on("approvalResolved", () => events.push("withdrawn"));
   try {
     room.post("user", "@be [APPROVE] xin quyền");
-    await new Promise((r) => setTimeout(r, 120));
+    await until2(() => events.length === 1);
     assert.deepEqual(events, ["asked:Bash"]);
     assert.equal(room.snapshot().approvals.length, 1);
     (manager as unknown as { conns: Map<string, { proc: ProcessLike }> }).conns.get("box")!.proc.kill();

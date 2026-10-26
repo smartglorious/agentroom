@@ -38,7 +38,7 @@ test("cli(windows): an .exe next to the shim wins; with no exe anywhere the .cmd
   assert.equal(win(c), undefined, "only an sh script: not runnable on Windows");
 });
 
-test("cli(posix): unchanged — bare name from PATH, absolute path must exist", () => {
+test("cli(posix): unchanged — bare name from PATH, absolute path must exist", { skip: process.platform === "win32" }, () => {
   const d = mkdtempSync(join(tmpdir(), "ar-cli-"));
   writeFileSync(join(d, "claude"), "#!/bin/sh");
   assert.equal(findExecutable("claude", undefined, { platform: "linux", env: { PATH: `/nope:${d}` } }), join(d, "claude"));

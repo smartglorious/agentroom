@@ -85,7 +85,7 @@ test("skills: Claude gets plugin + qualified names; Codex gets a block with abso
   assert.equal(claudeSkillOptions(n, "/p", r), undefined);
   const block = codexSkillsBlock(b, r);
   assert.match(block, /alpha: Dùng khi cần alpha/);
-  assert.match(block, /file: \/.*alpha\/SKILL\.md/);
+  assert.match(block, /file: .*alpha[\\/]SKILL\.md/);
   assert.deepEqual(codexSkillDirs(b, r), [src[0].dir]);
   assert.equal(codexSkillsBlock(n, r), "");
 });
@@ -124,7 +124,7 @@ test("room: Claude workers receive their skills; approving a draft rebuilds the 
   assert.deepEqual(claude.claudeSkills!.skills, ["agentroom:alpha"]);
   assert.ok(existsSync(join(deps.pluginDir, "skills", "alpha", "SKILL.md")));
   const codex = fake.calls.find((c) => c.worker.id === "fe")!;
-  assert.match(codex.systemAppend, /file: .*alpha\/SKILL\.md/);
+  assert.match(codex.systemAppend, /file: .*alpha[\\/]SKILL\.md/);
   assert.deepEqual(codex.extraReadDirs, [join(dir, ".agentroom", "skills")]);
 
   room.proposeSkill("be", "gamma", "Dùng khi cần gamma", "x");
