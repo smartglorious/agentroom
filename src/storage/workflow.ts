@@ -36,6 +36,8 @@ export class DurableWorkflowService {
   private readonly now: () => number;
   private readonly id: (kind: string) => string;
   private readonly leaseMs: number;
+  /** How long a lease lasts without a heartbeat. */
+  get leaseDuration(): number { return this.leaseMs; }
   private readonly retryBaseMs: number;
 
   constructor(db: SqliteConnection, options: DurableWorkflowOptions = {}) {
@@ -185,7 +187,25 @@ export class DurableWorkflowService {
     });
   }
 
-  private async repairQueued(run: RunRecord): Promise<RunRecord> {
+  private readonly repairs = new Map<string, Promise<RunRecord>>();
+
+  /**
+   * Moves a queued run to running. Two callers can reach the same run at once (one worker's `claim` runs `recover`, which scans every queued run,
+   * while another worker's `start` is still repairing its own): the second `started` event has the same id and a different timestamp, which the
+   * event log rightly rejects. So repairs of one run share a single promise, and the run is re-read before acting.
+   */
+  private repairQueued(run: RunRecord): Promise<RunRecord> {
+    if (run.status !== "queued") return Promise.resolve(run);
+    const key = `${run.workspaceId}:${run.id}`;
+    const active = this.repairs.get(key);
+    if (active) return active;
+    const task = this.repairQueuedOnce(run).finally(() => this.repairs.delete(key));
+    this.repairs.set(key, task);
+    return task;
+  }
+
+  private async repairQueuedOnce(stale: RunRecord): Promise<RunRecord> {
+    const run = await this.mustRun(stale.workspaceId, stale.id);
     if (run.status !== "queued") return run;
     const workflow = definitionOf(run);
     for (let ordinal = 0; ordinal < workflow.steps.length; ordinal += 1) {
