@@ -134,6 +134,17 @@
           "default": 12000,
           "description": "%cfg.memoryBudgetChars%"
         },
+        "agentroom.storage.mode": {
+          "type": "string",
+          "enum": [
+            "legacy",
+            "verify",
+            "durable"
+          ],
+          "default": "legacy",
+          "scope": "resource",
+          "description": "%cfg.storage.mode%"
+        },
         "agentroom.inspector.keepTurns": {
           "type": "number",
           "default": 300,
@@ -148,6 +159,12 @@
           "type": "number",
           "default": 47321,
           "description": "%cfg.hookPort%"
+        },
+        "agentroom.localApi.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "%cfg.localApiEnabled%"
         },
         "agentroom.telegram.enabled": {
           "type": "boolean",
@@ -228,6 +245,8 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node esbuild.mjs --tests && node --test out-test/*.test.js",
+    "bench:gateway": "node scripts/benchmark-gateway.mjs",
+    "security:sbom": "npm sbom --sbom-format cyclonedx",
     "package": "npm run build && npx -y @vscode/vsce package",
     "test:live": "node scripts/live/run.mjs",
     "test:ssh": "node scripts/live/run.mjs ssh",
@@ -236,6 +255,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.309",
+    "@appthreat/sqlite3": "8.0.2",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@openai/codex-sdk": "0.164.0",
     "croner": "10.0.1",

@@ -26,7 +26,8 @@ export function codexUsage(
   const input = Math.max(0, (u.input_tokens ?? 0) - cacheRead);
   const p = model ? prices[model] : undefined;
   const costUsd = p ? (input * p.input + cacheRead * (p.cachedInput ?? p.input) + (u.output_tokens ?? 0) * p.output) / 1e6 : undefined;
-  return { model, input, output: u.output_tokens ?? 0, cacheRead, cacheWrite: u.cache_write_input_tokens ?? 0, costUsd, estimated: true };
+  return { model, input, output: u.output_tokens ?? 0, cacheRead, cacheWrite: u.cache_write_input_tokens ?? 0, costUsd, estimated: true,
+    tokenProvenance: "provider", costProvenance: p ? "catalog_estimate" : "unknown", unitPriceVersion: p ? "runtime-config" : undefined };
 }
 
 /**

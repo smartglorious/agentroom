@@ -23,6 +23,10 @@ export interface UsageRecord {
   estimated: boolean;
   durationMs: number;
   numTurns?: number;
+  tokenProvenance?: "provider" | "estimated" | "unknown";
+  costProvenance?: "provider" | "catalog_estimate" | "unknown";
+  unitPriceVersion?: string;
+  providerRequestId?: string;
   tools: Record<string, number>;
   error?: string | null;
 }

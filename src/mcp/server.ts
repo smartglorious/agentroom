@@ -4,6 +4,7 @@ import { AddressInfo } from "node:net";
 import { z } from "zod";
 import { MemoryError, KINDS } from "../core/memory";
 import type { Room } from "../core/room";
+import type { DurableToolGateway } from "../gateway/tools";
 
 type McpSdk = typeof import("@modelcontextprotocol/sdk/server/mcp.js");
 type HttpSdk = typeof import("@modelcontextprotocol/sdk/server/streamableHttp.js");
@@ -22,7 +23,7 @@ export class AgentRoomMcp {
   private token = randomBytes(16).toString("hex");
   private port = 0;
 
-  constructor(private room: Room) {}
+  constructor(private room: Room, private readonly toolGateway?: DurableToolGateway) {}
 
   async start(): Promise<void> {
     const [{ McpServer }, { StreamableHTTPServerTransport }] = await Promise.all([
@@ -36,7 +37,8 @@ export class AgentRoomMcp {
       try {
         const body = await readJson(req);
         const server = new McpServer({ name: "agentroom", version: "0.1.0" });
-        this.registerTools(server, m[2]);
+        const requestId = typeof body === "object" && body && "id" in body ? String((body as { id: unknown }).id) : "notification";
+        this.registerTools(server, m[2], requestId);
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on("close", () => { transport.close(); server.close(); });
         await server.connect(transport);
@@ -57,15 +59,22 @@ export class AgentRoomMcp {
     this.http?.close();
   }
 
-  private registerTools(server: InstanceType<McpSdk["McpServer"]>, me: string) {
+  private registerTools(server: InstanceType<McpSdk["McpServer"]>, me: string, requestId: string) {
     const room = this.room;
+    const effect = async <T>(toolId: string, args: unknown, run: () => Promise<T> | T): Promise<T> => {
+      const context = room.toolExecutionContext(me);
+      if (!this.toolGateway || !context) return await run();
+      const result = await this.toolGateway.execute({ ...context, semanticKey: `mcp:${requestId}:${toolId}`, toolId, args,
+        run: async () => await run() });
+      return result.execution.value;
+    };
     server.registerTool("post_message", {
       description: "Đăng tin nhắn vào group chat ngay lập tức (giữa lượt). @mention id để gọi đồng đội trả lời.",
       inputSchema: { text: z.string(), taskId: z.string().optional() },
-    }, async ({ text: t, taskId }) => {
+    }, async ({ text: t, taskId }) => effect("post_message", { text: t, taskId }, async () => {
       const msg = room.post(me, t, { taskId });
       return text(msg.to.length ? `Đã gửi, sẽ gọi: ${msg.to.join(", ")}` : "Đã gửi (không ai bị gọi).");
-    });
+    }));
 
     server.registerTool("ask_user", {
       description: "Hỏi người dùng chọn một trong 2–8 phương án. Tin nhắn hiện nút bấm; câu trả lời quay lại ĐÚNG phiên này của bạn. Sau khi gọi, hãy kết thúc lượt và chờ.",
@@ -74,14 +83,14 @@ export class AgentRoomMcp {
         options: z.array(z.object({ label: z.string().min(1).max(80), description: z.string().max(200).optional() })).min(2).max(8),
         taskId: z.string().optional(),
       },
-    }, async ({ question, options, taskId }) => {
+    }, async ({ question, options, taskId }) => effect("ask_user", { question, options, taskId }, async () => {
       try {
         room.askUser(me, { question, options }, taskId);
         return text("Đã gửi câu hỏi kèm lựa chọn. Hãy kết thúc lượt bây giờ; câu trả lời của người dùng sẽ đến như một tin nhắn mới trong phiên này.");
       } catch (e) {
         return text(`Không gửi được câu hỏi: ${e instanceof Error ? e.message : e}`);
       }
-    });
+    }));
 
     server.registerTool("read_channel", {
       description: "Đọc N tin nhắn gần nhất của group chat.",
@@ -105,57 +114,57 @@ export class AgentRoomMcp {
         dependsOn: z.array(z.string()).default([]),
         level: z.enum(["low", "mid", "high"]).optional().describe("Độ khó; người nhận chạy model tương ứng"),
       },
-    }, async (args) => {
+    }, async (args) => effect("create_task", args, async () => {
       try { return text(JSON.stringify(room.createTask(me, args))); } catch (e) { return fail(e); }
-    });
+    }));
 
     server.registerTool("claim_task", {
       description: "Nhận một task (chuyển sang in_progress).",
       inputSchema: { id: z.string() },
-    }, async ({ id }) => {
+    }, async ({ id }) => effect("claim_task", { id }, async () => {
       try { return text(JSON.stringify(room.claimTask(me, id))); } catch (e) { return fail(e); }
-    });
+    }));
 
-    const memo = <T>(fn: () => T) => { try { return text(JSON.stringify(fn())); } catch (e) { return e instanceof MemoryError ? fail(e) : fail(e); } };
+    const memo = async <T>(fn: () => T | Promise<T>) => { try { return text(JSON.stringify(await fn())); } catch (e) { return e instanceof MemoryError ? fail(e) : fail(e); } };
 
     server.registerTool("remember", {
       description: "Ghi một điều đáng nhớ vào trí nhớ bền vững (còn nguyên ở các session sau). scope: me = riêng bạn, team = cả đội. Mỗi mục một ý, ≤ 500 ký tự, KHÔNG lưu bí mật.",
       inputSchema: { scope: z.enum(["me", "team"]).default("me"), kind: z.enum(KINDS as [string, ...string[]]).default("fact"), text: z.string() },
-    }, async ({ scope, kind, text: t }) => memo(() => room.memory.add(scope, me, kind as never, t)));
+    }, async ({ scope, kind, text: t }) => effect("remember", { scope, kind, text: t }, () => memo(() => room.rememberMemory(me, scope, kind as never, t))));
 
     server.registerTool("forget", {
       description: "Xoá một mục trí nhớ theo id (vd M7). Mục kind=decision chỉ xoá được khi người dùng yêu cầu rõ (force=true).",
       inputSchema: { scope: z.enum(["me", "team"]).default("me"), id: z.string(), force: z.boolean().default(false) },
-    }, async ({ scope, id, force }) => memo(() => room.memory.forget(scope, me, id, force)));
+    }, async ({ scope, id, force }) => effect("forget", { scope, id, force }, () => memo(() => room.forgetMemory(me, scope, id, force))));
 
     server.registerTool("recall", {
       description: "Tìm trong trí nhớ và nhật ký 60 ngày gần nhất (khớp mọi từ khoá, không phân biệt hoa thường).",
       inputSchema: { query: z.string(), limit: z.number().int().min(1).max(50).default(10) },
     }, async ({ query, limit }) => {
-      const hits = room.memory.recall(me, query, limit);
+      const hits = await room.recallMemory(me, query, limit);
       return text(hits.length ? hits.map((h) => `[${h.where}] ${h.text}`).join("\n") : "(không có kết quả)");
     });
 
     server.registerTool("journal", {
       description: "Ghi thêm một dòng vào nhật ký hôm nay của bạn (việc đã làm, vướng mắc).",
       inputSchema: { text: z.string() },
-    }, async ({ text: t }) => {
+    }, async ({ text: t }) => effect("journal", { text: t }, async () => {
       try { room.memory.journal(me, t); return text("Đã ghi."); } catch (e) { return fail(e); }
-    });
+    }));
 
     server.registerTool("propose_skill", {
       description: "Đề xuất một skill mới từ kinh nghiệm (quy trình lặp lại được). Skill chỉ có hiệu lực sau khi người dùng duyệt. name: a-z, 0-9, '-'. description: khi nào nên dùng. body: các bước (markdown).",
       inputSchema: { name: z.string(), description: z.string(), body: z.string() },
-    }, async ({ name, description, body }) => {
+    }, async ({ name, description, body }) => effect("propose_skill", { name, description, body }, async () => {
       try { room.proposeSkill(me, name, description, body); return text("Đã gửi đề xuất, chờ người dùng duyệt."); } catch (e) { return fail(e); }
-    });
+    }));
 
     server.registerTool("complete_task", {
       description: "Đánh dấu task xong kèm kết quả. Các task phụ thuộc sẽ tự được mở và người phụ trách được báo.",
       inputSchema: { id: z.string(), result: z.string() },
-    }, async ({ id, result }) => {
+    }, async ({ id, result }) => effect("complete_task", { id, result }, async () => {
       try { return text(JSON.stringify(room.completeTask(me, id, result))); } catch (e) { return fail(e); }
-    });
+    }));
   }
 }
 

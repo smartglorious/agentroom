@@ -311,7 +311,7 @@ test("room: local and remote workers run side by side; sessions, usage and inspe
   const manager = new HostManager(config.hosts, { spawnerFor: () => ({ spawn: sp.spawn }) });
   const localCalls: string[] = [];
   const local = new Fake(async (req) => { localCalls.push(req.worker.id); await new Promise((r) => setTimeout(r, 200)); return `local ${req.worker.id}`; });
-  const { room, deps } = makeRoom(local, { config, remote: new RemoteAdapter(manager), mcpUrl: (id) => holder.mcp!.urlFor(id) });
+  const { room, deps, root } = makeRoom(local, { config, remote: new RemoteAdapter(manager), mcpUrl: (id) => holder.mcp!.urlFor(id) });
   holder.mcp = new AgentRoomMcp(room);
   await holder.mcp.start();
   try {
@@ -327,7 +327,7 @@ test("room: local and remote workers run side by side; sessions, usage and inspe
     assert.ok(!/(^|[^\w＠])@lead\b/.test(echo.sys));
     assert.deepEqual(localCalls, ["qa"]);
 
-    const sessions = JSON.parse(readFileSync(join(deps.store.dir, "sessions.json"), "utf8"));
+    const sessions = JSON.parse(readFileSync(join(root, "state", "sessions.json"), "utf8"));
     assert.ok(sessions["be:R1@box"], "remote sessions carry the host");
     assert.ok(sessions["qa:L1"] === undefined || !sessions["qa:L1@box"]);
     const u = deps.usage.all().find((x) => x.worker === "be")!;

@@ -29,9 +29,10 @@ export function makeRoom(adapter: AgentAdapter, over: Partial<RoomDeps> = {}) {
   const state = join(dir, ".agentroom", "state");
   const root = join(dir, ".agentroom");
   mkdirSync(state, { recursive: true });
+  const store = over.store ?? new RoomStore(state);
   const deps: RoomDeps = {
     config: parseConfig(SAMPLE_CONFIG),
-    store: new RoomStore(state),
+    store,
     adapters: { claude: adapter, codex: adapter },
     scheduler: new Scheduler(),
     options: { maxAgentHops: 6, contextMessages: 30, memoryBudgetChars: 12_000 },
@@ -45,7 +46,7 @@ export function makeRoom(adapter: AgentAdapter, over: Partial<RoomDeps> = {}) {
     mcpUrl: (id) => `http://x/${id}`,
     ...over,
   };
-  return { room: new Room(deps), deps, dir, root };
+  return { room: new Room(deps), deps: { ...deps, store }, dir, root };
 }
 
 export const idle = (room: Room) => new Promise<void>((resolve) => {
