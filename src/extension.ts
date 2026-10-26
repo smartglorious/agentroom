@@ -37,6 +37,7 @@ import { ensureWorktree, localBase } from "./core/worktree";
 import { AgentRoomMcp } from "./mcp/server";
 import { ChatViewProvider, ViewContext } from "./ui/chatView";
 import { TelegramPanel } from "./ui/telegramPanel";
+import { buildSettingsPayload, checkValue, confirmValue, settingDefs } from "./ui/settings";
 import { createHash } from "node:crypto";
 import { Autonomy, isAutonomy } from "./core/autonomy";
 
@@ -307,6 +308,15 @@ export async function activate(ctx: vscode.ExtensionContext) {
     }
   };
 
+  // Settings tab: which settings changed since this window started (those that need a reload), and what this build declares.
+  let runtimeStorage: ViewContext["storage"];
+  const reloadNeeded = new Set<string>();
+  const declared = (): ReadonlySet<string> => new Set(Object.keys((ctx.extension.packageJSON?.contributes?.configuration?.properties as Record<string, unknown> | undefined) ?? {}).map((k) => k.replace(/^agentroom\./, "")));
+  const readSetting = (key: string) => {
+    const i = settings().inspect(key);
+    return { value: settings().get(key), defaultValue: i?.defaultValue, source: (i?.workspaceFolderValue !== undefined || i?.workspaceValue !== undefined ? "workspace" : i?.globalValue !== undefined ? "user" : "default") as "default" | "user" | "workspace" };
+  };
+  const settingsPayload = (error?: string) => buildSettingsPayload(readSetting, { storage: runtimeStorage, version: VERSION, limits: live?.config.limits }, [...reloadNeeded], error, declared());
   view.setHandlers({
     inspect: async (turnId) => {
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(`agentroom-turn:/${turnId}.md`));
@@ -321,6 +331,32 @@ export async function activate(ctx: vscode.ExtensionContext) {
       await vscode.window.showTextDocument(vscode.Uri.file(path));
     },
     copy: (text) => vscode.env.clipboard.writeText(text),
+    settings: async (change) => {
+      if (!change) return settingsPayload();
+      const def = settingDefs(declared()).find((d) => d.key === change.key);
+      if (!def) return settingsPayload(tr("Cài đặt này không có trong danh sách"));
+      const target = def.scope === "workspace" && root() ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+      if (change.reset) {
+        try { await settings().update(def.key, undefined, target); } catch (e) { return settingsPayload(String(e instanceof Error ? e.message : e)); }
+        if (def.apply === "reload") reloadNeeded.add(def.key);
+        return settingsPayload();
+      }
+      const checked = checkValue(def, change.value);
+      if (!checked.ok) return settingsPayload(`${def.label}: ${checked.error}`);
+      const warn = confirmValue(def, checked.value);
+      if (warn) {
+        const ok = tr("Áp dụng");
+        if ((await vscode.window.showWarningMessage(warn, { modal: true }, ok)) !== ok) return settingsPayload();
+      }
+      try { await settings().update(def.key, checked.value, target); } catch (e) { return settingsPayload(String(e instanceof Error ? e.message : e)); }
+      if (def.apply === "reload") reloadNeeded.add(def.key);
+      return settingsPayload();
+    },
+    openConfig: async () => {
+      const f = root() && join(root()!, ".agentroom", "workers.yaml");
+      if (f && existsSync(f)) await vscode.window.showTextDocument(vscode.Uri.file(f));
+      else vscode.window.showInformationMessage(tr("Chưa có .agentroom/workers.yaml. Chạy lệnh “AgentRoom: Tạo cấu hình workers mẫu”."));
+    },
     setAutonomy: async (workerId, mode) => {
       const room = live?.room;
       if (!room || !isAutonomy(mode) || !room.hasWorker(workerId)) return;

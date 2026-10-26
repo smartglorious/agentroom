@@ -133,3 +133,10 @@ textarea.pf-ctl { resize: vertical; }
 .pf-status.err { background: color-mix(in srgb, var(--vscode-errorForeground, #d9534f) 25%, transparent); }
 .tab button.small.danger { background: var(--vscode-errorForeground, #d9534f); color: #fff; }
 nav .badge { display: inline-block; min-width: 14px; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 10px; text-align: center; }
+
+/* settings tab */
+.setting { margin: 8px 0; padding-bottom: 6px; border-bottom: 1px solid var(--vscode-widget-border, rgba(128,128,128,.25)); }
+.setting select, .setting input[type="text"], .setting input[type="number"] { max-width: 100%; }
+.setting input[type="number"] { width: 8em; }
+.setting .slabel { font-weight: 600; font-size: 1em; }
+.setting .tag { font-size: .85em; opacity: .85; padding: 0 5px; border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.5)); border-radius: 3px; }

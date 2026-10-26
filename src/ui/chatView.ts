@@ -11,6 +11,7 @@ import type { WebhookHandler } from "../core/webhooks";
 import type { HostManager } from "../remote/host";
 import type { PluginManager } from "../core/plugins";
 import type { TelegramPanel } from "./telegramPanel";
+import type { SettingsPayload } from "./settings";
 
 /** Messages the webview sends to the extension. */
 type FromWebview =
@@ -36,7 +37,12 @@ type FromWebview =
   | { type: "refreshPlans" }
   | { type: "setAutonomy"; workerId: string; mode: string }
   | { type: "takeOver" }
-  | { type: "telegramAction"; action: string };
+  | { type: "telegramAction"; action: string }
+  | { type: "getSettings" }
+  | { type: "setSetting"; key: string; value: unknown }
+  | { type: "resetSetting"; key: string }
+  | { type: "reloadWindow" }
+  | { type: "openConfig" };
 
 export interface ViewContext {
   room: Room;
@@ -48,6 +54,8 @@ export interface ViewContext {
   hosts?: HostManager;
   telegram?: TelegramPanel;
   plugins?: PluginManager;
+  /** Storage mode the room started with (the setting may have changed since). Only editions with SQLite storage set it. */
+  storage?: { requested: string; active: string; error?: string };
 }
 
 export interface ViewHandlers {
@@ -56,6 +64,9 @@ export interface ViewHandlers {
   copy(text: string): void;
   /** Switches a worker's autonomy; `full` is confirmed with the user here, never in the webview. */
   setAutonomy(workerId: string, mode: string): Promise<void>;
+  /** Settings tab: reads, validates, confirms and writes VS Code settings; always answers with the current state. */
+  settings(change?: { key: string; value?: unknown; reset?: boolean }): Promise<SettingsPayload>;
+  openConfig(): Promise<void>;
 }
 
 const RANGES: UsageRange[] = ["today", "7d", "30d"];
@@ -168,6 +179,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     if (m.type === "newSkill") return void vscode.commands.executeCommand("agentroom.newSkill");
     if (m.type === "takeOver") return void vscode.commands.executeCommand("agentroom.takeOver");
+    // The Settings tab works without a running room (no project, or another window holds it).
+    if (m.type === "getSettings") return void this.handlers?.settings().then((p) => this.post(p));
+    if (m.type === "setSetting") return void this.handlers?.settings({ key: String(m.key), value: m.value }).then((p) => this.post(p));
+    if (m.type === "resetSetting") return void this.handlers?.settings({ key: String(m.key), reset: true }).then((p) => this.post(p));
+    if (m.type === "reloadWindow") return void vscode.commands.executeCommand("workbench.action.reloadWindow");
+    if (m.type === "openConfig") return void this.handlers?.openConfig();
     const c = this.ctx;
     if (!c) return;
     const room = c.room;
@@ -227,7 +244,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <body>
   <header id="team"></header>
   <nav>
-    <button data-tab="chat" class="on">Chat</button><button data-tab="tasks">Tasks</button><button data-tab="cost">${tr("Chi phí")}</button><button data-tab="sched">${tr("Lịch")}</button><button data-tab="hosts">${tr("Máy")}</button><button data-tab="profile">${tr("Hồ sơ")}<span id="draftBadge" hidden></span></button><button id="flag" class="flag" title="${tr("Ghi một vấn đề / lỗi")}">⚑</button>
+    <button data-tab="chat" class="on">Chat</button><button data-tab="tasks">Tasks</button><button data-tab="cost">${tr("Chi phí")}</button><button data-tab="sched">${tr("Lịch")}</button><button data-tab="hosts">${tr("Máy")}</button><button data-tab="profile">${tr("Hồ sơ")}<span id="draftBadge" hidden></span></button><button data-tab="settings">${tr("Cài đặt")}</button><button id="flag" class="flag" title="${tr("Ghi một vấn đề / lỗi")}">⚑</button>
   </nav>
   <main id="chat" class="tab"></main>
   <section id="tasks" class="tab" hidden></section>
@@ -235,6 +252,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <section id="sched" class="tab" hidden></section>
   <section id="hosts" class="tab" hidden></section>
   <section id="profile" class="tab" hidden></section>
+  <section id="settings" class="tab" hidden></section>
   <div id="approvals"></div>
   <div id="replybar" hidden></div>
   <form id="composer"><textarea id="input" rows="2" placeholder="${tr("Nhắn cả nhóm… dùng @id để gọi ai đó (Enter để gửi)")}"></textarea></form>

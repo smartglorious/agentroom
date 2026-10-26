@@ -11,7 +11,7 @@
   const state = {
     workers: [], plans: [], byId: new Map(), answers: new Map(), replyTo: null, statuses: {}, tasks: [], drafts: [], accounts: [], todayByWorker: {},
     usage: null, range: "today", schedules: [], hooks: { port: null, hooks: [], calls: [] },
-    profile: null, profileWorker: null, hostList: [], telegram: null, panels: [],
+    profile: null, profileWorker: null, hostList: [], telegram: null, panels: [], settings: null,
   };
 
   const STATE_LABEL = {
@@ -486,11 +486,77 @@
     input.focus();
   }
 
+  // ---------- settings ----------
+  // Every label and help text comes from the host (already in the user's language); the host also validates every change.
+  const GROUP_TITLE = { storage: tr("Lưu trữ"), room: tr("Phòng"), cli: tr("Công cụ dòng lệnh") };
+  const SOURCE_LABEL = { workspace: tr("đã đặt cho project này"), user: tr("đã đặt cho bạn") };
+  function renderSettings() {
+    const box = $("settings");
+    box.replaceChildren();
+    const s = state.settings;
+    if (!s) { box.append(el("p", "note", tr("Đang tải cài đặt…"))); return; }
+    if (s.error) box.append(el("p", "note err", s.error));
+    if (s.reloadNeeded.length) {
+      const bar = el("div", "row");
+      bar.append(el("span", "note", tr("Có thay đổi chỉ áp dụng sau khi tải lại cửa sổ.")), btn(tr("Tải lại cửa sổ"), () => send({ type: "reloadWindow" })));
+      box.append(bar);
+    }
+    box.append(el("h4", null, tr("Đang chạy")));
+    const rt = s.runtime;
+    box.append(el("div", "meta", `AgentRoom ${rt.version}`));
+    if (rt.storage) {
+      const same = rt.storage.requested === rt.storage.active;
+      box.append(el("div", "meta" + (rt.storage.error ? " err" : ""), tr("Lưu trữ: đã chọn {requested}, đang dùng {active}", { requested: rt.storage.requested, active: rt.storage.active }) + (same ? "" : " (" + tr("verify chỉ đối chiếu, file vẫn là bản chính") + ")") + (rt.storage.error ? " — " + rt.storage.error : "")));
+    }
+    for (const group of ["storage", "room", "cli"]) {
+      const items = s.items.filter((i) => i.group === group);
+      if (!items.length) continue;
+      box.append(el("h4", null, GROUP_TITLE[group]));
+      for (const it of items) box.append(settingRow(it));
+    }
+    box.append(el("h4", null, tr("Giới hạn (trong workers.yaml)")));
+    if (rt.limits) {
+      const L = rt.limits;
+      box.append(el("div", "meta", `chainTurns ${L.chainTurns} · maxFanout ${L.maxFanout} · turnIdleMinutes ${L.turnIdleMinutes} · idleFreshMinutes ${L.idleFreshMinutes} · maxModelTurns ${L.maxModelTurns}${L.usdPerTask ? " · usdPerTask " + L.usdPerTask : ""}`));
+    }
+    box.append(el("p", "note", tr("Các giới hạn, model theo độ khó (levels) và fallback nằm trong workers.yaml, không sửa ở đây để không ghi đè file của bạn.")), btn(tr("Mở workers.yaml"), () => send({ type: "openConfig" })));
+    box.append(el("p", "note", tr("Daemon có cài đặt riêng: agentroom-daemon set storageMode legacy|verify|durable.")));
+  }
+  function settingRow(it) {
+    const row = el("div", "setting");
+    row.append(el("div", "slabel", it.label));
+    row.append(el("div", "meta", it.help));
+    const line = el("div", "row");
+    const commit = (value) => send({ type: "setSetting", key: it.key, value });
+    let ctl;
+    if (it.kind === "enum") {
+      ctl = el("select");
+      for (const o of it.options) { const opt = el("option", null, o); opt.value = o; ctl.append(opt); }
+      ctl.value = String(it.value);
+      ctl.onchange = () => commit(ctl.value);
+    } else if (it.kind === "bool") {
+      ctl = el("input"); ctl.type = "checkbox"; ctl.checked = !!it.value;
+      ctl.onchange = () => commit(ctl.checked);
+    } else {
+      ctl = el("input"); ctl.type = it.kind === "int" ? "number" : "text"; ctl.value = String(it.value);
+      if (it.kind === "int") { if (it.min != null) ctl.min = String(it.min); if (it.max != null) ctl.max = String(it.max); }
+      ctl.onchange = () => commit(ctl.value);
+    }
+    line.append(ctl);
+    if (it.source !== "default") {
+      line.append(el("span", "tag", SOURCE_LABEL[it.source]), btn(tr("Mặc định"), () => send({ type: "resetSetting", key: it.key })));
+    }
+    if (it.apply === "reload") line.append(el("span", "tag", tr("cần tải lại")));
+    row.append(line);
+    return row;
+  }
+
   // ---------- tabs ----------
   function showTab(name) {
     document.querySelectorAll("nav button[data-tab]").forEach((x) => x.classList.toggle("on", x.dataset.tab === name));
     document.querySelectorAll(".tab").forEach((t) => { t.hidden = t.id !== name; });
     if (name === "profile" && !state.profileWorker && state.workers.length) openProfile(state.workers[0].id);
+    if (name === "settings") send({ type: "getSettings" });
   }
   document.querySelectorAll("nav button[data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   $("flag")?.addEventListener("click", () => send({ type: "reportIssue" }));
@@ -546,6 +612,7 @@
       case "telegram": state.telegram = data.status || null; renderHosts(); break;
       case "panels": state.panels = data.panels || []; renderPanels(); break;
       case "panelResult": panelResult(data); break;
+      case "settings": state.settings = data; renderSettings(); break;
       case "locked": renderLocked(data.holder); break;
       case "profile": state.profile = data.profile; renderProfile(); break;
     }
