@@ -51,7 +51,8 @@ export const prepareStorage = async (workspaceRoot: string, stateDir: string, mo
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, root_uri = excluded.root_uri, updated_at = excluded.updated_at`,
       [workspaceId, basename(resolve(workspaceRoot)), pathToFileURL(resolve(workspaceRoot)).href, now, now],
     );
-    await importLegacyState(db, workspaceId, scan, now);
+    // The legacy files stay authoritative in every mode, so they change between starts: refresh the snapshot instead of failing on the first change.
+    await importLegacyState(db, workspaceId, scan, now, { refresh: true });
     const verification = await verifyLegacyImport(db, workspaceId, scan);
     if (!verification.ok) throw new Error(`SQLite verification failed: ${verification.mismatches.join(", ") || "integrity mismatch"}`);
     if (mode === "durable") {

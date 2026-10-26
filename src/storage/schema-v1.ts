@@ -464,4 +464,17 @@ const persistentApprovalDisplayV8: SqliteMigration = {
   sql: `ALTER TABLE approvals ADD COLUMN display_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(display_json));`,
 };
 
-export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5, modelCostLedgerV6, persistentApprovalsV7, persistentApprovalDisplayV8];
+/** A task's difficulty level (0.14.16) is part of the task, so the projection must keep it or the import verification fails for every task that has one. */
+const taskLevelV9: SqliteMigration = {
+  version: 9,
+  name: "task_level_v9",
+  // Databases made before this version imported tasks without it: take it back from the import ledger, which kept each task as it was read.
+  sql: `ALTER TABLE tasks ADD COLUMN level TEXT CHECK (level IS NULL OR level IN ('low', 'mid', 'high'));
+    UPDATE tasks SET level = (
+      SELECT CASE WHEN json_extract(l.payload_json, '$.level') IN ('low', 'mid', 'high') THEN json_extract(l.payload_json, '$.level') END
+      FROM legacy_imports l
+      WHERE l.workspace_id = tasks.workspace_id AND l.source_kind = 'tasks.json' AND l.source_key = tasks.id AND json_valid(l.payload_json)
+    ) WHERE level IS NULL;`,
+};
+
+export const schemaMigrations: readonly SqliteMigration[] = [...schemaV1Migrations, durableExecutionV2, executionFailuresV3, contextBrokerV4, hybridMemoryV5, modelCostLedgerV6, persistentApprovalsV7, persistentApprovalDisplayV8, taskLevelV9];

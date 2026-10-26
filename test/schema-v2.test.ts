@@ -11,7 +11,7 @@ test("schema v8: adds durable execution, model ledger and persistent approvals",
   const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-schema-v2-")), "agentroom.db"));
   try {
     const state = await new SqliteMigrationRunner(db, schemaMigrations).apply();
-    assert.equal(state.currentVersion, 8);
+    assert.equal(state.currentVersion, 9);
     const tables = await db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
     for (const name of ["checkpoints", "tool_receipts", "execution_outbox", "execution_dead_letters", "context_sources", "context_chunks", "context_chunks_fts", "task_packets"]) {
       assert.equal(tables.some((table) => table.name === name), true);

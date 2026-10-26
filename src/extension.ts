@@ -354,7 +354,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
       live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config, plugins, storage: storageConnection, localApi };
       storageConnection = undefined;
       localApiConnection = undefined;
-      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel, plugins, apiClient };
+      runtimeStorage = { requested: storage.requested, active: storage.active, ...(storage.error ? { error: storage.error } : {}) };
+      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel, plugins, apiClient, storage: runtimeStorage };
       view.attach(vctx);
       void startTelegram().catch((e) => { const m = trVi("không khởi động được: {p}", { p: e instanceof Error ? e.message : e }); out.appendLine(`[telegram] ${m}`); live?.room.noteIssue({ kind: "error", source: "telegram", title: m }); });
     } catch (e) {

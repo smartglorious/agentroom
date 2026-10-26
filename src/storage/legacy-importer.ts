@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Task } from "../core/types";
 import { SqliteEventStore } from "./events";
 import type { SqliteConnection } from "./sqlite";
-import { projectTask, SqliteTaskRepository, type TaskImported } from "./task-events";
+import { projectTask, SqliteTaskRepository, type TaskImported, type TaskSynced } from "./task-events";
 
 export interface LegacyRecord {
   kind: string;
@@ -24,6 +24,16 @@ export interface LegacyImportResult {
   imported: number;
   skipped: number;
   total: number;
+  /** Records that had already been imported and whose file has changed since (only with `refresh`). */
+  refreshed?: number;
+}
+
+export interface LegacyImportOptions {
+  /**
+   * `false` (default): a record whose source changed after its import is an error, as for a one-time migration.
+   * `true`: the legacy files stay authoritative and keep changing, so a changed record refreshes its snapshot instead.
+   */
+  refresh?: boolean;
 }
 
 export interface LegacyVerification {
@@ -139,12 +149,14 @@ export const importLegacyState = async (
   workspaceId: string,
   scan: LegacyScan,
   importedAt = Date.now(),
+  options: LegacyImportOptions = {},
 ): Promise<LegacyImportResult> => {
   if (scan.errors.length) throw new Error(`Legacy input has ${scan.errors.length} parse error(s)`);
   const tasks = orderTasks(scan.tasks);
   const events = new SqliteEventStore(db);
   let imported = 0;
   let skipped = 0;
+  let refreshed = 0;
 
   await db.transaction(async (tx) => {
     for (const assignee of new Set(tasks.flatMap((task) => task.assignee ? [task.assignee] : []))) {
@@ -164,8 +176,30 @@ export const importLegacyState = async (
         [workspaceId, record.kind, record.key],
       );
       if (previous) {
-        if (previous.source_hash !== record.hash) throw new Error(`Legacy source changed: ${record.kind}:${record.key}`);
-        skipped += 1;
+        if (previous.source_hash === record.hash) { skipped += 1; continue; }
+        if (!options.refresh) throw new Error(`Legacy source changed: ${record.kind}:${record.key}`);
+        if (record.kind === "tasks.json") {
+          const task = taskById.get(record.key)!;
+          const version = (await tx.get<{ version: number }>(
+            "SELECT COALESCE(MAX(aggregate_version), 0) AS version FROM events WHERE aggregate_type = 'task' AND aggregate_id = ?", [task.id]))?.version ?? 0;
+          await events.appendWithin<TaskSynced>(tx, {
+            eventId: `legacy-task-sync-${digest({ workspaceId, id: task.id, version, hash: record.hash })}`,
+            workspaceId,
+            aggregateType: "task",
+            aggregateId: task.id,
+            expectedVersion: version,
+            type: "TaskSynced",
+            schemaVersion: 1,
+            payload: { task },
+            occurredAt: task.updatedAt,
+            correlationId: "legacy-refresh",
+          }, projectTask);
+        }
+        await tx.run(
+          "UPDATE legacy_imports SET source_hash = ?, payload_json = ?, target_id = ?, imported_at = ? WHERE workspace_id = ? AND source_kind = ? AND source_key = ?",
+          [record.hash, canonical(record.payload), record.targetId ?? null, importedAt, workspaceId, record.kind, record.key],
+        );
+        refreshed += 1;
         continue;
       }
       if (record.kind === "tasks.json") {
@@ -192,7 +226,7 @@ export const importLegacyState = async (
       imported += 1;
     }
   });
-  return { imported, skipped, total: scan.records.length };
+  return { imported, skipped, total: scan.records.length, ...(refreshed ? { refreshed } : {}) };
 };
 
 export const verifyLegacyImport = async (db: SqliteConnection, workspaceId: string, scan: LegacyScan): Promise<LegacyVerification> => {

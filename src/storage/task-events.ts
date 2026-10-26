@@ -1,4 +1,4 @@
-import type { Task, TaskStatus } from "../core/types";
+import type { Task, TaskLevel, TaskStatus } from "../core/types";
 import { SqliteEventStore, type StoredEvent } from "./events";
 import type { SqliteConnection } from "./sqlite";
 
@@ -8,12 +8,15 @@ export interface TaskCreated {
   assignee?: string;
   dependsOn: string[];
   createdBy: string;
+  level?: TaskLevel;
 }
 
 interface TaskClaimed { workerId: string }
 interface TaskCompleted { workerId: string; result: string }
 export interface TaskImported { task: Task }
-type TaskPayload = TaskCreated | TaskClaimed | TaskCompleted | TaskImported;
+/** The legacy file changed after the task was imported: the projection takes the task as the file now has it. */
+export interface TaskSynced { task: Task }
+type TaskPayload = TaskCreated | TaskClaimed | TaskCompleted | TaskImported | TaskSynced;
 
 export interface TaskCommandMeta {
   eventId: string;
@@ -26,11 +29,29 @@ export const projectTask = async (tx: SqliteConnection, event: StoredEvent<TaskP
   if (event.type === "TaskImported") {
     const task = (event.payload as TaskImported).task;
     await tx.run(
-      `INSERT INTO tasks(id, workspace_id, title, description, status, assignee_agent_id, created_by, result, version, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks(id, workspace_id, title, description, status, assignee_agent_id, created_by, result, level, version, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [task.id, event.workspaceId, task.title, task.description, task.status, task.assignee ?? null,
-        task.createdBy, task.result ?? null, event.aggregateVersion, task.updatedAt, task.updatedAt],
+        task.createdBy, task.result ?? null, task.level ?? null, event.aggregateVersion, task.updatedAt, task.updatedAt],
     );
+    for (const dependency of task.dependsOn) {
+      await tx.run(
+        "INSERT INTO task_dependencies(workspace_id, task_id, depends_on_task_id, created_at) VALUES (?, ?, ?, ?)",
+        [event.workspaceId, task.id, dependency, task.updatedAt],
+      );
+    }
+    return;
+  }
+  if (event.type === "TaskSynced") {
+    const task = (event.payload as TaskSynced).task;
+    const result = await tx.run(
+      `UPDATE tasks SET title = ?, description = ?, status = ?, assignee_agent_id = ?, created_by = ?, result = ?, level = ?, version = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND version = ?`,
+      [task.title, task.description, task.status, task.assignee ?? null, task.createdBy, task.result ?? null, task.level ?? null,
+        event.aggregateVersion, task.updatedAt, task.id, event.workspaceId, event.aggregateVersion - 1],
+    );
+    if (result.changes !== 1) throw new Error(`Task ${task.id} cannot be synced from its current state`);
+    await tx.run("DELETE FROM task_dependencies WHERE workspace_id = ? AND task_id = ?", [event.workspaceId, task.id]);
     for (const dependency of task.dependsOn) {
       await tx.run(
         "INSERT INTO task_dependencies(workspace_id, task_id, depends_on_task_id, created_at) VALUES (?, ?, ?, ?)",
@@ -42,10 +63,10 @@ export const projectTask = async (tx: SqliteConnection, event: StoredEvent<TaskP
   if (event.type === "TaskCreated") {
     const payload = event.payload as TaskCreated;
     await tx.run(
-      `INSERT INTO tasks(id, workspace_id, title, description, status, assignee_agent_id, created_by, version, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks(id, workspace_id, title, description, status, assignee_agent_id, created_by, level, version, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [event.aggregateId, event.workspaceId, payload.title, payload.description,
-        payload.dependsOn.length ? "blocked" : "todo", payload.assignee ?? null, payload.createdBy,
+        payload.dependsOn.length ? "blocked" : "todo", payload.assignee ?? null, payload.createdBy, payload.level ?? null,
         event.aggregateVersion, event.occurredAt, event.occurredAt],
     );
     for (const dependency of payload.dependsOn) {
@@ -90,7 +111,7 @@ export const projectTask = async (tx: SqliteConnection, event: StoredEvent<TaskP
 
 const rowToTask = (row: {
   id: string; title: string; description: string; assignee_agent_id: string | null; status: TaskStatus;
-  created_by: string; result: string | null; updated_at: number; depends_on: string | null;
+  created_by: string; result: string | null; level: TaskLevel | null; updated_at: number; depends_on: string | null;
 }): Task => {
   const task: Task = {
     id: row.id,
@@ -103,6 +124,7 @@ const rowToTask = (row: {
   };
   if (row.assignee_agent_id !== null) task.assignee = row.assignee_agent_id;
   if (row.result !== null) task.result = row.result;
+  if (row.level !== null) task.level = row.level;
   return task;
 };
 

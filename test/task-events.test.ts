@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OptimisticConcurrencyError, SqliteEventStore } from "../src/storage/events";
 import { SqliteMigrationRunner } from "../src/storage/migrations";
-import { schemaV1Migrations } from "../src/storage/schema-v1";
+import { schemaMigrations } from "../src/storage/schema-v1";
 import { SqliteConnection } from "../src/storage/sqlite";
 import { SqliteTaskRepository } from "../src/storage/task-events";
 
 const setup = async () => {
   const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-task-events-")), "agentroom.db"));
-  await new SqliteMigrationRunner(db, schemaV1Migrations).apply();
+  await new SqliteMigrationRunner(db, schemaMigrations).apply();
   await db.run("INSERT INTO workspaces(id, name, root_uri, created_at, updated_at) VALUES ('w1', 'Workspace', 'file:///w1', 100, 100)");
   await db.run("INSERT INTO agents(id, workspace_id, name, created_at, updated_at) VALUES ('be', 'w1', 'Backend', 100, 100)");
   return { db, tasks: new SqliteTaskRepository(db), events: new SqliteEventStore(db) };

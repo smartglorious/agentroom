@@ -60,3 +60,26 @@ test("storage bootstrap: durable mode returns a verified live connection", async
     await result.connection!.close();
   }
 });
+
+test("storage bootstrap: a live project keeps working across restarts: the legacy files change between starts and the snapshot is refreshed, in verify and durable", async () => {
+  for (const mode of ["verify", "durable"] as const) {
+    const { root, state } = workspace();
+    const first = await prepareStorage(root, state, mode);
+    assert.equal(first.error, undefined, `${mode}: first start`);
+    await first.connection?.close();
+    // What a running room does between two starts: tasks move on, a task gets a level, sessions and cursors change.
+    writeFileSync(join(state, "tasks.json"), JSON.stringify([
+      { id: "t1", title: "Imported", description: "", status: "done", dependsOn: [], createdBy: "user", updatedAt: 5, assignee: "be", result: "ok", level: "high" },
+      { id: "t2", title: "New", description: "", status: "todo", dependsOn: ["t1"], createdBy: "lead", updatedAt: 6, level: "low" },
+    ]));
+    writeFileSync(join(state, "sessions.json"), JSON.stringify({ "be:main": "s-2" }));
+    const second = await prepareStorage(root, state, mode);
+    assert.equal(second.error, undefined, `${mode}: restart after the files changed`);
+    assert.equal(second.active, mode === "durable" ? "durable" : "legacy");
+    assert.equal(second.verification?.ok, true);
+    await second.connection?.close();
+    const third = await prepareStorage(root, state, mode);
+    assert.equal(third.error, undefined, `${mode}: restart with nothing changed`);
+    await third.connection?.close();
+  }
+});

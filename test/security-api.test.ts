@@ -28,7 +28,7 @@ test("security: approvals survive reopen, bind the action hash and expire", asyn
   let db = await SqliteConnection.open(file); await new SqliteMigrationRunner(db, schemaMigrations.slice(0, -1)).apply();
   await db.close();
   db = await SqliteConnection.open(file); const upgraded = await new SqliteMigrationRunner(db, schemaMigrations).apply();
-  assert.equal(upgraded.currentVersion, 8, "N-1 database upgrades in place");
+  assert.equal(upgraded.currentVersion, 9, "N-1 database upgrades in place");
   await db.run("INSERT INTO workspaces(id,name,root_uri,created_at,updated_at) VALUES ('w1','W','file:///w',1,1)");
   const action = { tool: "Write", input: { file_path: "safe.txt" } };
   const first = await new PersistentApprovalStore(db).request({ workspaceId: "w1", stepId: "s1", action, scope: "once", at: 10, expiresAt: 100 });
