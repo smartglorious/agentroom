@@ -10,6 +10,7 @@ Mỗi phiên bản có một mục ở đây **và** README được cập nhậ
 - Fixture `sortrush-team` cho `bench:goal`: đội bốn người (lead, fe, be, qa) với quyền ghi theo vai trò, cả backend lẫn client web, 16 test ẩn. Lần chạy đầu (1 lượt): 10 lượt model, 216K cache-write; bộ chấm báo 15/16 do một test đòi quá đặc tả, bài làm thực ra đạt 16/16.
 - Fixture `sortrush-zones` cho `bench:goal`: bố cục theo vùng và dùng file workers thật qua `BENCH_WORKERS_FILE` (file giữ ngoài repo). Lần chạy đầu (Sonnet, 1 lượt): 10 lượt model, 139K cache-write, 16/16.
 - Fixture `sortrush-solo` và `BENCH_TARGET`: cùng bài giao cho một agent làm tuần tự từng giai đoạn. Ba lượt hợp lệ: 16/16, 37K–41K cache-write, so với 139K của đội năm worker (một lượt). Sửa chính sách duyệt của bộ đo để cho `git checkout`/`switch`.
+- Fixture `sortrush-par`: giao `be` và `fe` làm song song thật. Một lượt: 112K cache-write, 300 giây, 11/16 (lỗi ở chỗ nối client và server).
 
 ## 0.14.21
 - **Sửa lỗi `Event version conflict: expected 3, actual 4` ở chế độ `durable`.** Lease của một lượt chỉ 30 giây và Room không gia hạn trong lúc lượt chạy. Lượt dài hơn 30 giây bị lượt của worker khác thu hồi lease (`claim` → `recover`), nên khi xong thì ghi kết quả vào phiên bản cũ của step và báo lỗi; lượt đó còn có nguy cơ bị chạy lại. Giờ lượt gia hạn lease bằng heartbeat mỗi một phần ba thời hạn và dừng nó trước khi ghi kết quả. Test mới (`test/durable-concurrency.test.ts`) đỏ khi tắt heartbeat và xanh khi bật.

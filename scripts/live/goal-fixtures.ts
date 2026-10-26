@@ -201,3 +201,8 @@ FIXTURES["sortrush-solo"] = {
   ...FIXTURES["sortrush-zones"], id: "sortrush-solo", solo: true,
   goal: "Hãy triển khai game Sort Rush (MVP) theo đặc tả docs/specs/sort-rush.md vào hệ thống hiện có: server ở rules-service/, client ở play-frontend/. Đọc WORKING.md trước. Bạn làm một mình, lần lượt theo từng giai đoạn, mỗi giai đoạn trên một nhánh git riêng và commit: (1) agentroom/be: server trong rules-service/, (2) agentroom/fe: client trong play-frontend/, (3) agentroom/qa: tự rà soát lại diff của hai nhánh trên như một reviewer độc lập, chạy test và sửa lỗi tìm thấy, (4) agentroom/docs: ghi vào WORKING.md. Báo cáo ngắn gọn cho tôi: file, test, rủi ro.",
 };
+// Same task, but the brief tells the lead the API contract is complete in the spec, so the server and the client can be built at the same time.
+FIXTURES["sortrush-par"] = {
+  ...FIXTURES["sortrush-zones"], id: "sortrush-par",
+  goal: FIXTURES["sortrush-zones"].goal.replace("Khi xong và đã kiểm chứng", "Hợp đồng API đã đầy đủ trong đặc tả nên be và fe có thể làm SONG SONG ngay từ đầu: hãy giao cả hai cùng lúc. qa rà soát sau khi cả hai xong. Khi xong và đã kiểm chứng"),
+};

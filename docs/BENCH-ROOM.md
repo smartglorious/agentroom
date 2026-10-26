@@ -81,3 +81,9 @@ Cùng bài, cùng bố cục `sortrush-zones`, cùng model (Sonnet 5.5) và cùn
 Kết quả (Sonnet, `durable`): ba lượt hợp lệ đều **16/16**, mỗi lượt một lượt model, **37K–41K cache-write**, 182–221 giây. Cùng bài, đội năm worker bằng file workers thật: **139K** cache-write, 10 lượt model, 329 giây, 16/16 (một lượt). Tức đội tốn khoảng 3,5 lần cache-write và chậm hơn khoảng 1,5 lần, với cùng kết quả ở bài cỡ này. Hai lượt khác bị loại vì bộ đo chặn nhầm lệnh `git checkout -q -b` (agent hỏi lại người dùng rồi dừng); chính sách đã sửa.
 
 Giới hạn: một bài, haiku/Sonnet, đặc tả tự chứa, không worktree thật (nhánh git trong cùng thư mục), `rà soát độc lập` do cùng một agent tự làm nên không đo được giá trị của một reviewer khác; chưa đo bài lớn, nhiều máy, firmware/mobile, hay dùng Codex.
+
+### Fixture `sortrush-par`: be và fe làm song song
+
+Cùng bài và cùng file workers, nhưng lời giao việc nói rõ hợp đồng API đã đủ trong đặc tả nên giao `be` và `fe` cùng lúc. Trong lượt `sortrush-zones` thường, đội gần như chạy tuần tự (tổng thời gian các lượt chia cho thời gian thực: 1,12; `fe` chờ `be`). Ở `sortrush-par` hai worker chạy chồng thật (hệ số 1,51; `fe` giây 19–125, `be` giây 25–198).
+
+Kết quả (Sonnet, `durable`, **1 lượt**): 8 lượt model, 112K cache-write, 300 giây (chậm hơn agent đơn 182–221 giây và gần bằng đội tuần tự 329 giây), **11/16 test ẩn: chưa giải xong**. Server đạt 9/9; phần client sai khớp với server ở các phản hồi của `action` (test tích hợp của chính `fe` đỏ ở cuối lượt chạy, chưa sửa xong). Gợi ý, chưa đủ để kết luận (n=1; bộ đo cũng từ chối các lệnh Bash dạng `python3 - <<EOF` mà worker dùng để sửa file): làm song song khi chưa có test hợp đồng chung dễ để lại lỗi ở chỗ nối, và `be` vẫn mất 174 giây một mình nên song song không rút ngắn thời gian ở bài cỡ này.
