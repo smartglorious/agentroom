@@ -2,6 +2,10 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## 0.14.20
+- **Đối chiếu SQLite nói rõ trường nào lệch** (`task-projection:<id>(title,dependsOn…)`) và chỉ so các trường mà bản chiếu thật sự lưu; `dependsOn` so như tập hợp (bảng phụ thuộc không giữ thứ tự và không giữ trùng lặp), khóa thừa do phiên bản cũ ghi vào `tasks.json` không còn làm đối chiếu thất bại; phụ thuộc trùng không làm import lỗi.
+- Đã kiểm chứng trên một project thật (bản pro 0.15.23): 1515 bản ghi cũ đối chiếu đạt và `durable` bật được. Chưa biết trong ba nguyên nhân nghi ngờ (thứ tự, trùng lặp, khóa thừa) cái nào là cái đã gây lỗi ở project đó.
+
 ## 0.14.19
 - **Nền tảng lưu trữ thế hệ mới (tùy chọn, mặc định không đổi).** Đưa vào bản công khai phần không riêng tư của nhánh next-gen: lưu trữ SQLite có migration và sao lưu, importer dữ liệu cũ, Run/Step bền vững có lease và receipt, Context Broker và TaskPacket, trí nhớ lai, model gateway với sổ chi phí, phê duyệt bền vững, API cục bộ `/v1` (chỉ 127.0.0.1, token và CSRF, SSE), CI ba hệ điều hành (`.github/workflows/nextgen-ci.yml`) và bằng chứng M5–M7 (`docs/NEXTGEN-M5-M7.md`). Chọn bằng `agentroom.storage.mode` (`legacy` mặc định, `verify`, `durable`) trong tab *Cài đặt*; xem `docs/STORAGE-MODES.md`. Ở `legacy` không nạp SQLite.
 - **Sửa hai lỗi lộ ra trên project đang dùng** (vốn đã sửa ở bản pro 0.15.20): bản chiếu SQLite không lưu `level` của task nên đối chiếu thất bại (`task-projection:<id>`; migration v9 điền lại cả cơ sở dữ liệu cũ), và importer coi mọi thay đổi của file nguồn là lỗi nên `verify`/`durable` không thể khởi động lại trên project đang chạy (giờ làm mới bản chụp, kèm sự kiện `TaskSynced`).
