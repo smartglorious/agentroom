@@ -28,6 +28,11 @@ import { Room } from "./core/room";
 import { Scheduler } from "./core/scheduler";
 import { SKILL_NAME, SKILL_TEMPLATE, SkillDrafts, SkillRegistry, checkWorkerSkills, skillSources } from "./core/skills";
 import { RoomStore } from "./core/store";
+import { prepareStorage, type StorageMode } from "./storage/bootstrap";
+import { HybridMemoryRepository } from "./memory/repository";
+import type { SqliteConnection } from "./storage/sqlite";
+import { DurableTurnQueue } from "./storage/turn-queue";
+import { ContextBroker } from "./context/broker";
 import { SYSTEM } from "./core/types";
 import { UsageStore } from "./core/usage";
 import type { RoomConfig } from "./core/types";
@@ -40,6 +45,12 @@ import { TelegramPanel } from "./ui/telegramPanel";
 import { buildSettingsPayload, checkValue, confirmValue, settingDefs } from "./ui/settings";
 import { createHash } from "node:crypto";
 import { Autonomy, isAutonomy } from "./core/autonomy";
+import { DeviceTokenStore, LocalApiServer } from "./api/local";
+import { AgentRoomApiClient } from "./api/client";
+import { RoomGatewayRuntime } from "./gateway/runtime";
+import { PersistentApprovalStore } from "./security/approvals";
+import { AGENTROOM_TOOL_MANIFESTS, DurableToolGateway, ToolManifestRegistry } from "./gateway/tools";
+import { SqliteToolReceiptStore } from "./storage/tool-receipts";
 
 const fullWarning = () => [
   tr("Worker này sẽ KHÔNG còn hỏi bạn trước khi: sửa hoặc xóa bất kỳ file nào (kể cả ngoài dự án), chạy lệnh tùy ý, tải rồi chạy mã từ Internet, cài gói, git push --force, gửi dữ liệu ra ngoài."),
@@ -68,6 +79,8 @@ interface Live {
   usage: UsageStore;
   config: RoomConfig;
   plugins: PluginManager;
+  storage?: SqliteConnection;
+  localApi?: LocalApiServer;
 }
 
 let live: Live | undefined;
@@ -82,7 +95,9 @@ function dispose() {
   live.telegram?.stop();
   live.hosts?.closeAll();
   live.mcp.dispose();
+  live.localApi?.dispose();
   live.lock.release();
+  void live.storage?.close();
   live = undefined;
 }
 
@@ -189,11 +204,23 @@ export async function activate(ctx: vscode.ExtensionContext) {
       view.attachLocked(lock.peek());
       vscode.window.showWarningMessage(tr("AgentRoom: một cửa sổ khác đã chiếm quyền điều phối thư mục này, nên cửa sổ này đã dừng."));
     });
+    let storageConnection: SqliteConnection | undefined;
+    let localApiConnection: LocalApiServer | undefined;
     try {
       const cfg = settings();
       const config = parseConfig(readFileSync(file, "utf8"));
       const agentroomDir = join(ws, ".agentroom");
       const stateDir = join(agentroomDir, "state");
+      const storage = await prepareStorage(ws, stateDir, cfg.get<StorageMode>("storage.mode", "legacy"));
+      storageConnection = storage.connection;
+      if (storage.error) {
+        out.appendLine(`[storage] ${storage.error}`);
+        void vscode.window.showWarningMessage(`AgentRoom storage verify failed; using legacy files: ${storage.error}`);
+      } else if (storage.verification) {
+        out.appendLine(storage.active === "durable"
+          ? `[storage] SQLite durable execution enabled (${storage.verification.ledgerRecords} legacy records verified).`
+          : `[storage] SQLite shadow verified (${storage.verification.ledgerRecords} records); legacy files remain authoritative.`);
+      }
       const store = new RoomStore(stateDir);
       const skills = new SkillRegistry(skillSources(ws, homedir()));
       const server: { current?: AgentRoomMcp } = {};
@@ -216,11 +243,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
         });
       }
 
+      const adapters = { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => cfg.get<PriceTable>("pricing", {})) };
+      const approvalStore = storage.connection ? new PersistentApprovalStore(storage.connection) : undefined;
       const room = new Room({
         config,
         store,
         remote: hosts ? new RemoteAdapter(hosts) : undefined,
-        adapters: { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => cfg.get<PriceTable>("pricing", {})) },
+        adapters,
         scheduler: new Scheduler(),
         options: { maxAgentHops: cfg.get("maxAgentHops", 6), contextMessages: cfg.get("contextMessages", 30), memoryBudgetChars: cfg.get("memoryBudgetChars", 12000), agentDebounceMs: Math.max(0, cfg.get<number>("agentDebounceMs", 8000)) },
         memory: new MemoryStore(agentroomDir),
@@ -243,12 +272,38 @@ export async function activate(ctx: vscode.ExtensionContext) {
         home: homedir(),
         issues,
         plugins,
+        turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
+        contextBroker: storage.connection ? new ContextBroker(storage.connection) : undefined,
+        hybridMemory: storage.connection && storage.workspaceId ? { repository: new HybridMemoryRepository(storage.connection), workspaceId: storage.workspaceId } : undefined,
+        modelGateway: storage.connection && storage.workspaceId ? new RoomGatewayRuntime({ db: storage.connection, workspaceId: storage.workspaceId,
+          config, adapters, prices: () => cfg.get<PriceTable>("pricing", {}) }) : undefined,
+        approvalPersistence: approvalStore && storage.workspaceId ? {
+          request: (input) => approvalStore.request({ workspaceId: storage.workspaceId!, ...input, scope: "once" }),
+          decide: (id, action, allow, reason, at) => approvalStore.decide(id, action, allow, reason, at),
+          pending: (at) => approvalStore.pending(storage.workspaceId!, at),
+        } : undefined,
         planProbe: makePlanProbe({ claude: () => findExecutable("claude", settings().get<string>("claudePath")), codex: cli("codex") }),
         planPollMs: () => Math.max(0, cfg.get<number>("planUsage.pollMinutes", 10)) * 60_000,
       });
+      await room.initializeHybridMemory();
+      await room.initializePersistentApprovals();
       room.plan?.start();
-      const mcp = (server.current = new AgentRoomMcp(room));
+      const toolGateway = storage.connection ? new DurableToolGateway(new ToolManifestRegistry(AGENTROOM_TOOL_MANIFESTS), new SqliteToolReceiptStore(storage.connection)) : undefined;
+      const mcp = (server.current = new AgentRoomMcp(room, toolGateway));
       await mcp.start();
+      const recovered = await room.recoverDurableTurns();
+      if (recovered) out.appendLine(`[storage] Recovered ${recovered} durable inbox message(s).`);
+      let localApi: LocalApiServer | undefined;
+      let apiClient: AgentRoomApiClient | undefined;
+      if (cfg.get<boolean>("localApi.enabled", true)) {
+        const deviceToken = new DeviceTokenStore(join(ctx.globalStorageUri.fsPath, "local-api.token"));
+        deviceToken.loadOrCreate();
+        localApi = new LocalApiServer({ room, token: () => deviceToken.loadOrCreate() });
+        await localApi.start();
+        localApiConnection = localApi;
+        apiClient = new AgentRoomApiClient(localApi.url(), () => deviceToken.loadOrCreate());
+        out.appendLine(`[api] ${localApi.url()}`);
+      }
 
       const problems = [...checkWorkerSkills(config.workers, skills), ...skills.problems.map((p) => `${p.dir}: ${p.message}`)];
       if (problems.length) vscode.window.showWarningMessage(tr("AgentRoom: {n} vấn đề với skills — {p}", { n: problems.length, p: problems[0] }));
@@ -296,11 +351,16 @@ export async function activate(ctx: vscode.ExtensionContext) {
       }
 
       plugins.activate({ room, config, root: ws, log: (t) => out.appendLine(`[plugin] ${t}`) });
-      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config, plugins };
-      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel, plugins };
+      live = { lock, hosts, room, mcp, cron, hooks, hookServer, inspector, root: agentroomDir, usage, config, plugins, storage: storageConnection, localApi };
+      storageConnection = undefined;
+      localApiConnection = undefined;
+      runtimeStorage = { requested: storage.requested, active: storage.active, ...(storage.error ? { error: storage.error } : {}) };
+      const vctx: ViewContext = { room, cron, hooks, hookPort: hookServer?.port, usage, config, hosts, telegram: panel, plugins, apiClient, storage: runtimeStorage };
       view.attach(vctx);
       void startTelegram().catch((e) => { const m = trVi("không khởi động được: {p}", { p: e instanceof Error ? e.message : e }); out.appendLine(`[telegram] ${m}`); live?.room.noteIssue({ kind: "error", source: "telegram", title: m }); });
     } catch (e) {
+      void storageConnection?.close();
+      localApiConnection?.dispose();
       dispose();
       lock.release();
       vscode.window.showErrorMessage(tr("AgentRoom: workers.yaml lỗi — {p}", { p: e instanceof Error ? e.message : e }));

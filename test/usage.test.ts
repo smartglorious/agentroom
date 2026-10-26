@@ -21,7 +21,8 @@ test("usage: Claude result is normalised using the CLI's own cost and the domina
     total_cost_usd: 0.25, num_turns: 3,
     modelUsage: { "claude-haiku": { costUSD: 0.01 }, "claude-opus": { costUSD: 0.24 } },
   });
-  assert.deepEqual(u, { model: "claude-opus", input: 10, output: 5, cacheRead: 100, cacheWrite: 20, costUsd: 0.25, estimated: false, numTurns: 3 });
+  assert.deepEqual(u, { model: "claude-opus", input: 10, output: 5, cacheRead: 100, cacheWrite: 20, costUsd: 0.25, estimated: false, numTurns: 3,
+    tokenProvenance: "provider", costProvenance: "provider" });
 });
 
 test("usage: Codex cost is estimated from the price table and missing for unknown models", () => {
@@ -30,8 +31,12 @@ test("usage: Codex cost is estimated from the price table and missing for unknow
   assert.equal(u.input, 400_000);
   assert.equal(u.cacheRead, 600_000);
   assert.equal(u.estimated, true);
+  assert.equal(u.tokenProvenance, "provider");
+  assert.equal(u.costProvenance, "catalog_estimate");
+  assert.equal(u.unitPriceVersion, "runtime-config");
   assert.ok(Math.abs(u.costUsd! - (0.4 * 2 + 0.6 * 0.5 + 0.1 * 8)) < 1e-9);
   assert.equal(codexUsage({ input_tokens: 5, cached_input_tokens: 0, output_tokens: 1 }, "unknown", prices).costUsd, undefined);
+  assert.equal(codexUsage({ input_tokens: 5, cached_input_tokens: 0, output_tokens: 1 }, "unknown", prices).costProvenance, "unknown");
   assert.equal(codexUsage({ input_tokens: 5, cached_input_tokens: 0, output_tokens: 1 }, undefined, prices).costUsd, undefined);
 });
 

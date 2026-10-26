@@ -1,0 +1,103 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { HybridMemoryRepository } from "../src/memory/repository";
+import { SqliteMigrationRunner } from "../src/storage/migrations";
+import { schemaMigrations } from "../src/storage/schema-v1";
+import { SqliteConnection } from "../src/storage/sqlite";
+import { Fake, makeRoom } from "./helpers";
+
+const setup = async () => {
+  const db = await SqliteConnection.open(join(mkdtempSync(join(tmpdir(), "ar-memory-")), "agentroom.db"));
+  await new SqliteMigrationRunner(db, schemaMigrations).apply();
+  await db.run("INSERT INTO workspaces(id, name, root_uri, created_at, updated_at) VALUES ('w1', 'One', 'file:///one', 1, 1)");
+  return db;
+};
+
+test("hybrid memory: candidate privacy, dedup, accept and scoped ACL/TTL recall", async () => {
+  const db = await setup();
+  try {
+    const memory = new HybridMemoryRepository(db);
+    await assert.rejects(memory.propose({ workspaceId: "w1", scope: "agent", scopeId: "qa", kind: "semantic",
+      content: "api_key=sk-abcdefghijklmnop", confidence: 0.9, provenance: {}, reason: "observed", at: 10 }), /secret/);
+    const candidate = await memory.propose({ id: "c1", workspaceId: "w1", scope: "agent", scopeId: "qa", kind: "semantic",
+      content: "  SQLite uses WAL mode  ", confidence: 0.9, provenance: { source: "ADR" }, reason: "verified", at: 10 });
+    assert.equal(candidate.status, "pending");
+    assert.equal(await memory.accept("c1", { memoryId: "m1", importance: 0.8, acl: ["qa"], expiresAt: 100, at: 11 }), "m1");
+    assert.deepEqual((await memory.recall({ workspaceId: "w1", agentId: "qa", scopes: [{ scope: "agent", scopeId: "qa" }], query: "SQLite WAL", now: 50 })).map((hit) => hit.id), ["m1"]);
+    assert.deepEqual(await memory.recall({ workspaceId: "w1", agentId: "lead", scopes: [{ scope: "agent", scopeId: "qa" }], query: "SQLite", now: 50 }), []);
+    assert.deepEqual(await memory.recall({ workspaceId: "w1", agentId: "qa", scopes: [{ scope: "agent", scopeId: "qa" }], query: "SQLite", now: 101 }), []);
+    assert.equal((await memory.propose({ id: "c2", workspaceId: "w1", scope: "agent", scopeId: "qa", kind: "semantic",
+      content: "SQLite uses WAL mode", confidence: 0.7, provenance: {}, reason: "again", at: 20 })).status, "duplicate");
+  } finally { await db.close(); }
+});
+
+test("hybrid memory: supersede is explicit and delete removes row, FTS, relations and content", async () => {
+  const db = await setup();
+  try {
+    const memory = new HybridMemoryRepository(db);
+    await memory.propose({ id: "c1", workspaceId: "w1", scope: "workspace", scopeId: "w1", kind: "procedural",
+      content: "Deploy on Friday", confidence: 0.8, provenance: { source: "user" }, reason: "preference", at: 10 });
+    await memory.accept("c1", { memoryId: "m1", acl: ["*"], at: 11 });
+    await memory.propose({ id: "c2", workspaceId: "w1", scope: "workspace", scopeId: "w1", kind: "procedural",
+      content: "Deploy on Monday", confidence: 1, provenance: { source: "user" }, reason: "correction", at: 20 });
+    await memory.accept("c2", { memoryId: "m2", acl: ["*"], supersedes: "m1", at: 21 });
+    assert.deepEqual(await db.get("SELECT status FROM memories WHERE id = 'm1'"), { status: "superseded" });
+    assert.deepEqual(await db.get("SELECT kind FROM memory_relations"), { kind: "supersedes" });
+    await memory.delete("w1", "m2", "user requested", 30);
+    assert.equal(await db.get("SELECT id FROM memories WHERE id = 'm2'"), undefined);
+    assert.equal(await db.get("SELECT memory_id FROM memories_fts WHERE memory_id = 'm2'"), undefined);
+    assert.equal((await db.get<{ count: number }>("SELECT count(*) AS count FROM memory_deletion_audit WHERE memory_id = 'm2'"))?.count, 1);
+    assert.equal(JSON.stringify(await db.get("SELECT * FROM memory_deletion_audit WHERE memory_id = 'm2'")).includes("Deploy"), false);
+  } finally { await db.close(); }
+});
+
+test("hybrid memory: legacy import is idempotent and export preserves stable entries", async () => {
+  const db = await setup();
+  try {
+    const memory = new HybridMemoryRepository(db);
+    const entries = [
+      { id: "M1", date: "2026-10-01", kind: "fact" as const, text: "SQLite uses WAL" },
+      { id: "M2", date: "2026-10-02", kind: "decision" as const, text: "Keep legacy fallback" },
+      { id: "M3", date: "2026-10-03", kind: "fact" as const, text: "token=abcdef123456" },
+    ];
+    assert.deepEqual(await memory.importLegacy({ workspaceId: "w1", agentId: "qa", scope: "me", entries, at: 100 }),
+      { imported: 2, existing: 0, rejected: [{ id: "M3", reason: "secret" }] });
+    assert.deepEqual(await memory.importLegacy({ workspaceId: "w1", agentId: "qa", scope: "me", entries, at: 200 }),
+      { imported: 0, existing: 2, rejected: [{ id: "M3", reason: "secret" }] });
+    const markdown = await memory.exportMarkdown("w1", "agent", "qa", "Trí nhớ — @qa");
+    assert.match(markdown, /\[M1\] 2026-10-01 · fact · SQLite uses WAL/);
+    assert.match(markdown, /\[M2\] 2026-10-02 · decision · Keep legacy fallback/);
+    assert.doesNotMatch(markdown, /abcdef123456/);
+  } finally { await db.close(); }
+});
+
+test("hybrid memory: Room imports legacy files and keeps remember, recall and forget compatible", async () => {
+  const db = await setup();
+  try {
+    const repository = new HybridMemoryRepository(db);
+    const { room } = makeRoom(new Fake(), { hybridMemory: { repository, workspaceId: "w1" } });
+    room.memory.add("me", "be", "fact", "Legacy checkpoint uses WAL");
+    await room.initializeHybridMemory();
+    assert.equal((await db.get<{ count: number }>("SELECT count(*) AS count FROM memories WHERE workspace_id = 'w1'"))?.count, 1);
+
+    const remembered = await room.rememberMemory("be", "me", "lesson", "Run recovery before dispatch");
+    assert.equal(remembered.id, "M2");
+    assert.equal((await db.get<{ status: string }>(
+      "SELECT status FROM memory_candidates WHERE json_extract(provenance_json, '$.legacy_id') = 'M2'",
+    ))?.status, "accepted");
+    assert.equal((await room.recallMemory("be", "recovery dispatch", 10)).length, 1, "file and hybrid copies are deduplicated");
+
+    await repository.propose({ id: "hybrid-only-candidate", workspaceId: "w1", scope: "workspace", scopeId: "w1", kind: "semantic",
+      content: "Canary rollout needs rollback rehearsal", confidence: 0.8, provenance: { source: "review" }, reason: "verified", at: 200 });
+    await repository.accept("hybrid-only-candidate", { memoryId: "hybrid-only", acl: ["*"], at: 201 });
+    assert.match((await room.recallMemory("be", "canary rollback", 10))[0].where, /^hybrid:/);
+
+    await room.forgetMemory("be", "me", "M2");
+    assert.equal(await db.get("SELECT id FROM memories WHERE json_extract(provenance_json, '$.legacy_id') = 'M2'"), undefined);
+    assert.equal((await db.get<{ count: number }>("SELECT count(*) AS count FROM memory_deletion_audit"))?.count, 1);
+    assert.equal(room.memory.entries("me", "be").some((entry) => entry.id === "M2"), false);
+  } finally { await db.close(); }
+});

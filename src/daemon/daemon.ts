@@ -26,6 +26,10 @@ import { Scheduler } from "../core/scheduler";
 import { SkillDrafts, SkillRegistry, checkWorkerSkills, skillSources } from "../core/skills";
 import type { HostDef } from "../core/types";
 import { RoomStore } from "../core/store";
+import { prepareStorage } from "../storage/bootstrap";
+import { HybridMemoryRepository } from "../memory/repository";
+import { DurableTurnQueue } from "../storage/turn-queue";
+import { ContextBroker } from "../context/broker";
 import { SYSTEM } from "../core/types";
 import { UsageStore } from "../core/usage";
 import { WebhookHandler, WebhookServer } from "../core/webhooks";
@@ -33,6 +37,11 @@ import { ensureWorktree, localBase } from "../core/worktree";
 import { AgentRoomMcp } from "../mcp/server";
 import { HostManager, fingerprint } from "../remote/host";
 import { DaemonStore, defaultStoreFile, pairingFile } from "./store";
+import { DeviceTokenStore, LocalApiServer } from "../api/local";
+import { RoomGatewayRuntime } from "../gateway/runtime";
+import { PersistentApprovalStore } from "../security/approvals";
+import { AGENTROOM_TOOL_MANIFESTS, DurableToolGateway, ToolManifestRegistry } from "../gateway/tools";
+import { SqliteToolReceiptStore } from "../storage/tool-receipts";
 
 export const EXIT = { ok: 0, config: 2, locked: 3 } as const;
 
@@ -63,6 +72,8 @@ export interface DaemonOptions {
 export interface DaemonHandle {
   room: Room;
   telegram?: TelegramService;
+  /** Authenticated loopback API used by thin clients. */
+  apiUrl: string;
   /** Resolves when another process took the room over; the daemon has already shut down by then. */
   lost: Promise<void>;
   /** New 10-minute pairing code, also written to the pairing file for `agentroom-daemon pair`. */
@@ -126,6 +137,12 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     const usage = new UsageStore(stateDir);
     const issues = new IssueStore(join(stateDir, "issues.json"), { version: VERSION, platform: process.platform, node: process.version, scrub: [[o.root, "<project>"], [home, "~"]] });
     const plugins = new PluginManager(bundledPlugins);
+    const storage = await prepareStorage(o.root, stateDir, s0.storageMode);
+    if (storage.error) log(`Storage verify failed; using legacy files: ${storage.error}`);
+    else if (storage.verification) log(storage.active === "durable"
+      ? `SQLite durable execution enabled (${storage.verification.ledgerRecords} legacy records verified).`
+      : `SQLite shadow verified (${storage.verification.ledgerRecords} records); legacy files remain authoritative.`);
+    if (storage.connection) disposers.push(() => { void storage.connection!.close(); });
     const roomStore = new RoomStore(stateDir);
     const server: { current?: AgentRoomMcp } = {};
 
@@ -154,11 +171,13 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       return found;
     };
 
+    const adapters = o.adapters ?? { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => settings().pricing) };
+    const approvalStore = storage.connection ? new PersistentApprovalStore(storage.connection) : undefined;
     const room = new Room({
       config,
       store: roomStore,
       remote: hosts ? new RemoteAdapter(hosts) : undefined,
-      adapters: o.adapters ?? { claude: new ClaudeAdapter(cli("claude")), codex: new CodexAdapter(cli("codex"), () => settings().pricing) },
+      adapters,
       scheduler: new Scheduler(),
       options: { maxAgentHops: s0.maxAgentHops, contextMessages: s0.contextMessages, memoryBudgetChars: s0.memoryBudgetChars, agentDebounceMs: s0.agentDebounceMs },
       memory: new MemoryStore(agentroomDir),
@@ -172,6 +191,16 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       home,
       issues,
       plugins,
+      turnQueue: storage.connection && storage.workspaceId ? new DurableTurnQueue(storage.connection, storage.workspaceId) : undefined,
+      contextBroker: storage.connection ? new ContextBroker(storage.connection) : undefined,
+      hybridMemory: storage.connection && storage.workspaceId ? { repository: new HybridMemoryRepository(storage.connection), workspaceId: storage.workspaceId } : undefined,
+      modelGateway: storage.connection && storage.workspaceId ? new RoomGatewayRuntime({ db: storage.connection, workspaceId: storage.workspaceId,
+        config, adapters, prices: () => settings().pricing }) : undefined,
+      approvalPersistence: approvalStore && storage.workspaceId ? {
+        request: (input) => approvalStore.request({ workspaceId: storage.workspaceId!, ...input, scope: "once" }),
+        decide: (id, action, allow, reason, at) => approvalStore.decide(id, action, allow, reason, at),
+        pending: (at) => approvalStore.pending(storage.workspaceId!, at),
+      } : undefined,
       autonomyStore: {
         get: (id) => store.read().autonomy?.[`${o.root}|${id}`],
         set: (id, m) => store.update((f) => { f.autonomy = { ...f.autonomy, [`${o.root}|${id}`]: m }; }),
@@ -179,15 +208,27 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
       planProbe: o.planProbe ?? makePlanProbe({ claude: () => findExecutable("claude", settings().claudePath), codex: cli("codex") }),
       planPollMs: () => settings().planPollMinutes * 60_000,
     });
+    await room.initializeHybridMemory();
+    await room.initializePersistentApprovals();
     room.plan?.start();
     plugins.activate({ room, config, root: o.root, log: (t) => log(`[plugin] ${t}`) });
     disposers.push(() => plugins.dispose());
     disposers.push(() => room.plan?.stop());
     disposers.push(() => room.stopAll());
 
-    const mcp = (server.current = new AgentRoomMcp(room));
+    const toolGateway = storage.connection ? new DurableToolGateway(new ToolManifestRegistry(AGENTROOM_TOOL_MANIFESTS), new SqliteToolReceiptStore(storage.connection)) : undefined;
+    const mcp = (server.current = new AgentRoomMcp(room, toolGateway));
     await mcp.start();
+    const recovered = await room.recoverDurableTurns();
+    if (recovered) log(`Recovered ${recovered} durable inbox message(s).`);
     disposers.push(() => mcp.dispose());
+
+    const deviceToken = new DeviceTokenStore(join(home, ".agentroom", "local-api.token"));
+    deviceToken.loadOrCreate();
+    const localApi = new LocalApiServer({ room, token: () => deviceToken.loadOrCreate() });
+    await localApi.start();
+    disposers.push(() => localApi.dispose());
+    log(`local API: ${localApi.url()}`);
 
     const problems = [...checkWorkerSkills(config.workers, skills), ...skills.problems.map((p) => `${p.dir}: ${p.message}`)];
     for (const p of problems) log(`skill: ${p}`);
@@ -267,7 +308,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     if (telegram && !telegram.status().paired) requestPairing();
 
     log(tr("daemon đang điều phối {root} ({n} worker)", { root: o.root, n: config.workers.length }));
-    return { room, telegram, lost, requestPairing, stop };
+    return { room, telegram, apiUrl: localApi.url(), lost, requestPairing, stop };
   } catch (e) {
     stop();
     throw e;

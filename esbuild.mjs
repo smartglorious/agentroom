@@ -19,7 +19,7 @@ const pluginList = {
     b.onResolve({ filter: /^agentroom:plugins$/ }, () => ({ path: resolve(existsSync("src/plugins/private.ts") ? "src/plugins/private.ts" : "src/plugins/none.ts") }));
   },
 };
-const external = ["vscode", "@anthropic-ai/claude-agent-sdk", "@openai/codex-sdk", "@modelcontextprotocol/sdk", "zod"];
+const external = ["vscode", "@anthropic-ai/claude-agent-sdk", "@openai/codex-sdk", "@modelcontextprotocol/sdk", "@appthreat/sqlite3", "zod"];
 const cjs = { plugins: [pluginList], define, bundle: true, platform: "node", target: "node20", format: "cjs", sourcemap: true, external };
 const esm = {
   plugins: [pluginList], define, bundle: true, platform: "node", target: "node20", format: "esm",

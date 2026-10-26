@@ -1,4 +1,5 @@
 {
+  "cfg.localApiEnabled": "Route VS Code commands through the authenticated loopback API. Turn off to use the direct Room compatibility path.",
   "description": "Several AI workers (Claude Code / Codex), each with its own role, working together in one group chat right inside VS Code.",
   "untrusted": "AgentRoom runs agents, commands and SSH connections defined by config stored in the repo, so it only works in a workspace you trust.",
   "cmd.init": "AgentRoom: Create sample workers config",
@@ -23,6 +24,7 @@
   "cfg.codexPath": "Path to the codex CLI (empty = look in PATH).",
   "cfg.contextMessages": "Number of recent messages put in the prompt each turn.",
   "cfg.memoryBudgetChars": "Maximum characters of SOUL + memory + journal put into the persona each turn.",
+  "cfg.storage.mode": "Storage migration gate. legacy uses files only; verify creates a checked SQLite shadow; durable additionally enables restart-safe Run/Step execution after verification.",
   "cfg.inspector.keepTurns": "Number of most recent turns kept for the Context Inspector (0 = off). The folder holds code, so it is git-ignored.",
   "cfg.pricing": "Price table to estimate Codex cost, USD per 1 million tokens. Example: {\"gpt-5.4\": {\"input\": 2.5, \"cachedInput\": 0.25, \"output\": 10}}. Models not in the table get no cost.",
   "cfg.hookPort": "Webhook port (listens on 127.0.0.1 only).",

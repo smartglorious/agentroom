@@ -11,6 +11,7 @@ import type { WebhookHandler } from "../core/webhooks";
 import type { HostManager } from "../remote/host";
 import type { PluginManager } from "../core/plugins";
 import type { TelegramPanel } from "./telegramPanel";
+import type { AgentRoomApiClient } from "../api/client";
 import type { SettingsPayload } from "./settings";
 
 /** Messages the webview sends to the extension. */
@@ -54,6 +55,8 @@ export interface ViewContext {
   hosts?: HostManager;
   telegram?: TelegramPanel;
   plugins?: PluginManager;
+  /** When present, user commands cross the authenticated loopback boundary. */
+  apiClient?: AgentRoomApiClient;
   /** Storage mode the room started with (the setting may have changed since). Only editions with SQLite storage set it. */
   storage?: { requested: string; active: string; error?: string };
 }
@@ -107,13 +110,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       target.on(event as never, h as never);
       this.unsubscribe.push(() => target.off(event as never, h as never));
     };
-    sub(room, "message", (msg) => ({ type: "message", msg }));
-    sub(room, "status", (status) => ({ type: "status", status }));
-    sub(room, "approval", (req) => ({ type: "approval", req }));
-    sub(room, "approvalResolved", (id) => ({ type: "approvalResolved", id }));
-    sub(room, "tasks", (tasks) => ({ type: "tasks", tasks }));
+    if (ctx.apiClient) {
+      const abort = new AbortController();
+      this.unsubscribe.push(() => abort.abort());
+      void this.consumeApiEvents(ctx.apiClient, abort.signal);
+    } else {
+      sub(room, "message", (msg) => ({ type: "message", msg }));
+      sub(room, "status", (status) => ({ type: "status", status }));
+      sub(room, "approval", (req) => ({ type: "approval", req }));
+      sub(room, "approvalResolved", (id) => ({ type: "approvalResolved", id }));
+      sub(room, "tasks", (tasks) => ({ type: "tasks", tasks }));
+      sub(room, "usage", () => this.usagePayload());
+    }
     sub(room, "drafts", (drafts) => ({ type: "drafts", drafts }));
-    sub(room, "usage", () => this.usagePayload());
     sub(room, "autonomy", () => ({ type: "workers", workers: room.snapshot().workers }));
     sub(room, "plan", () => ({ type: "plans", plans: room.plan?.list() ?? [], now: Date.now() }));
     sub(cron, "change", () => ({ type: "schedules", schedules: cron.statuses() }));
@@ -121,12 +130,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (hosts) sub(hosts, "change", () => this.hostsPayload());
     if (telegram) sub(telegram, "change", () => this.telegramPayload());
     if (plugins) sub(plugins, "panels", () => ({ type: "panels", panels: plugins.panels() }));
-    this.post(this.initPayload());
+    this.sendInit();
   }
 
-  private initPayload() {
+  private initPayload(state = this.ctx!.room.snapshot()) {
     const c = this.ctx!;
-    return { type: "init", state: c.room.snapshot(), usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload(), telegram: this.telegramPayload(), panels: c.plugins?.panels() ?? [] };
+    return { type: "init", state, usage: this.usagePayload(), schedules: c.cron.statuses(), hooks: this.hooksPayload(), hosts: this.hostsPayload(), telegram: this.telegramPayload(), panels: c.plugins?.panels() ?? [] };
+  }
+
+  private sendInit() {
+    const c = this.ctx;
+    if (!c) return;
+    if (!c.apiClient) return void this.post(this.initPayload());
+    void c.apiClient.state<ReturnType<Room["snapshot"]>>().then((state) => this.post(this.initPayload(state)))
+      .catch(() => this.post(this.initPayload()));
+  }
+
+  private async consumeApiEvents(client: AgentRoomApiClient, signal: AbortSignal) {
+    while (!signal.aborted) {
+      try {
+        await client.events((event) => {
+          if (event.type === "reset") this.sendInit();
+          else if (event.type === "message") this.post({ type: "message", msg: event.data });
+          else if (event.type === "status") this.post({ type: "status", status: event.data });
+          else if (event.type === "approval") this.post({ type: "approval", req: event.data });
+          else if (event.type === "approval_resolved") this.post({ type: "approvalResolved", id: (event.data as { id?: unknown })?.id });
+          else if (event.type === "tasks") this.post({ type: "tasks", tasks: event.data });
+          else if (event.type === "usage") this.post(this.usagePayload());
+        }, signal);
+      } catch { /* reconnect below; cursor replay prevents gaps */ }
+      if (!signal.aborted) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
 
   private telegramPayload() {
@@ -173,7 +207,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private onMessage(m: FromWebview) {
     if (m.type === "ready") {
-      if (this.ctx) return void this.post(this.initPayload());
+      if (this.ctx) return void this.sendInit();
       this.post({ type: "init", state: null });
       return void (this.locked && this.post({ type: "locked", holder: this.locked }));
     }
@@ -195,13 +229,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void c.plugins.invokePanelAction(panel, action, m.values).then((r) => this.post({ type: "panelResult", panel, action, ...r }));
         break;
       }
-      case "send": if (typeof m.text === "string" && m.text.trim()) room.post("user", m.text.trim(), typeof m.replyTo === "string" ? { replyTo: m.replyTo } : {}); break;
+      case "send": if (typeof m.text === "string" && m.text.trim()) {
+        if (c.apiClient) void c.apiClient.post(m.text.trim(), undefined, m.replyTo).catch((e) => vscode.window.showWarningMessage(String(e)));
+        else room.post("user", m.text.trim(), typeof m.replyTo === "string" ? { replyTo: m.replyTo } : {});
+      } break;
       case "answerOption":
         try { room.answerOption(String(m.messageId), String(m.optionId)); }
         catch (e) { vscode.window.showWarningMessage(String(e instanceof Error ? e.message : e)); this.post({ type: "optionError", messageId: String(m.messageId) }); }
         break;
-      case "approve": room.respondApproval(String(m.id), !!m.allow); break;
-      case "stop": room.stop(String(m.workerId)); break;
+      case "approve": if (c.apiClient) void c.apiClient.request(`/approvals/${encodeURIComponent(String(m.id))}`, { method: "POST", body: JSON.stringify({ allow: !!m.allow }) }).catch((e) => vscode.window.showWarningMessage(String(e))); else room.respondApproval(String(m.id), !!m.allow); break;
+      case "stop": if (c.apiClient) void c.apiClient.command(String(m.workerId), "cancel").catch((e) => vscode.window.showWarningMessage(String(e))); else room.stop(String(m.workerId)); break;
       case "reportIssue": void vscode.commands.executeCommand("agentroom.reportIssue"); break;
       case "inspect": void this.handlers?.inspect(String(m.turnId)); break;
       case "getProfile": { const profile = room.profile(String(m.workerId)); if (profile) this.post({ type: "profile", profile }); break; }
