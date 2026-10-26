@@ -2,6 +2,9 @@
 
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
+## Chưa phát hành
+- **Đo cơ chế của Room tự động:** `npm run bench:room` chạy cùng một phòng với model giả ở `legacy` và `durable` (kịch bản `chat`, `burst`, `longturn`, `crash`): thời gian thêm mỗi lượt, lỗi khi chạy đồng thời, lượt chạy hai lần, phục hồi sau khi tắt đột ngột. Không tốn quota. `test/bench-room.test.ts` chạy cả bốn kịch bản cỡ nhỏ trong `npm test`. Không đo token hay chất lượng câu trả lời. Xem `docs/BENCH-ROOM.md`.
+
 ## 0.14.21
 - **Sửa lỗi `Event version conflict: expected 3, actual 4` ở chế độ `durable`.** Lease của một lượt chỉ 30 giây và Room không gia hạn trong lúc lượt chạy. Lượt dài hơn 30 giây bị lượt của worker khác thu hồi lease (`claim` → `recover`), nên khi xong thì ghi kết quả vào phiên bản cũ của step và báo lỗi; lượt đó còn có nguy cơ bị chạy lại. Giờ lượt gia hạn lease bằng heartbeat mỗi một phần ba thời hạn và dừng nó trước khi ghi kết quả. Test mới (`test/durable-concurrency.test.ts`) đỏ khi tắt heartbeat và xanh khi bật.
 - **Sửa race khi hai worker cùng sửa một run đang xếp hàng** (`Event ID run:…:started already has different content`): các lần sửa chạy chung một promise và đọc lại run trước khi làm (vốn đã sửa ở bản pro 0.15.18, chưa vào bản công khai).

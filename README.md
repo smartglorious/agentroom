@@ -2,7 +2,7 @@
 
 Group chat cho một "đội" AI trong VS Code. Mỗi worker là một persona (vai trò, kỹ năng, tính cách, trí nhớ riêng) chạy trên Claude Code hoặc Codex. Nhiều worker dùng chung một account.
 
-Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`. Mức tự chủ: `docs/AUTONOMY.md`. Reply và lựa chọn: `docs/REPLY-OPTIONS.md`. Bớt lượt: `docs/FEWER-TURNS.md`. Model theo độ khó task: `docs/MODEL-ROUTING.md`. Daemon trên VPS: `docs/DAEMON-VPS.md`. Đo cache-write: `docs/BENCH-CACHEWRITE.md`. Chế độ lưu trữ: `docs/STORAGE-MODES.md`. Dọn dẹp: `docs/CLEANUP.md`. Gom lỗi: `docs/ISSUES.md`. Hai ngôn ngữ: `docs/I18N.md`. Điểm mở rộng: `docs/EXTENSIONS.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
+Thiết kế và kế hoạch: `docs/DESIGN.md`, `docs/PLAN-v0.2.md`. **Nhiều máy / SSH: `docs/MULTI-MACHINE.md`. Điện thoại / Telegram: `docs/TELEGRAM.md`. Chạy không cần VS Code: `docs/DAEMON.md`. Hạn mức gói: `docs/PLAN-USAGE.md`. Mức tự chủ: `docs/AUTONOMY.md`. Reply và lựa chọn: `docs/REPLY-OPTIONS.md`. Bớt lượt: `docs/FEWER-TURNS.md`. Model theo độ khó task: `docs/MODEL-ROUTING.md`. Daemon trên VPS: `docs/DAEMON-VPS.md`. Đo cache-write: `docs/BENCH-CACHEWRITE.md`, `docs/BENCH-ROOM.md`. Chế độ lưu trữ: `docs/STORAGE-MODES.md`. Dọn dẹp: `docs/CLEANUP.md`. Gom lỗi: `docs/ISSUES.md`. Hai ngôn ngữ: `docs/I18N.md`. Điểm mở rộng: `docs/EXTENSIONS.md`.** Để agent thiết lập cho một project có sẵn: `docs/SETUP-GUIDE.md`.
 
 ## Tính năng
 

@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 
 const watch = process.argv.includes("--watch");
 const tests = process.argv.includes("--tests");
+const bench = process.argv.includes("--bench");
 
 const version = JSON.parse(readFileSync("package.json", "utf8")).version;
 const define = { __AR_VERSION__: JSON.stringify(version) };
@@ -26,7 +27,9 @@ const esm = {
   banner: { js: 'import{createRequire as __cr}from"module";const require=__cr(import.meta.url);' },
 };
 
-const configs = tests
+const configs = bench
+  ? [{ ...cjs, entryPoints: ["test/bench/main.ts"], outfile: "out-bench/main.js", sourcemap: false }]
+  : tests
   ? [
       { ...cjs, entryPoints: readdirSync("test").filter((f) => f.endsWith(".test.ts") || f === "fake-runner-main.ts").map((f) => `test/${f}`), outdir: "out-test" },
       // the same runner as production, with a scripted adapter, as the file an ssh host would receive
