@@ -1,5 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
 // Small projects with seeded problems, one per goal. The workers see `files` and `goal`; `hidden` are tests the checker adds after the run.
-export interface GoalFixture { id: string; goal: string; files: Record<string, string>; hidden: Record<string, string>; hiddenTests: number }
+export interface GoalFixture { id: string; /** four workers (lead, fe, be, qa) with role-bound permissions instead of lead/be/qa */ team?: boolean; /** real workers file (BENCH_WORKERS_FILE) and zone-bound permissions */ zones?: boolean; /** one worker does every phase (no role limits) */ solo?: boolean; goal: string; files: Record<string, string>; hidden: Record<string, string>; hiddenTests: number }
 
 const AUTH = `const crypto = require("node:crypto");
 const hash = (pw) => crypto.createHash("sha256").update(pw).digest("hex");
@@ -179,4 +180,24 @@ FIXTURES.orders = {
   goal: "Đọc README.md (đặc tả hệ thống đặt hàng), đối chiếu toàn bộ mã nguồn với đặc tả, sửa mọi chỗ sai lệch (có thể nằm ở nhiều module), thêm test cho từng chỗ đã sửa, chạy `node --test` cho tới khi xanh rồi báo cáo ngắn gọn.",
   files: { "README.md": ORD_README, "catalog.js": ORD_CATALOG, "stock.js": ORD_STOCK, "pricing.js": ORD_PRICING, "orders.js": ORD_ORDERS, "report.js": ORD_REPORT, "catalog.test.js": ORD_TEST },
   hidden: { "hidden.test.js": ORD_HIDDEN }, hiddenTests: 6,
+};
+
+// A fixture kept as real files: `files/` is the project the workers see, `hidden/` the tests the checker adds.
+const fromDir = (id: string, goal: string, hiddenTests: number, team = false, zones = false): GoalFixture => {
+  // Subfolders (web/) keep their relative path, so a file is addressed as "web/x.js".
+  const walk = (base: string, rel = ""): [string, string][] => readdirSync(`${base}/${rel}`, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(base, `${rel}${e.name}/`) : [[`${rel}${e.name}`, readFileSync(`${base}/${rel}${e.name}`, "utf8")] as [string, string]]);
+  const dir = (sub: string) => Object.fromEntries(walk(`scripts/live/fixtures/${id}/${sub}`));
+  return { id, goal, files: dir("files"), hidden: dir("hidden"), hiddenTests, ...(team ? { team } : {}), ...(zones ? { zones } : {}) };
+};
+FIXTURES.sortrush = fromDir("sortrush",
+  "Đọc README.md rồi implement game Sort Rush theo đặc tả vào hệ thống hiện có: làm theo mẫu tapFrenzy.js, dùng gameSessions, rewards, configs đã có, tạo sortRush.js và nạp nó trong index.js. Thêm test (sortRush.test.js), chạy `node --test` cho tới khi xanh rồi báo cáo ngắn gọn.", 9);
+FIXTURES["sortrush-team"] = fromDir("sortrush-team",
+  "Hãy làm game Sort Rush theo đặc tả trong README.md vào hệ thống hiện có, gồm cả backend (thư mục gốc) lẫn client web (thư mục web/): be làm backend theo mẫu tapFrenzy.js, fe làm client theo mẫu web/tapFrenzyClient.js, qa viết test tích hợp và chạy `node --test`. Lead điều phối và chốt kết quả. Báo cáo ngắn gọn khi xong.", 16, true);
+FIXTURES["sortrush-zones"] = fromDir("sortrush-zones",
+  "Hãy triển khai game Sort Rush (MVP) theo đặc tả docs/specs/sort-rush.md vào hệ thống hiện có: server ở rules-service/, client ở play-frontend/. Đọc WORKING.md trước. Khi xong và đã kiểm chứng, nhờ docs ghi lại vào WORKING.md. Báo cáo ngắn gọn cho tôi: file, test, rủi ro.", 16, true, true);
+// The same task and checker as `sortrush-zones`, given to ONE worker who goes through the phases itself (what a single agent with a phased brief would do).
+FIXTURES["sortrush-solo"] = {
+  ...FIXTURES["sortrush-zones"], id: "sortrush-solo", solo: true,
+  goal: "Hãy triển khai game Sort Rush (MVP) theo đặc tả docs/specs/sort-rush.md vào hệ thống hiện có: server ở rules-service/, client ở play-frontend/. Đọc WORKING.md trước. Bạn làm một mình, lần lượt theo từng giai đoạn, mỗi giai đoạn trên một nhánh git riêng và commit: (1) agentroom/be: server trong rules-service/, (2) agentroom/fe: client trong play-frontend/, (3) agentroom/qa: tự rà soát lại diff của hai nhánh trên như một reviewer độc lập, chạy test và sửa lỗi tìm thấy, (4) agentroom/docs: ghi vào WORKING.md. Báo cáo ngắn gọn cho tôi: file, test, rủi ro.",
 };

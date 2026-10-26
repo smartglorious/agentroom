@@ -53,3 +53,31 @@ node scripts/bench-goal.mjs --goals auth,cart,orders --reps 2 --cap 300000 --mod
 Thẻ duyệt được tự động đồng ý khi là đọc/ghi trong project hoặc lệnh `node --test`, `npm test` kèm lọc đơn giản (`tail`, `head`, `cat`); lệnh khác bị từ chối và đếm là "cần người". Chính sách này khá chặt: lệnh `grep` lọc kết quả test và ghi file bằng `cat > f <<EOF` bị từ chối dù vô hại, nên cột `interventions` đếm thừa; cột `questions` (ask_user) mới là câu hỏi thật.
 
 Kết quả lần chạy đầu (haiku, `durable`, 7 lượt, khoảng 70K cache-write tổng): cả `auth` (3 lỗi), `cart` (4 hành vi) và `orders` (6 lỗi chéo 5 module) đều được `lead` tự giải xong, đạt toàn bộ test ẩn, trong **một lượt model** (6K–16K cache-write, 28–65 giây), 0 câu hỏi cho người dùng. Mục tiêu cỡ này không có chỗ cho planner cải thiện; để thấy chênh lệch cần mục tiêu lớn hơn một lượt, và chưa có phép đo đó.
+
+### Fixture `sortrush`: mô phỏng một task giao việc thực tế
+
+Dựng từ một brief thật (mini game Sort Rush cần thêm vào một nền tảng có sẵn): `scripts/live/fixtures/sortrush/files` là hệ thống nhỏ đã có (tenant, QR, phiên chơi dùng chung, thưởng exactly-once, game mẫu `tapFrenzy`) kèm đặc tả trong `README.md`; `hidden/hidden.test.js` (9 test) kiểm các tiêu chí nghiệm thu: cô lập tenant/QR, không lộ đáp án, `event_id` gửi 10 lần chỉ ghi một hành động, điểm do server tính, thưởng một lần, config xấu bị từ chối. Test ẩn đỏ 8/9 trên bản chưa làm (một test đạt vì kiểu game lạ vốn bị từ chối) và đạt 9/9 với một bản giải tham chiếu.
+
+Kết quả (haiku, `durable`, 3 lượt): cả ba lượt đều đạt 9/9 test ẩn, **một lượt model**, 32K–40K cache-write, 111–129 giây, 0 câu hỏi cho người dùng. Chỉ mô phỏng (project nhỏ, đặc tả tự chứa trong một file): task thật tốn 6–9 ngày kỹ sư trên một codebase lớn hơn nhiều, nên đừng ngoại suy kết quả này sang đó.
+
+### Fixture `sortrush-team`: đội bốn người (lead, fe, be, qa) với quyền theo vai trò
+
+Cùng đặc tả Sort Rush, nhưng thêm phần client web (`web/`, theo mẫu `web/tapFrenzyClient.js`: hàng đợi khi mất mạng, `event_id` cố định, resume) và 16 test ẩn (9 backend + 7 client chạy trên backend thật). Phòng có bốn worker và chính sách duyệt theo vai trò: `lead` không ghi file, `fe` chỉ ghi trong `web/`, `be` chỉ ghi ngoài `web/`, `qa` chỉ ghi file test; ghi sai vai trò bị từ chối và đếm ở cột `roleDenied`. Khác với `sortrush` (một worker tự làm hết), ở đây công việc phải chia ra. Bản giải tham chiếu đạt 16/16; bản chưa làm đạt 1/16 (không tính test không nạp được).
+
+Kết quả lần chạy đầu (haiku, `durable`, **1 lượt**, nên chỉ là một điểm đo): 10 lượt model (be 4, qa 2, lead 2, fe 2), **216K cache-write** (so với 32K–40K khi một worker tự làm), 163 giây, 0 câu hỏi cho người dùng, 0 lần ghi sai vai trò. **Đính chính:** lúc đó bộ chấm báo 15/16 test ẩn và tôi đã diễn giải là "chưa giải xong", nhưng test thứ 16 đòi `finish()` của client gọi lần hai vẫn trả điểm, điều đặc tả không yêu cầu (client xóa phiên sau khi xong là hợp lý). Sau khi bỏ đòi hỏi đó, cùng bài làm đạt 16/16. Vậy lượt này đã giải xong; chỉ chi phí cao hơn là kết luận còn đứng.
+
+### Fixture `sortrush-zones`: dùng file workers thật
+
+Cùng bài, bố cục theo vùng như một dự án thật: `rules-service/` (server), `play-frontend/` (client), `docs/` + `WORKING.md` (đặc tả ở `docs/specs/sort-rush.md`), mỗi app có `package.json` và `npm ci`/`npm test`/`npm run build`. Dùng file workers của chủ dự án qua `BENCH_WORKERS_FILE=<workers.yaml>` (file giữ ngoài repo, không commit): năm worker (lead, be, fe, qa, docs), `levels`, `instructions`, `maxConcurrent: 1` mỗi account, vùng ghi theo vai trò. Chỉ chạy Claude: account Codex được thay bằng một account Claude thứ hai (cùng đăng nhập) để fe/qa giữ chỗ chạy riêng; `lead` và `docs` (không khai model) chạy `claude-sonnet-5-5`; `useSkills` bị bỏ vì các skill đó không có trong project thử.
+
+Khác thực tế: không có git worktree (cùng một thư mục), không có skill riêng của dự án, project nhỏ, chạy bằng một lượt giao việc; không đo xung đột merge.
+
+Kết quả lần chạy đầu (Sonnet 5.5, `durable`, **1 lượt**): 10 lượt model (fe 4, be 2, lead 2, qa 1, docs 1), **139K cache-write**, 329 giây, 0 câu hỏi cho người dùng, 0 lần ghi sai vùng, 16/16 test ẩn sau khi sửa test như trên (lúc chấm đầu báo 15/16 vì cùng lỗi của test).
+
+### Fixture `sortrush-solo`: một agent làm lần lượt từng giai đoạn (so với đội)
+
+Cùng bài, cùng bố cục `sortrush-zones`, cùng model (Sonnet 5.5) và cùng bộ chấm, nhưng giao cho **một** worker (`BENCH_TARGET=solo`, `BENCH_WORKERS_FILE` trỏ tới file một worker) kèm yêu cầu làm tuần tự: server, client, tự rà soát lại như reviewer độc lập, rồi docs, mỗi giai đoạn một nhánh git và commit.
+
+Kết quả (Sonnet, `durable`): ba lượt hợp lệ đều **16/16**, mỗi lượt một lượt model, **37K–41K cache-write**, 182–221 giây. Cùng bài, đội năm worker bằng file workers thật: **139K** cache-write, 10 lượt model, 329 giây, 16/16 (một lượt). Tức đội tốn khoảng 3,5 lần cache-write và chậm hơn khoảng 1,5 lần, với cùng kết quả ở bài cỡ này. Hai lượt khác bị loại vì bộ đo chặn nhầm lệnh `git checkout -q -b` (agent hỏi lại người dùng rồi dừng); chính sách đã sửa.
+
+Giới hạn: một bài, haiku/Sonnet, đặc tả tự chứa, không worktree thật (nhánh git trong cùng thư mục), `rà soát độc lập` do cùng một agent tự làm nên không đo được giá trị của một reviewer khác; chưa đo bài lớn, nhiều máy, firmware/mobile, hay dùng Codex.
