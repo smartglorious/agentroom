@@ -229,6 +229,19 @@ export const importLegacyState = async (
   return { imported, skipped, total: scan.records.length, ...(refreshed ? { refreshed } : {}) };
 };
 
+const TASK_FIELDS = ["title", "description", "status", "assignee", "createdBy", "level", "result", "updatedAt"] as const;
+
+/**
+ * Names the Task fields that differ. Only the fields the projection stores are compared (a legacy file can carry extra keys from older versions),
+ * and `dependsOn` as a set: the dependency table is keyed by (task, dependency), so it can neither keep order nor duplicates.
+ */
+export const taskFieldDiff = (projected: Task, source: Task): string[] => {
+  const diff: string[] = TASK_FIELDS.filter((field) => canonical(projected[field] ?? null) !== canonical(source[field] ?? null));
+  const deps = (task: Task) => canonical([...new Set(task.dependsOn ?? [])].sort());
+  if (deps(projected) !== deps(source)) diff.push("dependsOn");
+  return diff;
+};
+
 export const verifyLegacyImport = async (db: SqliteConnection, workspaceId: string, scan: LegacyScan): Promise<LegacyVerification> => {
   const mismatches: string[] = [];
   const ledger = await db.all<{ source_kind: string; source_key: string; source_hash: string }>(
@@ -242,7 +255,9 @@ export const verifyLegacyImport = async (db: SqliteConnection, workspaceId: stri
   const tasks = new SqliteTaskRepository(db);
   for (const source of scan.tasks) {
     const projected = await tasks.get(workspaceId, source.id);
-    if (!projected || canonical(projected) !== canonical(source)) mismatches.push(`task-projection:${source.id}`);
+    if (!projected) { mismatches.push(`task-projection:${source.id}`); continue; }
+    const fields = taskFieldDiff(projected, source);
+    if (fields.length) mismatches.push(`task-projection:${source.id}(${fields.join(",")})`);
   }
   const foreignKeys = await db.all("PRAGMA foreign_key_check");
   return {

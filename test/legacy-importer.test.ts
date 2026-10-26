@@ -168,3 +168,24 @@ test("migration v9: a database made before tasks kept their level takes it back 
     await db.close();
   }
 });
+
+test("legacy importer: dependsOn order, duplicates and unknown keys in the file do not fail verification; a real difference names its field", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ar-import-deps-"));
+  const state = join(root, "state");
+  mkdirSync(state);
+  const mk = (id: string, extra: object = {}) => ({ id, title: id, description: "", status: "todo", dependsOn: [], createdBy: "user", updatedAt: 1, ...extra });
+  writeFileSync(join(state, "tasks.json"), JSON.stringify([
+    mk("a"), mk("b"), mk("c"),
+    mk("z", { dependsOn: ["c", "a", "b", "a"], legacyField: "from an older version" }),
+  ]));
+  const scan = scanLegacyState(state);
+  const db = await database();
+  try {
+    await importLegacyState(db, "w1", scan, 10);
+    assert.deepEqual((await verifyLegacyImport(db, "w1", scan)).mismatches, []);
+    await db.run("UPDATE tasks SET title = 'changed' WHERE id = 'a'");
+    assert.deepEqual((await verifyLegacyImport(db, "w1", scan)).mismatches, ["task-projection:a(title)"]);
+  } finally {
+    await db.close();
+  }
+});

@@ -36,7 +36,7 @@ export const projectTask = async (tx: SqliteConnection, event: StoredEvent<TaskP
     );
     for (const dependency of task.dependsOn) {
       await tx.run(
-        "INSERT INTO task_dependencies(workspace_id, task_id, depends_on_task_id, created_at) VALUES (?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO task_dependencies(workspace_id, task_id, depends_on_task_id, created_at) VALUES (?, ?, ?, ?)",
         [event.workspaceId, task.id, dependency, task.updatedAt],
       );
     }
@@ -54,7 +54,7 @@ export const projectTask = async (tx: SqliteConnection, event: StoredEvent<TaskP
     await tx.run("DELETE FROM task_dependencies WHERE workspace_id = ? AND task_id = ?", [event.workspaceId, task.id]);
     for (const dependency of task.dependsOn) {
       await tx.run(
-        "INSERT INTO task_dependencies(workspace_id, task_id, depends_on_task_id, created_at) VALUES (?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO task_dependencies(workspace_id, task_id, depends_on_task_id, created_at) VALUES (?, ?, ?, ?)",
         [event.workspaceId, task.id, dependency, task.updatedAt],
       );
     }
