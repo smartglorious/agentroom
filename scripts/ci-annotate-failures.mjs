@@ -25,6 +25,13 @@ for (let i = 0; i < lines.length; i++) {
   failures.push({ name: m[2].trim(), detail: block.slice(0, 8).join(" | ") });
 }
 const total = failures.length;
+// No "not ok" line but a failed step: the run itself died (crash, hang, bundling error). The tail of the log is then the evidence.
+if (total === 0) {
+  const tail = lines.filter((l) => l.trim()).slice(-30);
+  console.log(`no failing test line in ${file}; last ${tail.length} line(s):`);
+  console.log(`::error title=${esc("no failing test line; end of the log")}::${esc(tail.join("\n"))}`);
+  process.exit(0);
+}
 console.log(`${total} failing test(s) in ${file}`);
 for (const f of failures.slice(0, max)) console.log(`::error title=${esc("failing test")}::${esc(f.name + (f.detail ? "  =>  " + f.detail : ""))}`);
 if (total > max) console.log(`::warning title=more failures::${total - max} more failing test(s) not annotated`);
