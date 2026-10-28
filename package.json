@@ -244,7 +244,7 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node esbuild.mjs --tests && node --test out-test/*.test.js",
+    "test": "node esbuild.mjs --tests && node scripts/run-tests.mjs",
     "bench:room": "node esbuild.mjs --bench && node out-bench/main.js",
     "bench:gateway": "node scripts/benchmark-gateway.mjs",
     "security:sbom": "npm sbom --sbom-format cyclonedx",
