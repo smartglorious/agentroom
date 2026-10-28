@@ -3,6 +3,7 @@
 Mỗi phiên bản có một mục ở đây **và** README được cập nhật cho khớp (bản cài `.vsix`, bảng tính năng, danh sách tài liệu, settings). `test/readme.test.ts` kiểm tra điều này.
 
 ## Chưa phát hành
+- **CI:** bước `npm test` lưu log và, khi hỏng, in tên các test lỗi thành annotation (`scripts/ci-annotate-failures.mjs`), để đọc được nguyên nhân qua API ngay cả khi không tải được log thô.
 - **Kế hoạch triển khai `docs/PLAN-R2.md` (v2, chưa có mã):** chương trình nhiều milestone với gate `auto`/`device`/`human`, điều kiện hoàn thành dạng vị từ có kiểu, gate không dùng shell, phiên bản chương trình bất biến, phân loại lỗi và dấu vân tay, ngân sách nhiều chiều, dừng chờ có kiểm soát; gắn vào các điểm có thật trong mã; Sprint 0–2 chi tiết và cổng giá trị bằng số. Cần chủ dự án duyệt trước khi viết mã.
 - **Đo cơ chế của Room tự động:** `npm run bench:room` chạy cùng một phòng với model giả ở `legacy` và `durable` (kịch bản `chat`, `burst`, `longturn`, `crash`): thời gian thêm mỗi lượt, lỗi khi chạy đồng thời, lượt chạy hai lần, phục hồi sau khi tắt đột ngột. Không tốn quota. `test/bench-room.test.ts` chạy cả bốn kịch bản cỡ nhỏ trong `npm test`. Không đo token hay chất lượng câu trả lời. Xem `docs/BENCH-ROOM.md`.
 - **A/B với Claude thật:** `npm run bench:ab` (`scripts/bench-ab.mjs`) chạy cùng kịch bản ba worker của `bench:tokens` ở `legacy` và `durable` xen kẽ, có chế độ `--pilot` và trần cache-write. Tốn quota thật. Kết quả lần chạy đầu: dao động giữa các lượt lớn hơn khác biệt giữa hai chế độ, chưa kết luận được.
