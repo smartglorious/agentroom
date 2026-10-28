@@ -94,7 +94,7 @@ export class DurableTurnQueue {
         (step) => { turn.step = step; },
         () => { stopped = true; clearInterval(timer); },
       ).finally(() => { active = undefined; });
-    }, Math.max(250, Math.floor(this.workflow.leaseDuration / 3)));
+    }, Math.max(50, Math.floor(this.workflow.leaseDuration / 3)));
     timer.unref?.();
     return async () => { stopped = true; clearInterval(timer); await active; };
   }

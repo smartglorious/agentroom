@@ -307,19 +307,29 @@ test("room: local and remote workers run side by side; sessions, usage and inspe
   const holder: { mcp?: AgentRoomMcp } = {};
   const config = remoteCfg();
   config.hosts[0].repo = base;
-  const sp = inProcess(tmp());
+  // "Side by side" is proved by a hand-shake, not by a clock: the local turn cannot finish until the remote turn has started, so a remote turn
+  // queued behind the local one would leave both waiting and fail with the message below. (A wall-clock bound fails on a slow runner.)
+  let remoteStarted!: () => void;
+  const remoteStart = new Promise<void>((resolve) => { remoteStarted = resolve; });
+  const remoteSide: AgentAdapter = { runTurn: async (req) => { remoteStarted(); return await scripted.runTurn(req); } };
+  const sp = inProcess(tmp(), remoteSide);
   const manager = new HostManager(config.hosts, { spawnerFor: () => ({ spawn: sp.spawn }) });
   const localCalls: string[] = [];
-  const local = new Fake(async (req) => { localCalls.push(req.worker.id); await new Promise((r) => setTimeout(r, 200)); return `local ${req.worker.id}`; });
+  const local = new Fake(async (req) => {
+    localCalls.push(req.worker.id);
+    let timer: NodeJS.Timeout | undefined;
+    const never = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("the remote turn did not start while the local one was running")), 15_000); });
+    try { await Promise.race([remoteStart, never]); } finally { clearTimeout(timer); }
+    return `local ${req.worker.id}`;
+  });
   const { room, deps, root } = makeRoom(local, { config, remote: new RemoteAdapter(manager), mcpUrl: (id) => holder.mcp!.urlFor(id) });
   holder.mcp = new AgentRoomMcp(room);
   await holder.mcp.start();
   try {
-    const t0 = Date.now();
-    room.post("user", "@qa [SLOW] kiểm tra", { taskId: "L1" });
-    room.post("user", "@be [SLOW] [ECHO] làm API", { taskId: "R1" });
+    room.post("user", "@qa kiểm tra", { taskId: "L1" });
+    room.post("user", "@be [ECHO] làm API", { taskId: "R1" });
     await idle(room);
-    assert.ok(Date.now() - t0 < 900, "the remote turn did not wait for the local one");
+    assert.deepEqual(room.snapshot().messages.filter((m) => m.from === "system" && /gặp lỗi|hit an error/.test(m.text)).map((m) => m.text), [], "both turns finished without error");
     const echo = JSON.parse(room.snapshot().messages.find((m) => m.from === "be")!.text);
     assert.equal(echo.cwd, join(base, ".agentroom", "worktrees", "be"));
     assert.match(echo.sys, /máy từ xa "box"/);

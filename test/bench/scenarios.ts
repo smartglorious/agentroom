@@ -58,12 +58,12 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function runScenario(scenario: ScenarioName, mode: Mode, opts: ScenarioOptions): Promise<ScenarioResult> {
   if (scenario === "crash") return await crash(mode);
   const db = mode === "durable" ? await openDb() : undefined;
-  const leaseMs = scenario === "longturn" ? 300 : 30_000;
+  const leaseMs = scenario === "longturn" ? 900 : 30_000;
   try {
     const workers = scenario === "burst" ? opts.size : 2;
     const fake = new Fake(async (req) => {
       const long = scenario === "longturn" && req.worker.id === "w0";
-      await pause(long ? leaseMs * 4 : opts.latencyMs);
+      await pause(long ? leaseMs * 3 : opts.latencyMs);
       return "[NOOP]";
     });
     const { room } = makeRoom(fake, {
@@ -88,7 +88,7 @@ export async function runScenario(scenario: ScenarioName, mode: Mode, opts: Scen
     } else {
       // w0's turn outlives its lease; w1 is woken meanwhile, and its claim runs recovery over every step.
       room.post("user", "@w0 việc dài");
-      await pause(leaseMs * 2);
+      await pause(leaseMs * 1.5);
       room.post("user", "@w1 việc ngắn");
       expectedTurns = 2;
       await idle(room);

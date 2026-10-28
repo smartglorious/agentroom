@@ -42,13 +42,13 @@ test("durable: a turn longer than its lease keeps the lease, so another worker's
     await new SqliteMigrationRunner(db, schemaMigrations).apply();
     await db.run("INSERT OR IGNORE INTO workspaces(id, name, root_uri, created_at, updated_at) VALUES ('w1', 'Workspace', 'file:///w1', 1, 1)");
     const fake = new Fake(async (req) => {
-      if (req.worker.id === "be") await new Promise((r) => setTimeout(r, 1_200));
+      if (req.worker.id === "be") await new Promise((r) => setTimeout(r, 2_700));
       return "[NOOP]";
     });
-    const { room } = makeRoom(fake, { config: parseConfig(CFG), turnQueue: new DurableTurnQueue(db, "w1", { leaseMs: 300 }) });
+    const { room } = makeRoom(fake, { config: parseConfig(CFG), turnQueue: new DurableTurnQueue(db, "w1", { leaseMs: 900 }) });
     room.post("user", "@be Việc dài");
-    await new Promise((r) => setTimeout(r, 700));
-    // be's lease (300 ms) would be long gone; this claim runs recover over every step.
+    await new Promise((r) => setTimeout(r, 1_400));
+    // be's lease (900 ms, renewed every 300 ms; the margin is kept wide so a slow disk, as on a Windows runner, cannot let it lapse) would be long gone; this claim runs recover over every step.
     room.post("user", "@lead Việc ngắn");
     await idle(room);
     await new Promise((r) => setTimeout(r, 200));
