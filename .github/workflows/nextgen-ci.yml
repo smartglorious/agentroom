@@ -24,7 +24,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - name: npm test
+        shell: bash
+        run: |
+          npm test 2>&1 | tee test.log
+          exit ${PIPESTATUS[0]}
+      # Name the failing tests as annotations: they can be read through the API even where the raw log cannot be fetched.
+      - name: annotate failing tests
+        if: failure() && hashFiles('test.log') != ''
+        run: node scripts/ci-annotate-failures.mjs test.log
       - run: npm run build
 
   supply-chain:
