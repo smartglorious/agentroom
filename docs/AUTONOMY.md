@@ -17,6 +17,7 @@ Auto dùng một bộ quy tắc cố định, **không** dùng model để đoá
 
 **Cho chạy tự động**
 - `Read`/`Grep`/`Glob`/`Edit`/`Write` **trong thư mục làm việc của worker**, trừ file nhạy cảm (`.env*` trừ `.env.example`, `.git/`, `.github/`, `.agentroom/`, `.claude/`, `.ssh/`, `*.pem`, `*.key`, `credentials*`, …).
+- **Thư mục riêng của worker** (`.agentroom/agents/<id>/`: SOUL, MEMORY, nhật ký): worker **đọc** được không cần hỏi, cả bằng công cụ đọc lẫn lệnh đọc đơn thuần. Ghi vào đó vẫn hỏi; thư mục của worker khác vẫn hỏi; lượt chỉ-đọc (nguồn không tin cậy) và worker ở máy từ xa không được đọc thư mục này. Lý do: room đã nạp các file đó vào prompt, và việc hỏi chỉ làm tăng thẻ duyệt vô hại.
 - Bash trong vòng lặp phát triển: `npm/pnpm/yarn test|run|build|ci|install` (không `-g`), `git` (status, diff, log, add, commit, checkout/switch, pull, push **không ép**, stash, merge…), `ls cat grep rg find` (không `-delete`/`-exec`), `mkdir touch cp mv` trong thư mục, `node/python script` trong thư mục, `pytest go cargo make tsc eslint prettier`…, `sed -i` trên file trong thư mục.
 - `WebSearch`, công cụ phối hợp của AgentRoom (`mcp__agentroom__*`), `TodoWrite`, `Agent`.
 

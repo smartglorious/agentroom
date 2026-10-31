@@ -244,3 +244,32 @@ test("auto: a script or build file the worker wrote itself is shown to the human
   // full never asks about it
   table("full", [B("bash evil.sh", "allow")], c);
 });
+
+// A worker reads its own private folder (SOUL, MEMORY, journal) without being asked, in auto only. It never writes there, never reads another
+// worker's folder, and a read-only (untrusted) turn gets no such folder at all.
+const OWN = "/work/app/.agentroom/agents/be";
+const selfCtx: PolicyContext = { cwd: CWD, home: "/home/dev", ownFolder: OWN };
+
+test("auto: a worker reads its own private folder without being asked; writes there still ask", () => {
+  assert.equal(classifyPath(`${OWN}/MEMORY.md`, selfCtx, "read"), "inside");
+  assert.equal(classifyPath(`${OWN}/journal/2026-10-31.md`, selfCtx, "read"), "inside");
+  assert.equal(classifyPath(`${OWN}/SOUL.md`, selfCtx, "write"), "sensitive", "a write to the folder stays sensitive");
+  assert.equal(classifyPath(`${OWN}/SOUL.md`, selfCtx), "sensitive", "the default access is write, so the old behaviour holds");
+  assert.equal(decide("auto", "Read", { file_path: `${OWN}/SOUL.md` }, selfCtx).kind, "allow");
+  assert.equal(decide("auto", "Edit", { file_path: `${OWN}/SOUL.md` }, selfCtx).kind, "ask");
+  assert.equal(decide("auto", "Bash", bash(`cat ${OWN}/MEMORY.md`), selfCtx).kind, "allow");
+  assert.equal(decide("auto", "Bash", bash(`cat ${OWN}/MEMORY.md > /home/dev/notes.md`), selfCtx).kind, "ask", "copying out of the project is a write outside the folder");
+});
+
+test("auto: another worker's folder and the rest of .agentroom stay sensitive", () => {
+  assert.equal(classifyPath("/work/app/.agentroom/agents/qa/MEMORY.md", selfCtx, "read"), "sensitive");
+  assert.equal(classifyPath("/work/app/.agentroom/state/room.json", selfCtx, "read"), "sensitive");
+  assert.equal(decide("auto", "Read", { file_path: "/work/app/.agentroom/agents/qa/MEMORY.md" }, selfCtx).kind, "ask");
+  assert.equal(decide("auto", "Bash", bash("cat /work/app/.agentroom/agents/qa/MEMORY.md"), selfCtx).kind, "ask");
+});
+
+test("without an own folder (another machine, untrusted turn) own-folder reads are asked as before; manual still asks everything", () => {
+  const none: PolicyContext = { cwd: CWD, home: "/home/dev" };
+  assert.equal(decide("auto", "Read", { file_path: `${OWN}/MEMORY.md` }, none).kind, "ask");
+  assert.equal(decide("manual", "Read", { file_path: `${OWN}/MEMORY.md` }, selfCtx).kind, "ask", "manual is the default and never loosens");
+});

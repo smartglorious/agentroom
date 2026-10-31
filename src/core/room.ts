@@ -1163,7 +1163,10 @@ export class Room extends EventEmitter<RoomEvents> {
 
   private policyContext(workerId: string, where: { cwd?: string; host?: string }): PolicyContext {
     const set = this.written.get(workerId);
-    return { cwd: where.cwd, home: where.host ? undefined : this.deps.home, written: set ? (p) => set.has(p) : undefined };
+    // The worker's private folder is on this machine only, and a turn from an untrusted trigger (read-only) never gets it:
+    // that turn could carry the worker's own notes out in a reply.
+    const ownFolder = where.host || this.isReadOnlyRunning(workerId) ? undefined : this.deps.memory.agentDir(workerId);
+    return { cwd: where.cwd, home: where.host ? undefined : this.deps.home, written: set ? (p) => set.has(p) : undefined, ownFolder };
   }
 
   private noteWritten(workerId: string, tool: string, input: unknown, ctx: PolicyContext) {
