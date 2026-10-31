@@ -29,8 +29,13 @@ export const projectTask = async (tx: SqliteConnection, event: StoredEvent<TaskP
   if (event.type === "TaskImported") {
     const task = (event.payload as TaskImported).task;
     await tx.run(
+      // A durable turn that names a task creates a placeholder row first (ensureTask, no event). The file that already knew the task
+      // fills that row in; a row that has events is never reached here (its version check fails before the projection runs).
       `INSERT INTO tasks(id, workspace_id, title, description, status, assignee_agent_id, created_by, result, level, version, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(workspace_id, id) DO UPDATE SET title = excluded.title, description = excluded.description, status = excluded.status,
+         assignee_agent_id = excluded.assignee_agent_id, created_by = excluded.created_by, result = excluded.result, level = excluded.level,
+         version = excluded.version, created_at = excluded.created_at, updated_at = excluded.updated_at`,
       [task.id, event.workspaceId, task.title, task.description, task.status, task.assignee ?? null,
         task.createdBy, task.result ?? null, task.level ?? null, event.aggregateVersion, task.updatedAt, task.updatedAt],
     );
