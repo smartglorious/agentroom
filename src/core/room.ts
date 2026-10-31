@@ -730,9 +730,10 @@ export class Room extends EventEmitter<RoomEvents> {
   }
 
   /** True when a message from one worker to another must not start more work (conversation too long, or task too expensive). */
-  private overLimit(msg: ChatMessage): boolean {
+  private overLimit(msg: ChatMessage, escalation = false): boolean {
     const lim = this.deps.config.limits;
-    if (msg.chain && (this.chainTurns.get(msg.chain) ?? 0) >= lim.chainTurns) {
+    const cap = escalation ? lim.chainTurns * 2 : lim.chainTurns;
+    if (msg.chain && (this.chainTurns.get(msg.chain) ?? 0) >= cap) {
       this.announceStop(`chain:${msg.chain}`, tr("🧯 Các worker đã trao đổi {chainTurns} lượt cho tin nhắn này của bạn nên tôi tạm dừng để tránh tốn token vô ích. Nhắn lại (hoặc @tên-worker …) để tiếp tục. Đổi giới hạn bằng limits.chainTurns trong workers.yaml.", { chainTurns: lim.chainTurns }), msg.chain);
       return true;
     }
@@ -752,7 +753,9 @@ export class Room extends EventEmitter<RoomEvents> {
   private deliver(workerId: string, msg: ChatMessage) {
     // Written by a worker, or by the room on behalf of a worker's turn (task notices): not something a person typed.
     const fromWorker = msg.from !== HUMAN && (this.hasWorker(msg.from) || msg.chain !== msg.id);
-    if (fromWorker && this.overLimit(msg)) return;
+    // A worker's report to the coordinator is an escalation: it may pass the per-chain limit, up to twice that limit.
+    const toCoordinator = this.workers.find((w) => w.id === workerId)?.coordinator === true;
+    if (fromWorker && this.overLimit(msg, toCoordinator)) return;
     const key = `${workerId}:${msg.taskId ?? "main"}`;
     const box = this.inbox.get(key) ?? [];
     box.push(msg);

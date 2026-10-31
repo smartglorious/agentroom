@@ -46,8 +46,10 @@ export function route(msg: Pick<ChatMessage, "from" | "text" | "depth">, workers
     return workers.filter((w) => w.coordinator).map((w) => w.id);
   }
   if (msg.from === SYSTEM) return mentioned;
-  if (msg.depth >= opts.maxAgentHops) return [];
   // Every worker woken re-reads its whole session, so a worker message wakes only the people it asks something of.
   const asked = parseMentions(withoutNonRequests(msg.text), workers).filter((id) => id !== msg.from);
+  // Past the hop limit a worker still reports to the coordinator: it is the escalation point, and a chain that ran long must not
+  // leave it unaware (the room bounds the escalations per chain; see Room.overLimit).
+  if (msg.depth >= opts.maxAgentHops) return asked.filter((id) => workers.some((w) => w.id === id && w.coordinator));
   return opts.maxFanout ? asked.slice(0, opts.maxFanout) : asked;
 }
