@@ -32,6 +32,12 @@ export interface PolicyContext {
    * and "write a script, then run it" is the easiest way around a command filter.
    */
   written?: (absPath: string) => boolean;
+  /**
+   * The worker's own private folder on this machine (its SOUL, MEMORY and journal). Reading it never asks in `auto`, because the
+   * room already loads those files into every prompt. Writing it still asks, and other workers' folders stay sensitive.
+   * Not set for a worker on another machine: its folder is not on this one.
+   */
+  ownFolder?: string;
 }
 
 // ------------------------------------------------------------------ paths
@@ -81,7 +87,8 @@ export function absolutePath(p: string, ctx: PolicyContext): string | undefined 
   return resolveIn(p, cwd, ctx.home);
 }
 
-export function classifyPath(p: string, ctx: PolicyContext): PathClass {
+/** `read` lets a read of the worker's own folder through (see PolicyContext.ownFolder); a write there is still sensitive. */
+export function classifyPath(p: string, ctx: PolicyContext, access: "read" | "write" = "write"): PathClass {
   if (!p) return "unknown";
   if (new RegExp(`^~[\\\\/](\\.(${HOME_SECRET_DIRS.map((d) => d.slice(1)).join("|")})(?:[\\\\/]|$)|\\.(bashrc|bash_profile|zshrc|zprofile|profile|netrc|npmrc|gitconfig|git-credentials)$)`).test(p)) return "system";
   const sensitive = (parts: string[]) =>
@@ -114,6 +121,7 @@ export function classifyPath(p: string, ctx: PolicyContext): PathClass {
   const rel = lib.relative(known, abs);
   if (rel === "" ) return "inside";
   if (rel.startsWith("..") || lib.isAbsolute(rel)) return "outside";
+  if (access === "read" && ctx.ownFolder && insidePath(abs, ctx.ownFolder)) return "inside";
   return sensitive(rel.split(/[\\/]/)) ? "sensitive" : "inside";
 }
 
@@ -330,7 +338,7 @@ export function analyzeBash(command: string, ctx: PolicyContext, depth = 0): Bas
       const paths = (prog === "grep" || prog === "egrep" || prog === "fgrep" || prog === "rg" || prog === "ag" || prog === "sed" ? pos.slice(1) : pos).concat(args.filter((a) => a.startsWith("--") && a.includes("=")).map((a) => a.slice(a.indexOf("=") + 1)).filter((v) => v.includes("/")));
       for (const a of paths) {
         if (!/[\/.~$]/.test(a) && prog !== "ls" && prog !== "cat") continue;
-        const k = classifyPath(a, here());
+        const k = classifyPath(a, here(), "read");
         if (k === "system") worse(deny(`Không đọc vị trí hệ thống/bí mật: ${a}`));
         else if (k === "sensitive") worse(ask(`File nhạy cảm: ${a}`));
         else if (k === "outside" || k === "unknown") worse(ask(`Ngoài thư mục làm việc hoặc không xác định được: ${a}`));
@@ -502,7 +510,7 @@ function filePolicy(tool: string, input: unknown, ctx: PolicyContext): Verdict {
   if (!ps.length) return READ_TOOLS.has(tool) && tool !== "Read" ? allow() : ask("Không xác định được đường dẫn");   // Grep/Glob/LS with no path run in the folder itself
   const writes = FILE_TOOLS.has(tool);
   for (const p of ps) {
-    const k = classifyPath(p, ctx);
+    const k = classifyPath(p, ctx, writes ? "write" : "read");
     if (k === "system") return deny(`${writes ? "Không ghi" : "Không đọc"} vị trí hệ thống/bí mật: ${p}`);
     if (k === "sensitive") return ask(`File nhạy cảm: ${p}`);
     if (k !== "inside") return ask(`${k === "unknown" ? "Không xác định được vị trí" : "Ngoài thư mục làm việc"}: ${p}`);

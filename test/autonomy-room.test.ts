@@ -168,3 +168,26 @@ test("config: autonomy accepts manual|auto|full and rejects anything else", () =
   assert.equal(parseConfig(CFG()).workers[1].autonomy, "manual");
   assert.throws(() => parseConfig(CFG(", autonomy: yolo")));
 });
+
+test("auto: a worker reads its own memory folder without a card; another worker's folder still asks", async () => {
+  // The room's folder is the working directory, so relative paths point into `<dir>/.agentroom/agents/<id>`.
+  const r = rig([
+    ["Read", { file_path: ".agentroom/agents/be/MEMORY.md" }],
+    ["Read", { file_path: ".agentroom/agents/lead/MEMORY.md" }],
+  ], { autonomy: ", autonomy: auto" });
+  // Every card that shows up is recorded and refused, so the turn always finishes, whatever the result (a failure reports, it does not hang).
+  const asked: string[] = [];
+  const seen = new Set<string>();
+  r.room.post("user", "@be x");
+  for (let i = 0; i < 40; i++) {
+    for (const a of r.room.snapshot().approvals) {
+      if (seen.has(a.id)) continue;
+      seen.add(a.id); asked.push(`${a.tool} ${JSON.stringify(a.input)}`); r.room.respondApproval(a.id, false);
+    }
+    await new Promise((x) => setTimeout(x, 50));
+  }
+  r.room.stopAll();
+  assert.equal(asked.length, 1, `only the other worker's memory should be asked, got: ${JSON.stringify(asked)}`);
+  assert.match(asked[0], /agents\/lead\//);
+  assert.deepEqual(r.log.map((l) => (approvalAllowed(l.result) ? "allow" : "deny")), ["allow", "deny"]);
+});
