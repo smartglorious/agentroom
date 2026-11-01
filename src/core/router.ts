@@ -39,6 +39,16 @@ export interface RouteOptions {
  * - Agent messages: only explicitly mentioned workers (never the sender), and only
  *   while the hop budget lasts, so two agents cannot ping-pong forever.
  */
+/**
+ * The workers a worker's message asked for but the hop limit cut off (only the coordinator still gets through past the limit).
+ * Empty when nothing was cut. Used to tell the person why a thread went quiet.
+ */
+export function droppedByHops(msg: Pick<ChatMessage, "from" | "text" | "depth">, workers: Worker[], opts: RouteOptions): string[] {
+  if (msg.from === HUMAN || msg.from === SYSTEM || msg.depth < opts.maxAgentHops) return [];
+  const asked = parseMentions(withoutNonRequests(msg.text), workers).filter((id) => id !== msg.from);
+  return asked.filter((id) => !workers.some((w) => w.id === id && w.coordinator));
+}
+
 export function route(msg: Pick<ChatMessage, "from" | "text" | "depth">, workers: Worker[], opts: RouteOptions): string[] {
   const mentioned = parseMentions(msg.text, workers).filter((id) => id !== msg.from);
   if (msg.from === HUMAN) {
