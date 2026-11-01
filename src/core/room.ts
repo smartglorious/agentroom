@@ -5,7 +5,7 @@ import { AgentAdapter, ApprovalResult, type TurnRequest, type TurnResult } from 
 import { ContextProbe, TurnInspector, TurnRecord, estimateTokens, newTurnId, sectionInfo } from "./inspector";
 import { CONSOLIDATE_PROMPT, type Kind, MemoryEntry, MemoryStore, type RecallHit, redactSecrets, type Scope, ymd } from "./memory";
 import { buildPersona, buildTurn } from "./prompt";
-import { parseMentions, route } from "./router";
+import { droppedByHops, parseMentions, route } from "./router";
 import { RateLimitError, isRateLimit, Scheduler } from "./scheduler";
 import { REMOTE_SKILLS, SkillDraft, SkillDrafts, SkillRegistry, buildPlugin, claudeSkillOptions, codexSkillDirs, codexSkillsBlock } from "./skills";
 import { Autonomy, PolicyContext, absolutePath, decide, describeCall, toolPaths } from "./autonomy";
@@ -421,6 +421,7 @@ export class Room extends EventEmitter<RoomEvents> {
     this.deps.store.appendMessage(msg);
     this.emit("message", msg);
     for (const id of to) this.deliver(id, msg);
+    this.noteHopDrop(msg, chain);
     if (command) void this.runChatCommand(command, msg.id);
     return msg;
   }
@@ -719,6 +720,21 @@ export class Room extends EventEmitter<RoomEvents> {
     const t = text.trim();
     if (!t) return undefined;
     return this.deps.issues?.record({ kind: "user", source: "user", title: t.split("\n")[0].slice(0, 200), detail: t.includes("\n") ? t : undefined, worker });
+  }
+
+  /**
+   * A worker asked other workers for something past the hop limit: they are not woken, and the room would otherwise stay silent.
+   * Says so once per conversation, with the names (no "@", so nobody is woken by the notice).
+   */
+  private noteHopDrop(msg: ChatMessage, chain: string) {
+    const cut = droppedByHops(msg, this.workers, { ...this.deps.options, maxFanout: this.deps.config.limits.maxFanout });
+    if (!cut.length) return;
+    const key = `hop:${chain}`;
+    if (this.stopNotes.has(key)) return;
+    this.stopNotes.add(key);
+    const names = cut.map((id) => this.workers.find((w) => w.id === id)?.name ?? id).join(", ");
+    const from = this.workers.find((w) => w.id === msg.from)?.name ?? msg.from;
+    this.post(SYSTEM, tr("🧯 {from} nhắc {names} nhưng chuỗi trao đổi đã đạt giới hạn độ sâu ({n}), nên họ chưa được đánh thức. Muốn chuỗi này đi tiếp: tăng agentroom.maxAgentHops trong cài đặt VS Code, hoặc nhắn lại (hoặc gọi tên worker) để tiếp tục.", { from, names, n: this.deps.options.maxAgentHops }), { to: [], alert: true, chain });
   }
 
   private announceStop(key: string, text: string, chain?: string) {
