@@ -15,7 +15,9 @@ mkdir -p "$OUT"
 docker run --rm -v "$OUT":/out -e VERSION="$VERSION" -e NODE_VERSION="$NODE_VERSION" "$IMAGE" bash -euo pipefail -c '
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq build-essential python3 curl xz-utils ca-certificates binutils >/dev/null
+  apt-get install -y -qq build-essential python3 curl xz-utils ca-certificates binutils gcc-10 g++-10 >/dev/null
+  # Ubuntu 20.04 ships gcc 9, which rejects -std=gnu++20 used by this addon. gcc 10 does not raise the glibc requirement.
+  export CC=gcc-10 CXX=g++-10
 
   # Node from the official tarball: it runs on glibc 2.31 and builds N-API addons against its own headers.
   curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" | tar -xJ -C /opt
@@ -26,7 +28,7 @@ docker run --rm -v "$OUT":/out -e VERSION="$VERSION" -e NODE_VERSION="$NODE_VERS
   tar -xzf "appthreat-sqlite3-${VERSION}.tgz"
   cd package
   npm install --ignore-scripts --no-audit --no-fund >/dev/null
-  npx --yes prebuildify@6 --napi --strip --tag-libc --arch x64 >/dev/null
+  npx --yes prebuildify@6 --napi --strip --tag-libc --arch x64 --target "${NODE_VERSION}" >/dev/null
 
   built="$(ls prebuilds/linux-x64/*.node | head -1)"
   # The highest glibc symbol the binary needs must be 2.31 or lower, or it will not load on the target.
