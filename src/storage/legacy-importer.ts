@@ -108,12 +108,22 @@ export const scanLegacyState = (dir: string): LegacyScan => {
   for (const file of ["chat.jsonl", "usage.jsonl", "audit.1.jsonl", "audit.jsonl"]) {
     const path = join(dir, file);
     if (!existsSync(path)) continue;
+    // usage.jsonl is an append-only ledger: one turn can legitimately have a row for its success and another for its failure
+    // (a durable turn that failed after it was counted). Repeated keys there get the occurrence number, so the file imports and a
+    // second import of the same file produces the same keys.
+    const occurrences = new Map<string, number>();
     readFileSync(path, "utf8").split("\n").forEach((line, index) => {
       if (!line.trim()) return;
       try {
         const value = JSON.parse(line) as Record<string, unknown>;
         const natural = value.id ?? value.turnId;
-        addRecord(scan, seen, file, natural === undefined ? `line:${index + 1}` : String(natural), value);
+        let key = natural === undefined ? `line:${index + 1}` : String(natural);
+        if (file === "usage.jsonl" && natural !== undefined) {
+          const n = (occurrences.get(key) ?? 0) + 1;
+          occurrences.set(key, n);
+          if (n > 1) key = `${key}#${n}`;
+        }
+        addRecord(scan, seen, file, key, value);
       } catch (error) {
         scan.errors.push({ file, location: String(index + 1), message: `invalid JSON line: ${String(error)}` });
       }
