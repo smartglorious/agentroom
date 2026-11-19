@@ -50,6 +50,7 @@ jobs:
         with:
           name: sbom
           path: agentroom.cdx.json
+          retention-days: 3
 
   room-harness:
     runs-on: ubuntu-latest
@@ -67,3 +68,4 @@ jobs:
         with:
           name: room-harness
           path: room-harness.json
+          retention-days: 3
